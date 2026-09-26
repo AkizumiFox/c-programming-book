@@ -1,0 +1,793 @@
+\chapter{運算}
+\label{ch:arithmetic}
+
+上一章把程式的骨架、變數、以及 \texttt{printf}/\texttt{scanf} 的用法
+建立起來了。 這一章專門處理\emph{數值運算}：怎麼用 \texttt{+}、\texttt{-}、
+\texttt{*}、\texttt{/}、\texttt{\%} 組合出題目要的結果，賦值運算子
+\texttt{=} 怎麼改變變數裡的值，運算式裡多個運算子先算哪個，以及整數
+跟浮點數混在一起時，編譯器會怎麼自動轉型。
+
+很多初學者以為「會寫 \texttt{scanf} 和 \texttt{printf} 就能解題了」，
+卻在 \texttt{9 / 5} 變成 \texttt{1}、或 \texttt{7 / 2} 變成 \texttt{3}
+而不是 \texttt{3.5} 的地方卡住。 這不是 \texttt{printf} 寫錯，而是對
+C 的整數除法與型別規則不熟。 這一章會把這些規則講清楚，並用題庫難度
+曲線上常見的應用（時間換算、位數拆解、簡單幾何公式）串起來。 至於
+「條件成立才做某件事」的判斷與邏輯運算子，留給下一章。
+
+\section{算術運算子與優先順序}
+\label{sec:arith-operators}
+
+C 提供的算術運算子，一次列出來如下：\texttt{+} 加、\texttt{-} 減、
+\texttt{*} 乘、\texttt{/} 除、\texttt{\%} 取餘數，以及只需要一個運算
+元的一元 \texttt{-}（取相反數）。 這六種是本章、乃至於之後幾乎所有
+章節都會不斷用到的基本積木。
+
+\begin{code}{c}{六種基本算術運算}
+sum  = i + j;   // 加
+diff = i - j;   // 減
+prod = i * j;   // 乘
+quot = i / j;   // 除
+rem  = i % j;   // 餘數
+neg  = -i;      // 相反數（一元負號，只有一個運算元）
+\end{code}
+
+\texttt{+}、\texttt{-}、\texttt{*} 的行為跟數學課本一致：兩個
+\texttt{int} 相加、相減、相乘，結果仍是 \texttt{int}。 \texttt{/} 和
+\texttt{\%} 比較特別：當兩個運算元都是整數時，\texttt{/} 執行\emph{整
+數除法}，小數部分直接捨去（例如 \texttt{7 / 2} 是 \texttt{3}，不是
+\texttt{3.5}）；\texttt{\%} 則是這次除法\emph{剩下的餘數}，\texttt{/}
+跟 \texttt{\%} 通常成對出現，一個取「除得盡的部分」，一個取「除不盡
+剩下的部分」。 下一節會把整數除法與餘數的規則講透。
+
+這裡要先提醒兩個容易忽略、卻會直接讓程式當掉或算錯的狀況：
+
+\begin{itemize}
+  \item \textbf{除數為 \texttt{0}}：如果 \texttt{j} 是 \texttt{0}，
+  \texttt{i / j} 和 \texttt{i \% j} 都是\emph{未定義行為}
+  （undefined behavior），不是「得到一個奇怪但看起來合理的數字」，
+  而是這台機器上通常會讓程式直接收到 \texttt{SIGFPE} 訊號而中止執
+  行。 跟很多「靜默算錯」的陷阱不同，除以 \texttt{0} 通常一測就會發
+  現；但只要除數是從讀入或計算得來、而不是寫死的常數，寫程式時就要
+  留意它有沒有可能是 \texttt{0}。
+  \item \textbf{\texttt{\%} 遇到負數}：\texttt{\%} 在負數時的行為，
+  常常跟直覺（或國小學的「餘數不能是負的」）不一樣——C 的餘數符號跟
+  著被除數走，不是恆為非負。 下一節會用具體數字把規則講清楚。
+\end{itemize}
+
+範例 \thechapter.2 讀入兩個整數，輸出第一個減第二個的差。 這是「讀
+入 $\to$ 單一運算 $\to$ 輸出」最直接的模板。
+
+\begin{example}{c}{(subtract-two.c) 輸出兩整數的差}
+#include <stdio.h>
+
+int main(void) {
+    int a, b;
+    scanf("%d %d", &a, &b);
+
+    printf("%d\n", a - b);
+}
+\end{example}
+
+\iosample{
+10 3 \\
+}{
+7 \\
+}
+
+範例 \thechapter.3 把乘法用在幾何題：長方形面積是長乘寬。 題目本身
+沒有新語法，只是把 \texttt{*} 放進 \texttt{printf} 的運算式裡。
+
+\begin{example}{c}{(rect-area.c) 長方形面積}
+#include <stdio.h>
+
+int main(void) {
+    int length, width;
+    scanf("%d %d", &length, &width);
+
+    printf("%d\n", length * width);
+}
+\end{example}
+
+\iosample{
+4 5 \\
+}{
+20 \\
+}
+
+以輸入 \texttt{4 5} 為例：\texttt{length = 4}、\texttt{width = 5}，
+\texttt{length * width = 20}，程式印出 \texttt{20}。 乘法在 C 裡沒有
+位元溢位的自動保護。 若兩個很大的 \texttt{int} 相乘超過 \texttt{int}
+能表示的範圍，結果會\emph{溢位}（overflow）而變成錯誤的值；題庫目
+前給的測資都在安全範圍內，但這個限制之後遇到 \texttt{long long} 時
+會再回來談。
+
+同一條運算式裡有多個運算子時，C 語言依\emph{優先順序}（precedence）
+決定先算哪一部分。 跟數學課本類似：乘法比加法先算，括號可以強制改
+變順序。
+
+\begin{code}{c}{乘法優先於加法；括號可改變順序}
+result = a + b * c;      // 先算 b * c，再加 a
+result = (a + b) * c;    // 先算 a + b，再乘 c
+\end{code}
+
+若不確定，就加括號。 編譯器不會抱怨多餘的括號，但少括號導致順序錯
+誤，程式卻可能靜默地算出錯誤答案。 減法和除法還有\emph{結合方向}
+（associativity）的問題：同樣優先順序的運算子由左向右算，所以
+\texttt{a - b - c} 其實是 \texttt{(a - b) - c}，不是
+\texttt{a - (b - c)}。 例如長方體表面積公式
+$2(ab + bc + ca)$，若寫成 \texttt{2 * a * b + b * c + c * a}，乘法
+會先結合，整個式子的意義就偏離公式了；正確做法是把加法的部分括起
+來：\texttt{2 * (a * b + b * c + c * a)}。
+
+本章涉及的主要運算子按優先順序由高到低如下：
+
+\begin{center}
+\begin{tabular}{cl}
+優先順序 & 運算子 \\
+\hline
+1（最高） & \texttt{++ --}（後綴、單獨成一行時） \\
+2 & \texttt{++ --}（前綴）、一元 \texttt{-} \\
+3 & \texttt{* / \%}（乘、除、餘） \\
+4 & \texttt{+ -}（加、減） \\
+5 & \texttt{=}、\texttt{+= -= *= /= \%=}（賦值、複合指定） \\
+\end{tabular}
+\end{center}
+
+例如 \texttt{a + b * c} 優先算 \texttt{b * c}（優先順序 3）再加 \texttt{a}
+（優先順序 4）。 同一個優先順序的多個運算子按\emph{結合方向}決定：加減
+乘除由左向右，賦值與複合指定由右向左。
+
+\stylepoint{寫多項加乘混合的公式時，寧可多寫括號對照題目原文，也不要
+依賴「我記得優先順序」。 這在考試時間壓力下特別容易失手。}
+
+範例 \thechapter.4 則是純整數加法：民國年加 \texttt{1911} 換算成西
+元。 常數跟變數一樣可以出現在運算式裡。
+
+\begin{example}{c}{(roc-year.c) 民國年換算成西元年}
+#include <stdio.h>
+
+int main(void) {
+    int roc;
+    scanf("%d", &roc);
+
+    printf("%d\n", roc + 1911);
+}
+\end{example}
+
+\iosample{
+100 \\
+}{
+2011 \\
+}
+
+\begin{drills}[label=drills:arith-operators]
+\item \texttt{a + b * c} 跟 \texttt{(a + b) * c}，兩者算出來的結果一
+定一樣嗎？ 為什麼？
+\item 寫出 \texttt{2 * a * b + b * c + c * a} 這個式子哪裡沒有正確表
+達出 $2(ab+bc+ca)$，該怎麼加括號修正？
+\item \texttt{a - b - c} 是先算 \texttt{a - b} 還是先算 \texttt{b - c}？
+這是靠優先順序還是結合方向決定的？
+\end{drills}
+
+\section{整數除法與餘數}
+\label{sec:arith-intdiv}
+
+C 的 \texttt{/} 在兩個運算元都是整數時，執行\emph{整數除法}：結果
+的小數部分直接捨去（對正數而言等同無條件截斷 toward zero）。
+
+\begin{code}{c}{整數除法：商的小數部分被捨去}
+int q = 7 / 2;        // q 是 3，不是 3.5
+int avg = (a + b + c) / 3;
+\end{code}
+
+範例 \thechapter.5 讀入三個整數，輸出算術平均的\emph{整數部分}。 
+先加總再除以 \texttt{3}，小數同樣被截斷。
+
+\begin{example}{c}{(three-average.c) 三個整數的整數平均}
+#include <stdio.h>
+
+int main(void) {
+    int a, b, c;
+    scanf("%d %d %d", &a, &b, &c);
+
+    printf("%d\n", (a + b + c) / 3);
+}
+\end{example}
+
+\iosample{
+1 2 3 \\
+}{
+2 \\
+}
+
+\texttt{(1 + 2 + 3) / 3 = 6 / 3 = 2}，剛好整除。 若輸入是 \texttt{1 2 4}，
+和為 \texttt{7}，\texttt{7 / 3 = 2}（餘 \texttt{1} 被捨去），不是
+\texttt{2.333...}。
+
+範例 \thechapter.6 用攝氏轉華氏再反推的整數版公式：$C = (F - 32) \times
+5 / 9$。 括號確保先算 \texttt{F - 32}，再乘 \texttt{5}，最後除以
+\texttt{9}；每一步都是整數運算，最終結果同樣截斷。
+
+\begin{example}{c}{(f-to-c.c) 華氏轉攝氏（整數版）}
+#include <stdio.h>
+
+int main(void) {
+    int f;
+    scanf("%d", &f);
+
+    printf("%d\n", (f - 32) * 5 / 9);
+}
+\end{example}
+
+\iosample{
+32 \\
+212 \\
+}{
+0 \\
+100 \\
+}
+
+\texttt{F = 32} 時，\texttt{(32 - 32) * 5 / 9 = 0}；\texttt{F = 212}
+時，\texttt{(212 - 32) * 5 / 9 = 180 * 5 / 9 = 900 / 9 = 100}。 若
+想要四捨五入而不是截斷，通常要在分子上加調整（例如先加 \texttt{4}
+再除）。 那是較進階的技巧，現階段題庫多半接受截斷版。
+
+\texttt{\%} 是\emph{餘數}（remainder）運算子。 在 C99 標準中（本書採用
+的標準），\texttt{a \% b} 遵循「向 0 取整」的規則：
+
+$$a = b \times (a / b) + (a \bmod{b})$$
+
+當都是正數時，結果符合日常的「餘數」概念：\texttt{7 \% 3 = 1}（7 除以 3
+商 2 餘 1）。 但當涉及負數時，\textbf{餘數的符號跟著被除數（除號前那個數
+字），不跟著除數}。 例如：
+\begin{itemize}
+  \item \texttt{-7 \% 3 = -1}（不是 2！）
+  \item \texttt{7 \% -3 = 1}（不是 -2！）
+\end{itemize}
+
+簡單記住：C 語言的 \texttt{\%} 與 \texttt{/} 配對，一起向 0 取整。
+
+\begin{code}{c}{商與餘數：總分鐘換算成幾小時又幾分}
+int hours = total / 60;         // 向 0 取整，得完整小時數
+int minutes = total % 60;       // 剩餘分鐘
+\end{code}
+
+範例 \thechapter.7 讀入總分鐘數，輸出「幾小時又幾分鐘」。 \texttt{/}
+得到完整的小時數，\texttt{\%} 得到不足一小時的剩餘分鐘。 這是時間換
+算題最經典的片語。
+
+\begin{example}{c}{(split-minutes.c) 總分鐘換成小時與分鐘}
+#include <stdio.h>
+
+int main(void) {
+    int total;
+    scanf("%d", &total);
+
+    printf("%d %d\n", total / 60, total % 60);
+}
+\end{example}
+
+\iosample{
+135 \\
+}{
+2 15 \\
+}
+
+\texttt{135 / 60 = 2}、\texttt{135 \% 60 = 15}，輸出 \texttt{2 15}。
+反過來「小時加分鐘換總分鐘」則用 \texttt{hours * 60 + minutes}，綜
+合應用一節的範例 \thechapter.17 示範這個方向。
+
+\texttt{-} 除了當減法，也可以當\emph{一元}運算子：\texttt{-n} 表示
+「\texttt{n} 的相反數」，只需要一個運算元。 它跟減法長得一樣，所以
+更要靠空白與括號讓人一眼看出你要的是哪一種。
+
+範例 \thechapter.8 讀入一個整數（測資用 \texttt{-17}），依序印出相
+反數、除以 $5$ 的商、以及除以 $5$ 的餘數。 在這台機器上觀察到：
+\texttt{-(-17) = 17}，\texttt{-17 / 5 = -3}，\texttt{-17 \% 5 = -2}。
+也就是說，C99 的整數除法往零的方向截斷（$-3.4$ 變成 $-3$，不是
+$-4$），餘數的符號跟被除數相同。 同一個程式若輸入 \texttt{17}，則
+商是 $3$、餘數是 $2$。 正數那一側比較符合小學的「有餘數除法」。
+
+\begin{example}{c}{(unary-and-neg.c) 相反數、負數除法與餘數}
+#include <stdio.h>
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+    printf("%d\n", -n);
+    printf("%d\n", n / 5);
+    printf("%d\n", n % 5);
+    return 0;
+}
+\end{example}
+
+\iosample{
+-17 \\
+}{
+17 \\
+-3 \\
+-2 \\
+}
+
+\textbf{奇偶與餘數}：對正整數，\texttt{n \% 2} 只會是 \texttt{0} 或
+\texttt{1}，分別對應偶數與奇數。 但負奇數的餘數是 \texttt{-1}，例
+如 \texttt{-3 \% 2 = -1}，\texttt{-5 \% 2 = -1}。 因此「餘數等於
+\texttt{1}」並不能當成奇數的判準；下一章教判斷時會用 \texttt{n \% 2 != 0}
+來涵蓋負數。 題庫目前多半只在非負整數範圍出題，但語言本身允許負數
+運算，自己寫程式時不要假設餘數一定是非負整數。
+
+\keypoint{兩個 \texttt{int} 做 \texttt{/}，結果仍是 \texttt{int}，小
+數部分直接捨去；\texttt{a / b} 與 \texttt{a \% b} 配對使用，可以從
+一個總量拆出「完整單位數」與「剩餘部分」。 在 C99 中，兩者都向 0 取
+整；當有負數時，餘數的符號跟著被除數。}
+
+\begin{drills}[label=drills:arith-intdiv]
+\item \texttt{-7 \% 3} 等於多少？ 為什麼不是 \texttt{2}？
+\item 讀入總分鐘數 \texttt{125}，用 \texttt{/ 60} 和 \texttt{\% 60} 算
+出來的「幾小時幾分」分別是多少？
+\item \texttt{n \% 2 == 1} 能不能拿來判斷 \texttt{n} 是奇數？ 對所有
+整數都成立嗎？
+\end{drills}
+
+\section{賦值、更新與交換}
+\label{sec:arith-assign-update-swap}
+
+上一章已經介紹過 \texttt{=} 是\emph{賦值}：把右邊運算式的值送進左邊
+的變數，方向由右向左。 這裡補充幾個在運算章節裡常碰到的用法。
+
+指定會\emph{蓋掉}左邊變數的舊值。 範例 \thechapter.9 先印出 \texttt{left}
+讀進來的值，再執行 \texttt{left = right}，然後再印一次。 第二次印出
+的是 \texttt{right} 的拷貝；\texttt{right} 自己並沒有被改掉，但
+\texttt{left} 原本的數字已經不在了。
+
+\begin{example}{c}{(copy-over.c) 指定之後左邊的舊值消失}
+#include <stdio.h>
+
+int main(void) {
+    int left, right;
+    scanf("%d %d", &left, &right);
+    printf("%d\n", left);
+    left = right;
+    printf("%d\n", left);
+    return 0;
+}
+\end{example}
+
+\iosample{
+8 21 \\
+}{
+8 \\
+21 \\
+}
+
+若目標是讓兩個變數\emph{互換}內容，直接寫 \texttt{a = b;} 再
+\texttt{b = a;} 會失敗：第一句已經把 \texttt{a} 蓋掉，第二句只是把同
+一個值再抄回去。 正確作法是先把其中一個值存進暫存變數。
+
+\begin{code}{c}{用暫存變數交換 a 與 b}
+temp = a;
+a = b;
+b = temp;
+\end{code}
+
+範例 \thechapter.10 用暫存變數交換兩個整數。
+
+\begin{example}{c}{(swap-temp.c) 交換兩個整數}
+#include <stdio.h>
+
+int main(void) {
+    int a, b;
+    scanf("%d %d", &a, &b);
+    int temp = a;
+    a = b;
+    b = temp;
+    printf("%d %d\n", a, b);
+    return 0;
+}
+\end{example}
+
+\iosample{
+8 21 \\
+}{
+21 8 \\
+}
+
+指定敘述本身也可以當成運算式，值就是指定完成後左邊那個變數的新值。
+因為 \texttt{=} 由右向左結合，\texttt{c = b = a} 等價於
+\texttt{c = (b = a)}：先把 \texttt{a} 抄進 \texttt{b}，再把 \texttt{b}
+的新值抄進 \texttt{c}。
+
+\begin{code}{c}{連鎖指定，由右向左}
+c = b = a;
+\end{code}
+
+範例 \thechapter.11 讀入一個數字，三個變數最後印出來會一樣。
+
+\begin{example}{c}{(chain-assign.c) 一個值指定給三個變數}
+#include <stdio.h>
+
+int main(void) {
+    int a = 1, b = 2, c = 3;
+    scanf("%d", &a);
+    c = b = a;
+    printf("%d %d %d\n", a, b, c);
+    return 0;
+}
+\end{example}
+
+\iosample{
+14 \\
+}{
+14 14 14 \\
+}
+
+「把變數加上（或減去）一個量再存回去」太常見，C 提供了較短的寫法。
+\texttt{n++} 讓 \texttt{n} 的值加一；\texttt{n--} 讓 \texttt{n} 的值減一；
+\texttt{n += 10} 等價於 \texttt{n = n + 10}。 還有 \texttt{-=}、\texttt{*=}、
+\texttt{/=}、\texttt{\%=}，規則都是「先用舊值做運算，再寫回同一個變數」。
+
+\begin{code}{c}{加一、減一，以及複合指定}
+n++;
+n--;
+n += 10;
+n -= 5;
+n *= 2;
+n /= 3;
+n %= 7;
+\end{code}
+
+範例 \thechapter.12 讀入一個整數，先加一印出，再減 $3$ 印出，再加
+$10$ 印出。 輸入 \texttt{5} 時，先看到 \texttt{6}，再看到 \texttt{3}，
+最後看到 \texttt{13}。
+
+\begin{example}{c}{(count-up.c) 加一、減一與複合指定}
+#include <stdio.h>
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+    n++;
+    printf("%d\n", n);
+    n -= 3;
+    printf("%d\n", n);
+    n += 10;
+    printf("%d\n", n);
+    return 0;
+}
+\end{example}
+
+\iosample{
+5 \\
+}{
+6 \\
+3 \\
+13 \\
+}
+
+\texttt{++} 與 \texttt{--} 還有寫在變數前面（\texttt{++n} 或 \texttt{--n}）
+與寫在後面（\texttt{n++} 或 \texttt{n--}）的差別：單獨成一行時兩者都只
+是加一或減一；若把它嵌進更大的運算式，前綴是「先加/減再取值」，後綴
+是「先取值再加/減」。 現階段請先養成「加一或減一自己寫成一行」的習慣，
+不要把 \texttt{++} 或 \texttt{--} 塞進 \texttt{printf} 參數裡。
+
+下面這段是\emph{不良示範}：同一個運算式裡對 \texttt{a} 做兩次更新，
+結果是\emph{未定義行為}，印出來的數字因編譯器而異，甚至可能編譯時
+就收到警告。
+
+\begin{code}{c}{不良示範：同一式子裡多次更新 a（未定義行為）}
+int a = 1;
+printf("%d\n", a++ + ++a);   // 不要這樣寫
+\end{code}
+
+範例 \thechapter.13 展示複合指定運算子的行為。 \texttt{a += 5} 等於
+\texttt{a = a + 5}；\texttt{+=} 的優先順序最低，所以 \texttt{n += 10}
+會先把 \texttt{n} 加 $10$ 的結果再指定回 \texttt{n}。
+
+\begin{example}{c}{(compound-ops.c) 複合指定運算子的優先序}
+#include <stdio.h>
+
+int main(void) {
+    int a = 10, b = 20;
+    printf("a = %d, b = %d\n", a, b);
+
+    a += 5;     // 等於 a = a + 5
+    printf("a += 5: a = %d\n", a);
+
+    b -= 3;     // 等於 b = b - 3
+    printf("b -= 3: b = %d\n", b);
+
+    a *= 2;     // 等於 a = a * 2
+    printf("a *= 2: a = %d\n", a);
+
+    b /= 4;     // 等於 b = b / 4
+    printf("b /= 4: b = %d\n", b);
+
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+a = 10, b = 20 \\
+a += 5: a = 15 \\
+b -= 3: b = 17 \\
+a *= 2: a = 30 \\
+b /= 4: b = 4 \\
+}
+
+\stylepoint{讓變數加一、減一或累加時，優先寫成單獨敘述。 複合指定能少
+打一次變數名，但不要為了短而把三個運算擠在同一行。 二元運算子前後各
+留一個空白，\texttt{=} 左右也是。}
+
+\begin{drills}[label=drills:arith-assign-update-swap]
+\item 直接寫 \texttt{a = b; b = a;} 能不能交換 \texttt{a} 跟 \texttt{b}
+的值？ 為什麼？
+\item \texttt{c = b = a;} 是先把 \texttt{a} 存進哪個變數，再存進哪個
+變數？
+\item \texttt{n += 10} 等價於哪一句用 \texttt{=} 寫出來的敘述？
+\end{drills}
+
+\section{浮點轉型}
+\label{sec:arith-float-cast}
+
+當整數運算式裡出現浮點常數（例如 \texttt{100.0}），C 會把整數運算元
+\emph{提升}（promote）成浮點再計算，整個結果變成 \texttt{double}。
+
+\begin{code}{c}{用 100.0 讓整數除法變成浮點除法}
+double dollars = cents / 100.0;
+\end{code}
+
+若寫成 \texttt{cents / 100}，兩邊都是 \texttt{int}，先做整數除法，
+\texttt{199 / 100 = 1}，再轉成 \texttt{1.00}。 跟預期的 \texttt{1.99}
+差很遠。 分母寫成 \texttt{100.0}，\texttt{cents} 會被提升成
+\texttt{double}，除法在浮點域進行，才得到正確的小數。
+
+範例 \thechapter.14 讀入以「分」為單位的整數，輸出「元」並保留兩位
+小數。
+
+\begin{example}{c}{(cents-dollars.c) 分換算成元}
+#include <stdio.h>
+
+int main(void) {
+    int cents;
+    scanf("%d", &cents);
+
+    printf("%.2f\n", cents / 100.0);
+}
+\end{example}
+
+\iosample{
+199 \\
+}{
+1.99 \\
+}
+
+\keypoint{需要小數結果時，檢查算式裡是否至少有一個浮點運算元；在整數
+常數後面加 \texttt{.0} 是最簡單、也最不容易忘記的作法。 兩個 \texttt{int}
+做 \texttt{/}，結果仍是 \texttt{int}，小數部分直接捨去。}
+
+\begin{drills}[label=drills:arith-float-cast]
+\item \texttt{cents / 100} 跟 \texttt{cents / 100.0}，哪一個會做浮點
+除法？
+\item 若 \texttt{cents = 199}，\texttt{cents / 100} 的結果是多少？
+\texttt{cents / 100.0} 呢？
+\end{drills}
+
+\section{綜合應用}
+\label{sec:arith-synthesis}
+
+許多題目把前面所有運算子串在同一個 \texttt{main} 裡：先讀入多個量，
+依公式算出中間結果，再 \texttt{printf}。 寫這類程式時，把「讀輸入 /
+算公式 / 印輸出」分成三個區塊，中間必要時用額外變數存中間值，可讀
+性會比把所有式子塞進一個 \texttt{printf} 好得多。
+
+整數除法與餘數還可以處理\emph{位數}：從一個整數抽出百位、十位、個
+位，或把兩個一位數合併成兩位數。
+
+\begin{code}{c}{取出百位、十位、個位}
+int hundreds = n / 100;
+int tens = (n / 10) % 10;
+int ones = n % 10;
+\end{code}
+
+\begin{code}{c}{將兩個一位數 d1、d2 合併成兩位數}
+int combined = 10 * d1 + d2;
+\end{code}
+
+範例 \thechapter.15 讀入一個三位數，依序印出百、十、個位。
+
+\begin{example}{c}{(digit-parts.c) 輸出百位、十位、個位}
+#include <stdio.h>
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+
+    printf("%d %d %d\n", n / 100, (n / 10) % 10, n % 10);
+}
+\end{example}
+
+\iosample{
+482 \\
+}{
+4 8 2 \\
+}
+
+範例 \thechapter.16 做反向操作：讀入兩個 \texttt{0} 到 \texttt{9} 的
+數字，合併成一個兩位數 \texttt{10 * d1 + d2}。
+
+\begin{example}{c}{(combine-digits.c) 合併兩個一位數}
+#include <stdio.h>
+
+int main(void) {
+    int d1, d2;
+    scanf("%d %d", &d1, &d2);
+
+    printf("%d\n", 10 * d1 + d2);
+}
+\end{example}
+
+\iosample{
+4 8 \\
+}{
+48 \\
+}
+
+範例 \thechapter.17 把「幾小時幾分鐘」換成總分鐘數，公式是
+\texttt{hours * 60 + minutes}。 跟範例 \thechapter.7 互為逆運算。
+
+\begin{example}{c}{(minutes-total.c) 小時與分鐘換算成總分鐘}
+#include <stdio.h>
+
+int main(void) {
+    int hours, minutes;
+    scanf("%d %d", &hours, &minutes);
+
+    printf("%d\n", hours * 60 + minutes);
+}
+\end{example}
+
+\iosample{
+2 15 \\
+}{
+135 \\
+}
+
+範例 \thechapter.18 一次算出長方體的表面積與體積：表面積
+$2(ab + bc + ca)$、體積 $abc$。 這裡用兩個變數 \texttt{surface} 和
+\texttt{volume} 分別存結果，比直接在 \texttt{printf} 裡重複寫長公式
+更容易對照題目、也更容易除錯。
+
+\begin{example}{c}{(cuboid.c) 長方體表面積與體積}
+#include <stdio.h>
+
+int main(void) {
+    int a, b, c;
+    scanf("%d %d %d", &a, &b, &c);
+
+    int surface = 2 * (a * b + b * c + c * a);
+    int volume = a * b * c;
+    printf("%d %d\n", surface, volume);
+}
+\end{example}
+
+\iosample{
+2 3 4 \\
+}{
+52 24 \\
+}
+
+「只要最後幾位」與「買十送一」都是把總量拆成完整組數與剩餘。 範例
+範例 \thechapter.19 用 \texttt{n \% 10000} 取出最右邊四位，再用上一章的
+\texttt{\%04d} 補零。 輸入 \texttt{123456} 得到 \texttt{3456}；輸入
+\texttt{7} 得到 \texttt{0007}。
+
+\begin{example}{c}{(last-four.c) 取整數的末四位並補零}
+#include <stdio.h>
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+    printf("%04d\n", n % 10000);
+}
+\end{example}
+
+\iosample{
+123456 \\
+}{
+3456 \\
+}
+
+範例 \thechapter.20 模擬「每買十件送一件」：每 $11$ 件裡有 $10$ 件要
+付錢、$1$ 件免費。 讀入想拿到的件數 \texttt{n}，完整組數是
+\texttt{n / 11}，剩下 \texttt{n \% 11} 件沒湊成一組、仍要原價。 應付
+件數因此是 \texttt{(n / 11) * 10 + (n \% 11)}。
+
+\begin{example}{c}{(pay-packs.c) 買十送一的應付件數}
+#include <stdio.h>
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+    int packs = n / 11;
+    int extra = n % 11;
+    int pay = packs * 10 + extra;
+    printf("%d\n", pay);
+}
+\end{example}
+
+\iosample{
+11 \\
+}{
+10 \\
+}
+
+題庫後段還有更複雜的應用，例如從年齡反推並重組十位與個位、或解多
+未知數的線性方程組。 那些題目建立在本章所有片語之上：整數四則、截
+斷除法、餘數、位數拆解、以及必要時的 \texttt{long long} 避免溢位。
+把這一章的範例與片語練熟，下一章就可以專心處理判斷與分支，而不會
+被算式細節絆住。
+
+\keypoint{複雜公式先拆成多個有名字的中間變數，再分別輸出；末 $k$ 位
+用對 $10^k$ 取餘；「每 $m$ 個一組」用 \texttt{/ m} 與 \texttt{\% m}。
+先用兩、三組小數字心算核對，再交給程式跑大測資。}
+
+\begin{drills}[label=drills:arith-synthesis]
+\item 要從一個三位數 \texttt{n} 取出十位數字，該怎麼寫？
+\item 「每買 11 件送 1 件」，讀入想拿到的件數 \texttt{n}，應付件數的
+公式是什麼？
+\item 為什麼把長公式拆成幾個有名字的中間變數（例如 \texttt{surface}、
+\texttt{volume}），會比全部塞進同一個 \texttt{printf} 好？
+\end{drills}
+
+\addcontentsline{toc}{section}{練習解答}
+\section*{練習解答}
+
+各節練習的答案收在這裡。 短題只給能一句話核對的結果。
+
+\paragraph{第~\ref{sec:arith-operators}~節}
+\begin{enumerate}
+\item 不一定。 \texttt{a + b * c} 先算 \texttt{b * c} 再加 \texttt{a}；
+\texttt{(a + b) * c} 先算 \texttt{a + b} 再乘 \texttt{c}，兩式只有在
+特定數字下才會剛好相等。
+\item 乘法會先跟緊鄰的項結合，寫成 \texttt{2 * a * b + b * c + c * a}
+只有第一項被乘 $2$，跟 $2(ab+bc+ca)$ 不同；要改成
+\texttt{2 * (a * b + b * c + c * a)}。
+\item 都不是靠優先順序（減法只有一種優先順序），是靠結合方向：加減
+乘除由左向右結合，所以 \texttt{a - b - c} 是先算 \texttt{a - b}。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:arith-intdiv}~節}
+\begin{enumerate}
+\item \texttt{-1}。 C99 的 \texttt{\%} 與 \texttt{/} 配對向 $0$ 取整，
+餘數的符號跟著被除數（\texttt{-7}），不是恆為非負。
+\item \texttt{125 / 60 = 2} 小時，\texttt{125 \% 60 = 5} 分。
+\item 不能。 對非負整數可以，但負奇數的餘數是 \texttt{-1}（例如
+\texttt{-3 \% 2 = -1}），不是 \texttt{1}。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:arith-assign-update-swap}~節}
+\begin{enumerate}
+\item 不能。 第一句 \texttt{a = b;} 已經把 \texttt{a} 原本的值蓋掉，
+第二句 \texttt{b = a;} 只是把同一個值抄回去，\texttt{b} 原本的值已經
+遺失。
+\item 先存進 \texttt{b}（\texttt{b = a}），再把 \texttt{b} 的新值存進
+\texttt{c}（因為 \texttt{=} 由右向左結合）。
+\item \texttt{n = n + 10;}。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:arith-float-cast}~節}
+\begin{enumerate}
+\item \texttt{cents / 100.0}：分母是浮點常數，\texttt{cents} 會被提
+升成 \texttt{double}，除法在浮點域進行。
+\item \texttt{cents / 100} 是整數除法，結果是 \texttt{1}；
+\texttt{cents / 100.0} 是浮點除法，結果是 \texttt{1.99}。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:arith-synthesis}~節}
+\begin{enumerate}
+\item \texttt{(n / 10) \% 10}。
+\item \texttt{(n / 11) * 10 + (n \% 11)}。
+\item 每個中間變數都有名字，對照題目公式時比較容易確認每一步算對了
+沒有；擠在同一個 \texttt{printf} 裡難以分段檢查，也更容易在括號和運
+算子優先順序上出錯。
+\end{enumerate}

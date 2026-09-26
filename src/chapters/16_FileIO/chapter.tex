@@ -1,0 +1,1536 @@
+\chapter{檔案處理}
+\label{ch:fileio}
+
+程式一結束，變數裡的數字就消失了。 要把資料留下來，得寫進檔案；要把
+上次留下的資料拿回來，得從檔案讀。 這一章教這件事。
+
+三條線貫穿全章。 第一，\texttt{printf} 其實一直在把資料寫進某個目的
+地，只是到目前為止那個目的地都是螢幕。 第二，同一個來源會記得你上次
+讀到哪，所以連續讀下去會拿到下一個位元組。 第三，每個讀寫函式都會告
+訴你成功或失敗，讀懂那個回傳值，就不會把失敗當成一筆資料。
+
+先用已經會的 \texttt{printf} 與 \texttt{getchar}，把三條預設的線接去
+檔案。 接著看這條線自己記得哪些狀態。 再開檔、關檔，然後依字元、行、
+格式化欄位、二進位紀錄往下選工具。 最後用一支小程式把前面收在一起。
+
+節末練習的答案收在章末。
+
+\section{三條預設串流與重新導向}
+\label{sec:fio-stream}
+
+C 的標準函式庫不直接把資料寫進磁碟。 程式面對的是串流（stream）：一
+條可以讀或寫的位元組序列，底下可能接鍵盤、螢幕、檔案、或另一支程式。
+啟動時已經開好三條：
+
+\begin{code}{c}{三條預先開啟的串流}
+stdin    /* 標準輸入，預設接鍵盤 */
+stdout   /* 標準輸出，預設接螢幕 */
+stderr   /* 標準錯誤，預設也接螢幕 */
+\end{code}
+
+\texttt{printf} 印出一行，就是把那一行寫進 \texttt{stdout}。
+\texttt{getchar()} 就是 \texttt{getc(stdin)}。 第~\ref{ch:character}~章
+逐字元讀到檔案結束，用的就是 \texttt{stdin}；當時輸入來自鍵盤，或由
+評測系統把檔案接到 \texttt{stdin}。 這一節把接線這件事講清楚，還不必
+學任何新函式。
+
+作業系統在啟動程式時可以改接線，不必改程式碼。 把檔案接到
+\texttt{stdin}／\texttt{stdout}／\texttt{stderr} 的寫法叫做\textbf{重新導向}；
+把一支程式的輸出接到另一支的輸入，叫做\textbf{管線}。
+
+\begin{code}{text}{重新導向與管線}
+./a.out < in.txt          從 in.txt 讀，當成 stdin
+./a.out > out.txt         把 stdout 寫進 out.txt（檔案先清空）
+./a.out >> out.txt        把 stdout 接到 out.txt 結尾
+./a.out 2> err.txt        把 stderr 寫進 err.txt
+./a.out > out.txt 2> err.txt
+./prog1 | ./prog2         管線：prog1 的 stdout 接到 prog2 的 stdin
+\end{code}
+
+\texttt{stdout} 與 \texttt{stderr} 預設都接到螢幕，看起來像同一條。 一
+旦用 \texttt{>} 把 \texttt{stdout} 接到檔案，兩條就分開了：錯誤訊息若
+走 \texttt{printf}，會被一起寫進那個檔案；走 \texttt{fprintf(stderr,
+...)}，仍留在螢幕上。
+
+\begin{example}[label=ex:fio-hello-err]{c}{(hello-err.c) 正常訊息與錯誤分道}
+#include <stdio.h>
+
+int main(void) {
+    printf("ok\n");
+    fprintf(stderr, "fail\n");
+    return 0;
+}
+\end{example}
+
+在終端機直接執行，兩行都出現。 改成 \texttt{./a.out > out.txt
+2> err.txt} 之後，\texttt{out.txt} 只剩 \texttt{ok}，\texttt{err.txt}
+只剩 \texttt{fail}。
+
+\begin{center}
+\begin{iotermbox}{\$ ./a.out > out.txt 2> err.txt}
+\ttfamily\raggedright\noindent
+out.txt: ok\\
+err.txt: fail
+\end{iotermbox}
+\end{center}
+
+配合重新導向，第~\ref{ch:character}~章那個逐字元讀 \texttt{stdin} 的
+迴圈已經能處理檔案：\texttt{./a.out < in.txt} 就等於從檔案讀。 下一
+節才打開這三條串流背後共同的型別。
+
+\keypoint{錯誤與診斷走 \texttt{stderr}，真正的結果走 \texttt{stdout}。
+這樣用重新導向存結果時，錯誤才不會被一起吃掉。}
+
+\begin{drills}[label=drills:fio-stream]
+\item \texttt{./a.out > log.txt} 之後，\texttt{printf} 與
+\texttt{fprintf(stderr, ...)} 各寫到哪裡？
+\item \texttt{./prog1 | ./prog2} 這條管線裡，\texttt{prog2} 的
+\texttt{stdin} 接到哪裡？
+\item 為什麼診斷訊息要走 \texttt{stderr}，即使它預設也接到螢幕？
+\item 補空：把 \texttt{out.txt} 接到結尾、檔案先不清空，運算子是
+\texttt{?}。
+\end{drills}
+
+\section{FILE 的狀態}
+\label{sec:fio-state}
+
+\texttt{stdin}、\texttt{stdout}、\texttt{stderr} 的型別都是
+\texttt{FILE *}。 同一個指標背後是一個有狀態的物件，至少要記得四塊。
+這一節把四塊當場講完；後面開檔、讀寫，都指回這張圖。
+
+\begin{center}
+\begin{tikzpicture}[
+    box/.style={
+        draw=black!55, thick, rounded corners=2pt,
+        minimum height=1.45cm, align=center,
+        font=\sffamily\small, inner sep=3pt
+    },
+]
+    \node[box, fill=memFill, draw=memStroke, minimum width=3.6cm]
+        (buf) {串流緩衝區\\[-1pt]{\ttfamily\small [H][e][l][l][o]\ldots}};
+    \node[box, fill=coreFill, draw=coreStroke, minimum width=2.1cm,
+          right=0.22cm of buf]
+        (pos) {位置\\[-1pt]{\ttfamily 5}};
+    \node[box, fill=procFill, draw=procStroke, minimum width=2.0cm,
+          right=0.22cm of pos]
+        (eof) {EOF 旗標\\[-1pt]{\ttfamily 0}};
+    \node[box, fill=optFill, draw=optStroke, minimum width=2.1cm,
+          right=0.22cm of eof]
+        (err) {error 旗標\\[-1pt]{\ttfamily 0}};
+    \node[draw=black!35, dashed, rounded corners=8pt, inner sep=9pt,
+          fit=(buf)(pos)(eof)(err)] (fileobj) {};
+    \node[font=\sffamily\small, above=3pt of fileobj.north west,
+          anchor=south west] {\texttt{FILE}};
+    \node[box, fill=greenFill, draw=greenStroke, minimum width=4.4cm,
+          below=1.15cm of fileobj]
+        (disk) {磁碟上的位元組};
+    \draw[diagarrow] ([xshift=-1.4cm]fileobj.south) -- (disk.north);
+\end{tikzpicture}
+\diagcaption{\texttt{FILE} 四塊狀態：串流緩衝區暫存尚未送出或尚未交
+給程式的位元組，位置記住下一次讀寫從哪裡開始，EOF 與 error 是兩面獨
+立的旗標。}
+\label{fig:fio-file-state}
+\end{center}
+
+\subsection{串流緩衝區}
+
+資料寫出去時，常常先躺在 \texttt{FILE} 內部的串流緩衝區，等到滿了、
+遇到換行、或呼叫 \texttt{fflush}/\texttt{fclose} 才真正送出。 常見三
+種策略：全緩衝（滿了才送）、列緩衝（遇到換行才送）、無緩衝（每次都
+送）。 \texttt{stderr} 通常無緩衝，所以錯誤訊息會立刻出現。
+\texttt{stdout} 接到終端機時多半是列緩衝；接到檔案時多半是全緩衝。
+
+因此 \texttt{printf("loading...")} 後面沒有換行時，字可能暫時留在串
+流緩衝區裡，螢幕上看不到。 除錯時會誤以為程式卡在更前面。 要立刻送
+出，呼叫 \texttt{fflush(stdout)}，或印一個換行讓列緩衝觸發。
+
+\begin{code}{c}{強制把 stdout 的串流緩衝區送出}
+printf("loading...");
+fflush(stdout);
+/* 長時間計算 */
+printf(" done\n");
+\end{code}
+
+\texttt{fflush(fp)} 對輸出串流的意思是：把串流緩衝區裡尚未寫出的資料
+交給作業系統。 對輸入串流呼叫 \texttt{fflush} 是未定義行為。 網路上
+常見的 \texttt{fflush(stdin)} 用來丟掉鍵盤殘餘，在標準 C 裡不合法；
+要清掉行尾，請自己用 \texttt{getchar} 讀到換行為止。
+
+\begin{code}{c}{反例：fflush(stdin) 是未定義行為}
+fflush(stdin);    /* 不要這樣寫 */
+\end{code}
+
+\begin{code}{c}{丟掉目前這一行剩下的字元}
+int ch;
+while ((ch = getchar()) != EOF && ch != '\n') {
+}
+\end{code}
+
+\texttt{fclose} 會先沖洗串流緩衝區再關閉。 寫入錯誤有時要到那一刻才
+浮現；下一節的片語因此要求檢查 \texttt{fclose} 的回傳值。
+
+\subsection{位置}
+
+每次成功讀或寫，位置都會往前推，所以連續兩次讀到的是相鄰的兩個位元
+組。 這一節只需要這件事。 之後有函式能把位置搬到別處，到隨機存取那
+一節再登場。
+
+\subsection{EOF 旗標：永遠晚一步}
+
+\texttt{feof(fp)} 在 EOF 旗標立起時回傳非 $0$。 它\textbf{不}負責執
+行讀取，只回答上一次讀寫已經留下的狀態。
+
+EOF 旗標在一次讀取試圖跨越檔案尾時才立起。 讀成功最後一個字元之後，
+位置已經指在檔案尾，旗標仍是 $0$。 再讀一次，讀取失敗，旗標才變成
+$1$。 這就是 \texttt{while (!feof(fp))} 永遠晚一步的原因。
+
+下面借用 \texttt{fgets}：它一次讀一行到行陣列裡，成功回傳該陣列，失
+敗回傳 \texttt{NULL}（細節見第~\ref{sec:fio-line}~節）。 這裡只看迴
+圈條件。 下面這支程式是反例，不要當片語抄。
+
+\begin{example}[label=ex:fio-feof-wrong]{c}{(feof-wrong.c) 反例：用 feof 當迴圈條件}
+#include <stdio.h>
+
+int main(void) {
+    char line[64];
+    while (!feof(stdin)) {
+        fgets(line, sizeof line, stdin);
+        printf("%s", line);
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+alpha \\
+beta \\
+}{
+alpha \\
+beta \\
+beta \\
+}
+
+開檔時 EOF 旗標是 $0$，所以 \texttt{!feof(stdin)} 為真，進入迴圈。 第
+一次 \texttt{fgets} 讀到 \texttt{alpha\textbackslash n}，印出
+\texttt{alpha}；旗標仍是 $0$。 第二次讀到 \texttt{beta\textbackslash n}，
+印出 \texttt{beta}；位置已經在檔案尾，旗標\textbf{仍是} $0$，因為這一次
+讀取成功了。 迴圈條件再看一次 \texttt{feof}，仍為假，於是第三趟
+\texttt{fgets} 失敗、回傳 \texttt{NULL}、這才立起 EOF 旗標。
+\texttt{printf} 不管回傳值，仍把行陣列裡上次留下的
+\texttt{beta\textbackslash n} 再印一次。
+
+正確順序永遠是：先讀，看回傳值，需要時再用 \texttt{feof} 與
+\texttt{ferror} 分類失敗。
+
+\begin{example}[label=ex:fio-feof-right]{c}{(feof-right.c) 先讀，再依回傳值行事}
+#include <stdio.h>
+
+int main(void) {
+    char line[64];
+    while (fgets(line, sizeof line, stdin) != NULL) {
+        printf("%s", line);
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+alpha \\
+beta \\
+}{
+alpha \\
+beta \\
+}
+
+\subsection{error 旗標}
+
+\texttt{ferror(fp)} 在 error 旗標立起時回傳非 $0$，表示讀寫過程發生過
+I/O 錯誤。 \texttt{clearerr(fp)} 把 EOF 與 error 兩面旗標都清掉。
+\texttt{fgets} 失敗時可能是檔案尾，也可能是讀取錯誤；迴圈結束後問
+\texttt{ferror}，才能把兩種分開。 寫入錯誤常常遲到，資料先躺在串流緩
+衝區裡，直到 \texttt{fflush} 或 \texttt{fclose} 才真正失敗。
+
+\keypoint{先做讀取，用回傳值決定要不要處理這筆資料。
+\texttt{feof}/\texttt{ferror} 只回答已經發生的狀態，不拿來當迴圈的進
+入條件。 \texttt{printf} 沒有換行時，資料可能還在串流緩衝區。}
+
+\begin{drills}[label=drills:fio-state]
+\item 輸入只有一行 \texttt{hi\textbackslash n}，\texttt{feof-wrong.c}
+的輸出是什麼？
+\item 讀成功最後一個字元之後、尚未再讀一次之前，\texttt{feof(stdin)}
+是真還是假？
+\item 指出下面這行的問題：\texttt{fflush(stdin);}。
+\item Parsons：把這四件事排成正確順序——看回傳值、讀取、需要時問
+\texttt{feof}/\texttt{ferror}、處理這一筆資料。
+\item \texttt{printf("hi")} 沒有換行，接著進入一段很長的迴圈。 終端
+機上可能暫時看不到 \texttt{hi}，原因與圖~\ref{fig:fio-file-state} 的
+哪一塊有關？
+\end{drills}
+
+\section{開啟與關閉}
+\label{sec:fio-open}
+
+要讀寫磁碟上的檔案，先向函式庫要一個 \texttt{FILE *}。
+\texttt{fopen} 成功回傳非 \texttt{NULL} 的指標，失敗回傳
+\texttt{NULL}。 失敗時函式庫把原因寫進 \texttt{errno}，那是一個用來記
+錄失敗原因的全域變數；\texttt{perror} 把它翻成人看得懂的訊息。 用完
+一定要 \texttt{fclose}：它會先把串流緩衝區沖出去，失敗時回傳
+\texttt{EOF}。 寫入錯誤有時要到關閉那一刻才浮現，所以
+\texttt{fclose} 的回傳值也要看。
+
+這一節把完整檢查寫成片語。 從下一節起，範例聚焦在讀寫本身，錯誤檢查
+依這條片語處理：開檔失敗仍寫出 \texttt{NULL} 判斷（沒檔就沒後面），
+其餘 \texttt{fclose} 與逐次寫入的檢查不再抄進每一支程式。
+
+\begin{code}{c}{打開、確認非 NULL、用完看 fclose}
+FILE *fp = fopen(path, mode);
+if (fp == NULL) {
+    perror(path);
+    return 1;
+}
+/* 讀寫 */
+if (fclose(fp) != 0) {
+    perror("fclose");
+    return 1;
+}
+\end{code}
+
+\texttt{mode} 由三條軸組成，不必背十二種字串。 第一軸決定開檔時對既
+有內容做什麼：
+
+\begin{center}
+\begin{tabular}{|l|l|l|l|l|}
+\hline
+字母 & 檔案不存在 & 既有內容 & 起始位置 & 預設方向 \\
+\hline
+\texttt{r} & 失敗 & 保留 & 開頭 & 讀 \\
+\texttt{w} & 建立空檔 & 截成空 & 開頭 & 寫 \\
+\texttt{a} & 建立空檔 & 保留 & 結尾 & 寫 \\
+\hline
+\end{tabular}
+\end{center}
+
+第二軸是 \texttt{+}：加上之後，讀與寫都允許（\texttt{r+}、
+\texttt{w+}、\texttt{a+}）。 第三軸是 \texttt{b}：二進位檔一律加上它。
+理由見第~\ref{sec:fio-bin}~節；在會把換行轉換成兩個位元組的系統上，
+漏掉 \texttt{b} 會改掉檔案裡的位元組。 三軸可以組合，例如
+\texttt{"r+b"} 是既有檔案、讀寫、二進位、從開頭開始。
+
+\keypoint{\texttt{w} 會把既有檔案清空。 只是想讀，用 \texttt{r}；想
+接在後面寫，用 \texttt{a}。}
+
+檔名從哪裡來？ 第~\ref{ch:function}~章寫過 \texttt{main(int argc,
+char *argv[])}，當時標成進階、先不詳述。 現在它有真實用途：
+\texttt{argv[0]} 是程式自己的名字，\texttt{argv[1]} 起才是我們傳入的
+引數。 \texttt{argc} 是包含 \texttt{argv[0]} 在內的個數，所以一個檔
+名對應 \texttt{argc == 2}。
+
+\begin{example}[label=ex:fio-cat-file]{c}{(cat-f{}ile.c) 從命令列取檔名並抄到 stdout}
+#include <stdio.h>
+
+int main(int argc, char *argv[]) {
+    if (argc != 2) {
+        fprintf(stderr, "usage: %s file\n", argv[0]);
+        return 1;
+    }
+
+    FILE *fp = fopen(argv[1], "r");
+    if (fp == NULL) {
+        perror(argv[1]);
+        return 1;
+    }
+
+    int ch;
+    while ((ch = fgetc(fp)) != EOF) {
+        fputc(ch, stdout);
+    }
+
+    if (fclose(fp) != 0) {
+        perror("fclose");
+        return 1;
+    }
+    return 0;
+}
+\end{example}
+
+\texttt{sample.txt} 裡面兩行 \texttt{hello} 與 \texttt{world} 時，
+\texttt{./a.out sample.txt} 的輸出就是那兩行。 開檔失敗走
+\texttt{perror}，訊息出現在 \texttt{stderr}，即使有人把
+\texttt{stdout} 用重新導向接到別的檔案，錯誤仍看得到。
+
+\stylepoint{檔名交給 \texttt{argv}，讓同一支程式處理不同檔案。 把檔
+名寫死在原始碼裡，示範可以、正式程式容易卡住。}
+
+\texttt{remove} 刪檔，\texttt{rename} 改名；兩者成功回傳 $0$。 後面
+重寫刪除紀錄時會用到。
+
+進階、此處先不展開：\texttt{freopen} 把已經開啟的串流改接到另一個檔
+案；\texttt{tmpfile} 開一個二進位暫存檔，程式結束時自動刪掉。 知道名
+字即可。
+
+\begin{drills}[label=drills:fio-open]
+\item \texttt{fopen("a.txt", "w")} 時 \texttt{a.txt} 已經有內容，開
+檔成功後檔案裡剩下什麼？
+\item \texttt{argc} 為 $1$ 時，\texttt{argv[1]} 可不可以當檔名？
+\item \texttt{fwrite} 當時回傳成功，\texttt{fclose} 卻回傳
+\texttt{EOF}。 資料一定已經安全躺在磁碟上了嗎？
+\item 要讀一個既有的二進位檔、稍後也要寫回同一檔，\texttt{mode} 寫
+哪一種？
+\end{drills}
+
+\section{讀寫工具箱}
+\label{sec:fio-toolbox}
+
+開好檔之後，真正的問題通常是：我要讀檔，該用哪個函式？ 下面兩張表是
+後面四節的共同參照。 選工具看你要的單位；看回傳值才知道這一趟有沒有
+成功。
+
+\begin{center}
+\begin{tabular}{|l|l|}
+\hline
+你要做的事 & 用哪個 \\
+\hline
+一個一個字元判斷（空白、換行、註解） & \texttt{fgetc} \\
+一次處理整行（含換行） & \texttt{fgets} \\
+欄位整齊的文字（空格或指定分隔） & \texttt{fscanf}，或 \texttt{fgets}+\texttt{sscanf} \\
+定長的二進位紀錄 & \texttt{fread}/\texttt{fwrite} \\
+\hline
+\end{tabular}
+\end{center}
+
+欄位可能缺漏、含空白、或一行壞掉時，走 \texttt{fgets} 再
+\texttt{sscanf}：失敗就跳過這一行，檔案位置不會卡在半行中間。
+
+\begin{center}
+\small
+\begin{tabular}{|l|l|l|p{4.6cm}|}
+\hline
+函式 & 成功回傳 & 失敗回傳 & 怎麼分辨 \\
+\hline
+\texttt{fopen} & 非 \texttt{NULL} & \texttt{NULL} & \texttt{perror}（看 \texttt{errno}） \\
+\texttt{fclose} & $0$ & \texttt{EOF} & 沖洗或關閉失敗 \\
+\texttt{fgetc} & 該位元組（$0$--$255$） & \texttt{EOF} & \texttt{feof}／\texttt{ferror} \\
+\texttt{fgets} & 行陣列指標 & \texttt{NULL} & 同上 \\
+\texttt{fscanf} & 轉換成功的個數 & 較小的數或 \texttt{EOF} &
+  不足：格式不符；\texttt{EOF}：檔尾或讀取錯誤 \\
+\texttt{fread}/\texttt{fwrite} & 項目數 & 小於請求的數 &
+  短讀再問 \texttt{feof}／\texttt{ferror} \\
+\texttt{fseek} & $0$ & 非 $0$ & 無法定位 \\
+\texttt{ftell} & 從開頭算的位移 & \texttt{-1L} & 不要把失敗值當檔案大小 \\
+\hline
+\end{tabular}
+\end{center}
+
+\texttt{fseek} 與 \texttt{ftell} 到隨機存取那一節才用；先知道失敗長
+什麼樣子。 後面各節只指回這張表，不再各講一遍先看回傳值。
+
+\keypoint{先問要處理的單位，再選函式。 選好之後，每一次呼叫都先看回
+傳值，再用 \texttt{feof}/\texttt{ferror} 分類已經發生的失敗。}
+
+\begin{drills}[label=drills:fio-toolbox]
+\item 要印出檔案裡所有以 \texttt{\#} 開頭的行，選表裡哪一個函式？
+\item 檔案是一筆筆固定大小的學生成績，選哪一對？
+\item \texttt{fscanf} 回傳 $1$、你請求的是兩個整數。 這是檔案尾，還
+是格式不符？
+\item 補空：\texttt{fread} 請求 $10$ 筆、回傳 $7$，且
+\texttt{ferror} 為假。 這叫短讀，原因是 \texttt{?}。
+\end{drills}
+
+\section{以字元為單位}
+\label{sec:fio-char}
+
+錯誤檢查依第~\ref{sec:fio-open}~節的片語。 回傳值見
+第~\ref{sec:fio-toolbox}~節的表。
+
+\texttt{fgetc(fp)} 從 \texttt{fp} 讀一個位元組，成功時回傳該位元組的
+值（當成 \texttt{unsigned char} 再升成 \texttt{int}），失敗時回傳
+\texttt{EOF}。 \texttt{fputc(ch, fp)} 寫一個位元組，成功回傳寫出的
+值，失敗回傳 \texttt{EOF}。
+
+標準迴圈把賦值寫在條件裡，並用括號保住先賦值再比較的順序：
+
+\begin{code}{c}{逐字元讀到 EOF}
+int ch;
+while ((ch = fgetc(fp)) != EOF) {
+    /* 使用 ch */
+}
+\end{code}
+
+第~\ref{ch:character}~章已經強調：接 \texttt{getchar} 的變數要是
+\texttt{int}。 \texttt{fgetc} 同一條規則。 若寫成 \texttt{char ch =
+fgetc(fp)}，在 \texttt{char} 有號的平臺上會出現兩種災難。 第一種
+第~\ref{ch:character}~章見過：真正的 \texttt{EOF} 被轉成 \texttt{char}
+之後再升回 \texttt{int}，可能變成 $255$，迴圈比不到 $-1$，於是停不
+下來。 第二種是二進位檔裡的位元組 $\mathtt{0xFF}$：它升成
+\texttt{int} 本該是 $255$，先塞進有號 \texttt{char} 卻變成 $-1$，迴圈
+會以為檔案結束，後面的資料全部沒讀到。
+
+\begin{code}{c}{兩種都會錯：用 char 接 fgetc}
+char ch;
+while ((ch = fgetc(fp)) != EOF) {
+    /* 有號 char 時，EOF 比不到，或 0xFF 被當成 EOF */
+}
+\end{code}
+
+\begin{example}[label=ex:fio-mini-cat]{c}{(mini-cat.c) 把 stdin 抄到 stdout}
+#include <stdio.h>
+
+int main(void) {
+    int ch;
+    while ((ch = fgetc(stdin)) != EOF) {
+        fputc(ch, stdout);
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+ab \\
+}{
+ab \\
+}
+
+這支程式沒有自己 \texttt{fopen}。 配合第~\ref{sec:fio-stream}~節的重
+新導向，\texttt{./a.out < sample.txt} 就等於把檔案抄到螢幕。
+\texttt{cat-file.c} 只是把同一個迴圈裡的 \texttt{stdin} 換成自己打開
+的 \texttt{FILE *}。
+
+統計字元、單字、行數，用的也是這道迴圈。 單字的邊界用
+\texttt{isspace} 判斷：從空白進到非空白，就算一個新單字開始。
+
+\begin{example}[label=ex:fio-count]{c}{(count-cwl.c) 列、單字、字元}
+#include <stdio.h>
+#include <ctype.h>
+
+int main(void) {
+    int ch;
+    int chars = 0;
+    int words = 0;
+    int lines = 0;
+    int in_word = 0;
+
+    while ((ch = fgetc(stdin)) != EOF) {
+        chars++;
+        if (ch == '\n') {
+            lines++;
+        }
+        if (isspace(ch)) {
+            in_word = 0;
+        } else if (!in_word) {
+            in_word = 1;
+            words++;
+        }
+    }
+
+    printf("%d %d %d\n", lines, words, chars);
+    return 0;
+}
+\end{example}
+
+\iosample{
+one two \\
+three \\
+}{
+2 3 14 \\
+}
+
+輸入是 \texttt{one two\textbackslash nthree\textbackslash n}，一共
+$14$ 個字元（含兩個換行）、三個單字、兩行。 最後一行若沒有換行，
+\texttt{lines} 會少算 $1$，因為我們只在讀到 \texttt{\textbackslash n}
+時才加行數。
+
+進階、此處先不展開：\texttt{ungetc(ch, fp)} 把剛剛讀到的字元塞回串
+流，下一次 \texttt{fgetc} 會再讀到它。 標準只保證可以退回一格。
+
+\keypoint{\texttt{fgetc} 的回傳值用 \texttt{int} 接。 這條規則在文字
+檔避免停不下來，在二進位檔避免把 $\mathtt{0xFF}$ 誤判成檔案結束。}
+
+\begin{drills}[label=drills:fio-char]
+\item \texttt{char ch;} 搭配 \texttt{while ((ch = fgetc(fp)) !=
+EOF)}，在有號 \texttt{char} 的平臺上讀二進位檔，檔案中間有一個位元組
+$\mathtt{0xFF}$。 迴圈在哪裡停？
+\item \texttt{count-cwl.c} 讀 \texttt{a\textbackslash nb}（最後沒有換
+行），印出的三個數字是什麼？
+\item 把 \texttt{mini-cat.c} 的 \texttt{fgetc(stdin)} 改成
+\texttt{getchar()}，行為差在哪裡？
+\item 從零寫：從 \texttt{argv[1]} 打開檔案，用 \texttt{fgetc} 抄到
+\texttt{stdout}（錯誤檢查依第~\ref{sec:fio-open}~節）。
+\end{drills}
+
+\section{以行為單位}
+\label{sec:fio-line}
+
+錯誤檢查依第~\ref{sec:fio-open}~節的片語。
+
+\texttt{fgets(buf, size, fp)} 從 \texttt{fp} 讀一行，最多放進
+\texttt{size - 1} 個字元，再補 \texttt{\textbackslash 0}。 成功回傳
+\texttt{buf}（也就是那塊行陣列），讀到檔案尾且這一趟一個字元都沒讀到，
+回傳 \texttt{NULL}。 換行字元若在這一趟的額度內，會被保留在行陣列裡。
+
+\begin{code}{c}{逐行讀取}
+char line[128];
+while (fgets(line, sizeof line, fp) != NULL) {
+    /* line 可能以 \n 結尾，也可能因太長被截斷 */
+}
+\end{code}
+
+\texttt{size} 含結尾的空字元，所以 \texttt{char line[8]} 一次最多讀
+$7$ 個字元。 若原始行是 \texttt{abcdefg\textbackslash n}（八個字元），
+第一次 \texttt{fgets} 得到 \texttt{abcdefg}（沒有換行），第二次才得到
+\texttt{\textbackslash n}。 判斷一行有沒有被截斷：成功讀到之後看行陣
+列裡有沒有 \texttt{\textbackslash n}。
+
+去掉行尾換行，用 \texttt{strcspn} 找第一個換行的位置，再寫入空字元：
+
+\begin{code}{c}{去掉 fgets 留下的換行}
+line[strcspn(line, "\n")] = '\0';
+\end{code}
+
+這行在沒有換行時也安全：\texttt{strcspn} 會走到字串結尾，等於沒改內
+容。
+
+\texttt{fputs(s, fp)} 把字串寫出，自己\textbf{不}補換行。 相對地，
+\texttt{puts(s)} 寫到 \texttt{stdout} 而且\textbf{會}再寫一個換行。
+從 \texttt{fgets} 讀來的行若仍帶著 \texttt{\textbackslash n}，用
+\texttt{fputs} 抄出去就會維持原來的換行。
+
+\texttt{gets} 沒有長度參數，行陣列要多大全憑運氣。 C11 已把它從標準
+裡刪除；任何教材或舊程式若還在呼叫它，都改成 \texttt{fgets}。
+
+\begin{example}[label=ex:fio-keep-hash]{c}{(keep-hash.c) 只留下以 \# 開頭的行}
+#include <stdio.h>
+
+int main(void) {
+    char line[128];
+    while (fgets(line, sizeof line, stdin) != NULL) {
+        if (line[0] == '#') {
+            fputs(line, stdout);
+        }
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+keep \\
+\#note \\
+skip \\
+\#also \\
+}{
+\#note \\
+\#also \\
+}
+
+一個跟換行有關的陷阱：使用者輸入 \texttt{quit} 結束。
+\texttt{fgets} 讀到的是 \texttt{quit\textbackslash n}，
+\texttt{strcmp(line, "quit")} 會判定兩字串不同。 先剝掉換行再比。
+
+\keypoint{\texttt{fgets} 成功時回傳行陣列指標；用回傳值當迴圈條件，
+不要用 \texttt{feof} 當迴圈條件。}
+
+\begin{drills}[label=drills:fio-line]
+\item \texttt{fgets} 之後立刻 \texttt{strcmp(line, "quit") == 0}，使
+用者輸入 \texttt{quit} 並按 Enter，比得中嗎？
+\item \texttt{char buf[4];} 讀一行 \texttt{abcd\textbackslash n}，第
+一次 \texttt{fgets(buf, 4, fp)} 的內容是什麼（含有沒有換行）？
+\item 補空：\texttt{line[strcspn(line, ?)] = '\textbackslash 0';}
+問號填哪個字串？
+\item \texttt{puts("ok")} 與 \texttt{fputs("ok", stdout)} 印到螢幕上
+各是幾個字元？
+\end{drills}
+
+\section{格式化讀寫}
+\label{sec:fio-fmt}
+
+錯誤檢查依第~\ref{sec:fio-open}~節的片語。 回傳值見
+第~\ref{sec:fio-toolbox}~節的表。
+
+\texttt{fprintf(fp, fmt, ...)} 與 \texttt{printf} 相同，只是目的地改
+成 \texttt{fp}。 \texttt{printf(...)} 就是
+\texttt{fprintf(stdout, ...)}。 這件事有實際價值：把輸出目標做成參數，
+同一支函式可以印到螢幕、寫進檔案、或送到診斷。
+
+\begin{example}[label=ex:fio-report]{c}{(report.c) 同一個函式，三個目的地}
+#include <stdio.h>
+
+typedef struct {
+    int id;
+    char name[16];
+    double gpa;
+} Record;
+
+static void report(FILE *out, const Record *r) {
+    fprintf(out, "%d %s %.2f\n", r->id, r->name, r->gpa);
+}
+
+int main(void) {
+    Record r = {1, "Alice", 3.80};
+    report(stdout, &r);
+    report(stderr, &r);
+    return 0;
+}
+\end{example}
+
+\iosample{
+}{
+1 Alice 3.80 \\
+}
+
+\texttt{stderr} 上也會出現同一行。 後面列出成績檔時，把 \texttt{out}
+換成自己打開的 \texttt{FILE *} 即可，不必再寫一份 \texttt{printf}。
+
+\texttt{fscanf} 的回傳值是成功完成的轉換個數。 三種結束方式見工具箱
+那張表：個數相符、\texttt{EOF}、以及比較小的非負整數（格式不符）。
+
+\begin{example}{c}{(fscanf-three.c) 用回傳值分開三種結局}
+#include <stdio.h>
+
+int main(void) {
+    int a, b;
+    int n = scanf("%d %d", &a, &b);
+    printf("n=%d\n", n);
+    if (n == 2) {
+        printf("%d %d\n", a, b);
+    } else if (n == EOF) {
+        printf("eof or read error\n");
+        if (feof(stdin)) {
+            printf("feof set\n");
+        }
+    } else {
+        printf("mismatch, converted %d\n", n);
+    }
+    return 0;
+}
+\end{example}
+
+輸入 \texttt{3 4} 時 \texttt{n=2}。 輸入 \texttt{3 x} 時 \texttt{n=1}，
+走格式不符。 輸入為空時 \texttt{n=-1}（也就是 \texttt{EOF}）。
+
+\texttt{\%s} 會先跳過前導空白，再讀到下一個空白為止。 scanset
+\texttt{\%[\^{},]} 是另一種轉換指定：方括號裡是\textbf{字元集合}，
+\texttt{\^{}} 表示讀到集合裡的字元就停。 所以 \texttt{\%[\^{},]} 的
+意思是一直讀、直到碰到逗號。 它跟 \texttt{\%s} 一樣要有寬度上限，否
+則輸入比陣列長時會寫穿。 \texttt{char name[50]} 對應
+\texttt{\%49[\^{},]}，留下一格給空字元。
+
+直接用 \texttt{fscanf} 拆 CSV 很脆弱：某行缺欄，回傳值小於預期，檔案
+位置停在失敗那一格。 比較穩的路徑是先 \texttt{fgets} 拿整行，再
+\texttt{sscanf} 解析；失敗時丟掉這一行即可。
+
+\begin{example}[label=ex:fio-csv]{c}{(csv-parse.c) 逐行解析 CSV，壞行跳過}
+#include <stdio.h>
+#include <string.h>
+
+int main(void) {
+    char line[128];
+    int id;
+    char name[50];
+    double gpa;
+
+    while (fgets(line, sizeof line, stdin) != NULL) {
+        line[strcspn(line, "\n")] = '\0';
+        if (sscanf(line, "%d,%49[^,],%lf", &id, name, &gpa) == 3) {
+            printf("%d %s %.2f\n", id, name, gpa);
+        } else {
+            fprintf(stderr, "skip: %s\n", line);
+        }
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+1,Alice,3.80 \\
+2,Bob,3.50 \\
+badline \\
+3,Carol,3.90 \\
+}{
+1 Alice 3.80 \\
+2 Bob 3.50 \\
+3 Carol 3.90 \\
+}
+
+寫入時若目標是字元陣列，用 \texttt{snprintf}：它接受陣列大小，保證寫
+入空字元。
+
+\stylepoint{欄位可能缺漏時，先 \texttt{fgets} 再 \texttt{sscanf}，失
+敗就跳過或報錯。}
+
+\begin{drills}[label=drills:fio-fmt]
+\item \texttt{fscanf(fp, "\%d \%d", \&a, \&b)} 讀到 \texttt{3 x}，回
+傳值是多少？
+\item \texttt{char name[8];} 使用 \texttt{\%s} 而不寫寬度，輸入一個
+$30$ 字元的名字，會發生什麼事？
+\item 為什麼 \texttt{csv-parse.c} 的 scanset 要寫寬度 $49$？
+\item 改寫：把只用 \texttt{fscanf}、迴圈條件寫 \texttt{== 3} 的 CSV
+讀取，改成 \texttt{fgets}+\texttt{sscanf}。 遇到 \texttt{badline} 之
+後還要讀得到下一行。
+\end{drills}
+
+\section{二進位讀寫}
+\label{sec:fio-bin}
+
+錯誤檢查依第~\ref{sec:fio-open}~節的片語。
+
+同一筆數字，用文字存與用二進位存，磁碟上的位元組不一樣。 把
+$32767$ 寫成十進位數字字串，檔案裡是五個 ASCII 字元。 若改成一個
+$16$ 位元整數 \texttt{int16\_t}，檔案裡是兩個位元組。
+
+\begin{example}[label=ex:fio-text-bin]{c}{(write-text-bin.c) 同一個數字的兩種存法}
+#include <stdio.h>
+#include <stdint.h>
+
+int main(void) {
+    FILE *txt = fopen("num.txt", "w");
+    if (txt == NULL) {
+        perror("num.txt");
+        return 1;
+    }
+    fprintf(txt, "32767");
+    fclose(txt);
+
+    FILE *bin = fopen("num.bin", "wb");
+    if (bin == NULL) {
+        perror("num.bin");
+        return 1;
+    }
+    int16_t n = 32767;
+    fwrite(&n, sizeof n, 1, bin);
+    fclose(bin);
+    return 0;
+}
+\end{example}
+
+用十六進位把每個位元組印出來（本機指令是 \texttt{xxd}，讀者不必會用，
+後面每個二進位範例都會把結果貼上來）：
+
+\begin{center}
+\begin{verbatim}
+$ xxd num.txt
+00000000: 3332 3736 37                             32767
+
+$ xxd num.bin
+00000000: ff7f                                     ..
+\end{verbatim}
+\end{center}
+
+\texttt{33}、\texttt{32}、\texttt{37}、\texttt{36}、\texttt{37} 就是
+字元 \texttt{'3'} 到 \texttt{'7'}。 \texttt{num.bin} 只有
+\texttt{ff 7f}。 多位元組整數在記憶體裡的排列順序叫做端序
+（endianness）。 這台機器是小端序：低位元組排在前面，所以
+$32767 = \mathtt{0x7FFF}$ 存成 \texttt{FF} 再 \texttt{7F}。 大端序機
+器會存成 \texttt{7F FF}。 文字檔 \texttt{"32767"} 的字元順序與機器無
+關；二進位檔換機器讀可能得到不同的數值。 這也是 mode 要加 \texttt{b}
+的理由之一：文字模式可能改寫換行，二進位檔的每一個位元組都必須原樣
+進出。
+
+\texttt{fread} 與 \texttt{fwrite} 以記憶體裡的位元組為單位搬資料。 呼
+叫形如 \texttt{fread(ptr, size, nmemb, fp)}，回傳\textbf{成功的項目數}，
+型別是 \texttt{size\_t}。 檔案剩下的位元組不夠湊滿 \texttt{nmemb} 個
+項目時，回傳值小於請求，叫做短讀。 再問 \texttt{feof} 與
+\texttt{ferror} 分類。
+
+\begin{code}{c}{fread 看回傳的項目數}
+size_t n = fread(buf, sizeof buf[0], 5, fp);
+if (n < 5) {
+    if (ferror(fp)) {
+        /* 讀取錯誤 */
+    } else if (feof(fp)) {
+        /* 檔案尾，前 n 個項目仍可用 */
+    }
+}
+\end{code}
+
+\begin{example}{c}{(short-read.c) 檔案只有兩筆，請求五筆}
+#include <stdio.h>
+#include <stdint.h>
+
+int main(void) {
+    int16_t vals[2] = {1, 2};
+    FILE *fp = fopen("short.bin", "wb");
+    if (fp == NULL) {
+        perror("short.bin");
+        return 1;
+    }
+    fwrite(vals, sizeof vals[0], 2, fp);
+    fclose(fp);
+
+    int16_t buf[5];
+    fp = fopen("short.bin", "rb");
+    if (fp == NULL) {
+        perror("short.bin");
+        return 1;
+    }
+    size_t n = fread(buf, sizeof buf[0], 5, fp);
+    printf("got %zu items\n", n);
+    if (n < 5 && feof(fp)) {
+        printf("feof\n");
+    }
+    fclose(fp);
+    return 0;
+}
+\end{example}
+
+\iosample{
+}{
+got 2 items \\
+feof \\
+}
+
+三個結構相關的陷阱，前兩個第~\ref{ch:structure}~章已經鋪過。
+
+第一，填補。 \texttt{sizeof} 量到的是含填補的大小，\texttt{fwrite}
+會把填補一起寫進檔案。
+
+\begin{example}{c}{(padding-show.c) 五個位元組的欄位，寫出八個位元組}
+#include <stdio.h>
+
+struct Spread {
+    char c;
+    int n;
+};
+
+int main(void) {
+    struct Spread s = {'A', 1};
+    printf("sizeof=%zu field_sum=%zu\n",
+           sizeof s, sizeof s.c + sizeof s.n);
+
+    FILE *fp = fopen("pad.bin", "wb");
+    if (fp == NULL) {
+        perror("pad.bin");
+        return 1;
+    }
+    fwrite(&s, sizeof s, 1, fp);
+    fclose(fp);
+    return 0;
+}
+\end{example}
+
+\iosample{
+}{
+sizeof=8 field\_sum=5 \\
+}
+
+\begin{center}
+\begin{verbatim}
+$ xxd pad.bin
+00000000: 4100 0000 0100 0000                      A.......
+\end{verbatim}
+\end{center}
+
+\texttt{'A'} 是 \texttt{41}，後面三個 \texttt{00} 是填補，然後才是
+整數 $1$。 宣告時用 \texttt{\{'A', 1\}} 初始化，填補也會被設成 $0$。
+
+第二，端序。 同一個 \texttt{uint32\_t} 值 $\mathtt{0x01020304}$ 在這
+台小端序機器上寫成：
+
+\begin{center}
+\begin{verbatim}
+$ xxd endian.bin
+00000000: 0403 0201                                ....
+\end{verbatim}
+\end{center}
+
+\begin{example}{c}{(dump-endian.c) 同一個 uint32 在檔案裡的位元組}
+#include <stdio.h>
+#include <stdint.h>
+
+int main(void) {
+    FILE *fp = fopen("endian.bin", "wb");
+    if (fp == NULL) {
+        perror("endian.bin");
+        return 1;
+    }
+    uint32_t n = 0x01020304u;
+    fwrite(&n, sizeof n, 1, fp);
+    fclose(fp);
+    return 0;
+}
+\end{example}
+
+第三，含指標的結構不能直接寫。 \texttt{char *name} 在結構裡只佔一個
+指標那麼大；\texttt{fwrite} 寫出的是位址，字串內容不會出現在檔案裡。
+下一次執行這個程式再讀回來，那個位址毫無意義。 姓名要能跟結構一起存
+盤，請改成 \texttt{char name[16]} 這種內嵌陣列。
+
+\begin{example}[label=ex:fio-recs]{c}{(dump-records.c) 內嵌陣列的定長紀錄}
+#include <stdio.h>
+
+typedef struct {
+    int id;
+    char name[16];
+    double gpa;
+} Record;
+
+int main(void) {
+    Record recs[2] = {
+        {1, "Alice", 3.80},
+        {2, "Bob", 3.50},
+    };
+
+    FILE *fp = fopen("recs.bin", "wb");
+    if (fp == NULL) {
+        perror("recs.bin");
+        return 1;
+    }
+    fwrite(recs, sizeof recs[0], 2, fp);
+    fclose(fp);
+    printf("sizeof(Record)=%zu\n", sizeof(Record));
+    return 0;
+}
+\end{example}
+
+\iosample{
+}{
+sizeof(Record)=32 \\
+}
+
+\begin{center}
+\begin{verbatim}
+$ xxd recs.bin
+00000000: 0100 0000 416c 6963 6500 0000 0000 0000  ....Alice.......
+00000010: 0000 0000 0000 0000 6666 6666 6666 0e40  ........ffffff.@
+00000020: 0200 0000 426f 6200 0000 0000 0000 0000  ....Bob.........
+00000030: 0000 0000 0000 0000 0000 0000 0000 0c40  ...............@
+\end{verbatim}
+\end{center}
+
+宣告時用 \texttt{\{1, "Alice", 3.80\}}，其餘位元組都是 $0$。 賦值那
+邊不能寫同樣的大括號。
+
+何時用文字、何時用二進位：需要人眼看、需要跨機器、欄位長度不固定，
+走文字。 需要定長紀錄、檔案很大、只在同一種機器上讀寫，走二進位。
+
+\keypoint{\texttt{fread}/\texttt{fwrite} 回傳的是項目數。 結構則連填
+補、端序、指標欄位一起寫進檔案。}
+
+\begin{drills}[label=drills:fio-bin]
+\item \texttt{fread(buf, sizeof(int), 10, fp)} 回傳 $7$，且
+\texttt{ferror(fp)} 為假。 陣列前幾格有資料？
+\item 把含 \texttt{char *name} 的結構 \texttt{fwrite} 出去，檔案裡有
+沒有字串的字元？
+\item 同一份 \texttt{pad.bin} 拿到大端序機器上，用同一個
+\texttt{struct Spread} 讀回來，\texttt{n} 還是 $1$ 嗎？
+\item 文字檔存 \texttt{32767} 與二進位 \texttt{int16\_t} 存同一個數，
+哪一種換機器讀比較不容易因端序出錯？
+\end{drills}
+
+\section{位置與隨機存取}
+\label{sec:fio-seek}
+
+錯誤檢查依第~\ref{sec:fio-open}~節的片語。
+
+定長紀錄把檔案變成陣列：第 $i$ 筆從位元組
+\texttt{i * sizeof(Record)} 開始。 \texttt{fseek(fp, offset, whence)}
+移動位置，成功回傳 $0$。 \texttt{whence} 為 \texttt{SEEK\_SET}（從檔
+案開頭）、\texttt{SEEK\_CUR}（從目前位置）、\texttt{SEEK\_END}（從檔
+案尾）。 \texttt{ftell(fp)} 回傳從開頭算起的目前位置；失敗時回傳
+\texttt{-1L}，所以結果要接在 \texttt{long} 裡再跟 \texttt{-1L} 比。
+\texttt{rewind(fp)} 相當於把位置設回開頭並清錯誤旗標。
+
+\begin{center}
+\begin{tikzpicture}
+    \node[cell, minimum width=1.6cm] (r0) {R0};
+    \node[cell, minimum width=1.6cm, right=0cm of r0] (r1) {R1};
+    \node[hlcell, minimum width=1.6cm, right=0cm of r1] (r2) {R2};
+    \node[cell, minimum width=1.6cm, right=0cm of r2] (r3) {R3};
+    \node[idxlbl, below=3pt of r0] {\texttt{0}};
+    \node[idxlbl, below=3pt of r1] {\texttt{1}};
+    \node[idxlbl, below=3pt of r2] {\texttt{2}};
+    \node[idxlbl, below=3pt of r3] {\texttt{3}};
+    \draw[diagarrow] ([yshift=0.55cm]r2.north) -- (r2.north);
+    \node[font=\sffamily\scriptsize, above=8pt of r2]
+        {\texttt{fseek(fp, 2 * sizeof(Record), SEEK\_SET)}};
+\end{tikzpicture}
+\diagcaption{定長紀錄在檔案裡連續排列，第 $i$ 筆的位移是
+$i \times \texttt{sizeof(Record)}$。}
+\label{fig:fio-seek}
+\end{center}
+
+\begin{code}{c}{跳到第 i 筆再讀}
+long offset = (long)i * (long)sizeof(Record);
+if (fseek(fp, offset, SEEK_SET) != 0) {
+    perror("fseek");
+}
+Record r;
+if (fread(&r, sizeof r, 1, fp) != 1) {
+    /* 沒有這一筆，或讀取錯誤 */
+}
+\end{code}
+
+更新某一筆時，通常用 \texttt{"r+b"} 打開。 標準規定，從讀切到寫、或
+從寫切到讀，中間必須插入 \texttt{fflush} 或一次定位。 理由是：實作
+常讓讀寫共用同一塊串流緩衝區，切方向前得先讓它同步，否則串流緩衝區
+裡的內容與檔案位置會對不上。 讀完第 $i$ 筆之後位置已經指到第 $i+1$ 筆開
+頭，若直接 \texttt{fwrite} 會寫錯地方，而且未先定位本身就違反這條規
+定。 正確做法是改完欄位後，再 \texttt{fseek} 回同一筆的開頭，然後寫。
+
+假設 \texttt{grades.bin} 已經有三筆，對應第~\ref{sec:fio-bin}~節那種
+\texttt{Record}（Alice、Bob、Carol）。 下面只做原地更新。
+
+\begin{example}[label=ex:fio-update]{c}{(seek-update.c) 原地改第 1 筆的 GPA}
+#include <stdio.h>
+
+typedef struct {
+    int id;
+    char name[16];
+    double gpa;
+} Record;
+
+int main(void) {
+    FILE *fp = fopen("grades.bin", "r+b");
+    if (fp == NULL) {
+        perror("grades.bin");
+        return 1;
+    }
+
+    Record r;
+    long offset = (long)1 * (long)sizeof(Record);
+    fseek(fp, offset, SEEK_SET);
+    if (fread(&r, sizeof r, 1, fp) != 1) {
+        fclose(fp);
+        return 1;
+    }
+    printf("before %d %s %.2f\n", r.id, r.name, r.gpa);
+    r.gpa = 3.95;
+    fseek(fp, offset, SEEK_SET);
+    fwrite(&r, sizeof r, 1, fp);
+    fclose(fp);
+    return 0;
+}
+\end{example}
+
+\iosample{
+}{
+before 2 Bob 3.50 \\
+}
+
+索引從 $0$ 起算，所以第 $1$ 筆是 Bob。 讀與寫之間那一次
+\texttt{fseek} 同時滿足兩件事：位置回到 Bob 的開頭，以及標準要求的同
+步。 文字模式下 \texttt{fseek} 的可攜性限制見附錄。
+
+\keypoint{定長紀錄用 \texttt{index * sizeof} 當位移。 \texttt{r+b} 讀
+寫切換時，中間必須 \texttt{fflush} 或呼叫定位函式，因為讀寫可能共用
+同一塊串流緩衝區。}
+
+\begin{drills}[label=drills:fio-seek]
+\item 第 $0$ 筆、第 $3$ 筆的位移各是多少（以 \texttt{sizeof(Record)}
+為單位寫出來）？
+\item \texttt{r+b} 下 \texttt{fread} 成功後立刻 \texttt{fwrite} 同一
+筆、中間沒有 \texttt{fseek}。 錯在哪兩件事？
+\item \texttt{ftell} 回傳 \texttt{-1L} 時，能不能拿去當檔案大小？
+\item 從零寫：打開既有的定長紀錄檔，印出最後一筆（先用
+\texttt{fseek} 到結尾再往回一筆，或先 \texttt{ftell} 算筆數）。
+\end{drills}
+
+\section{綜合：定長紀錄與 CSV}
+\label{sec:fio-combine}
+
+錯誤檢查依第~\ref{sec:fio-open}~節的片語。
+
+把前面的工具收成一支小程式：檔案裡放定長的 \texttt{Record}，用
+\texttt{argv[1]} 當子命令。 \texttt{create} 建三筆（當成已知前置），
+\texttt{list} 用第~\ref{sec:fio-fmt}~節的 \texttt{report} 依序印出，
+\texttt{update} 原地改第 $n$ 筆的 GPA，\texttt{delete} 用重寫的方式
+刪掉第 $n$ 筆。
+
+\begin{example}[label=ex:fio-grades]{c}{(grades.c) 建檔、列出、原地更新、重寫刪除}
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+typedef struct {
+    int id;
+    char name[16];
+    double gpa;
+} Record;
+
+static void report(FILE *out, const Record *r) {
+    fprintf(out, "%d %s %.2f\n", r->id, r->name, r->gpa);
+}
+
+static int create_file(const char *path) {
+    Record recs[3] = {
+        {1, "Alice", 3.80},
+        {2, "Bob", 3.50},
+        {3, "Carol", 3.90},
+    };
+    FILE *fp = fopen(path, "wb");
+    if (fp == NULL) {
+        perror(path);
+        return 1;
+    }
+    fwrite(recs, sizeof recs[0], 3, fp);
+    fclose(fp);
+    return 0;
+}
+
+static int list_file(const char *path) {
+    FILE *fp = fopen(path, "rb");
+    if (fp == NULL) {
+        perror(path);
+        return 1;
+    }
+    Record r;
+    while (fread(&r, sizeof r, 1, fp) == 1) {
+        report(stdout, &r);
+    }
+    fclose(fp);
+    return 0;
+}
+
+static int update_file(const char *path, int index, double gpa) {
+    FILE *fp = fopen(path, "r+b");
+    if (fp == NULL) {
+        perror(path);
+        return 1;
+    }
+    Record r;
+    long offset = (long)index * (long)sizeof(Record);
+    fseek(fp, offset, SEEK_SET);
+    if (fread(&r, sizeof r, 1, fp) != 1) {
+        fprintf(stderr, "no record at %d\n", index);
+        fclose(fp);
+        return 1;
+    }
+    r.gpa = gpa;
+    fseek(fp, offset, SEEK_SET);
+    fwrite(&r, sizeof r, 1, fp);
+    fclose(fp);
+    return 0;
+}
+
+static int delete_file(const char *path, int index) {
+    FILE *in = fopen(path, "rb");
+    if (in == NULL) {
+        perror(path);
+        return 1;
+    }
+    FILE *out = fopen("grades.tmp", "wb");
+    if (out == NULL) {
+        perror("grades.tmp");
+        fclose(in);
+        return 1;
+    }
+    Record r;
+    int i = 0;
+    int kept = 0;
+    while (fread(&r, sizeof r, 1, in) == 1) {
+        if (i != index) {
+            fwrite(&r, sizeof r, 1, out);
+            kept++;
+        }
+        i++;
+    }
+    int cin = fclose(in);
+    int cout = fclose(out);
+    if (cin != 0 || cout != 0) {
+        perror("fclose");
+        return 1;
+    }
+    remove(path);
+    rename("grades.tmp", path);
+    printf("kept %d\n", kept);
+    return 0;
+}
+
+int main(int argc, char *argv[]) {
+    const char *path = "grades.bin";
+    if (argc < 2) {
+        fprintf(stderr, "usage: %s create|list|update|delete ...\n",
+                argv[0]);
+        return 1;
+    }
+    if (strcmp(argv[1], "create") == 0) {
+        return create_file(path);
+    }
+    if (strcmp(argv[1], "list") == 0) {
+        return list_file(path);
+    }
+    if (strcmp(argv[1], "update") == 0) {
+        if (argc != 4) {
+            fprintf(stderr, "usage: %s update index gpa\n", argv[0]);
+            return 1;
+        }
+        return update_file(path, atoi(argv[2]), atof(argv[3]));
+    }
+    if (strcmp(argv[1], "delete") == 0) {
+        if (argc != 3) {
+            fprintf(stderr, "usage: %s delete index\n", argv[0]);
+            return 1;
+        }
+        return delete_file(path, atoi(argv[2]));
+    }
+    fprintf(stderr, "unknown command\n");
+    return 1;
+}
+\end{example}
+
+\texttt{fclose(in)} 與 \texttt{fclose(out)} 必須各呼叫一次再合併判斷。
+若寫成兩個呼叫用 \texttt{||} 串在條件裡，左邊失敗時右邊不會執行，暫存
+檔沒沖洗就去 \texttt{rename}。
+
+文字與二進位之間的橋：從 CSV 讀進來，寫成同一種 \texttt{Record}。 每
+一筆用 \texttt{Record r = \{0\}} 先清成零，避免名字欄留下上一筆的殘
+餘字元。
+
+\begin{example}[label=ex:fio-csv2bin]{c}{(csv-to-bin.c) CSV 轉定長二進位再讀回}
+#include <stdio.h>
+#include <string.h>
+
+typedef struct {
+    int id;
+    char name[16];
+    double gpa;
+} Record;
+
+int main(void) {
+    char line[128];
+    Record recs[8];
+    int n = 0;
+
+    while (fgets(line, sizeof line, stdin) != NULL && n < 8) {
+        line[strcspn(line, "\n")] = '\0';
+        Record r = {0};
+        if (sscanf(line, "%d,%15[^,],%lf", &r.id, r.name, &r.gpa) != 3) {
+            fprintf(stderr, "skip: %s\n", line);
+            continue;
+        }
+        recs[n] = r;
+        n++;
+    }
+
+    FILE *fp = fopen("fromcsv.bin", "wb");
+    if (fp == NULL) {
+        perror("fromcsv.bin");
+        return 1;
+    }
+    if (n > 0) {
+        fwrite(recs, sizeof recs[0], (size_t)n, fp);
+    }
+    fclose(fp);
+
+    fp = fopen("fromcsv.bin", "rb");
+    if (fp == NULL) {
+        perror("fromcsv.bin");
+        return 1;
+    }
+    Record r;
+    while (fread(&r, sizeof r, 1, fp) == 1) {
+        printf("%d %s %.2f\n", r.id, r.name, r.gpa);
+    }
+    fclose(fp);
+    return 0;
+}
+\end{example}
+
+\iosample{
+1,Alice,3.80 \\
+2,Bob,3.50 \\
+bad \\
+3,Carol,3.90 \\
+}{
+1 Alice 3.80 \\
+2 Bob 3.50 \\
+3 Carol 3.90 \\
+}
+
+\stylepoint{子命令放在 \texttt{argv}，比在程式裡做互動選單更利於重跑
+與測試。 刪除定長紀錄用重寫，更新才用 \texttt{r+b} 原地改。}
+
+\begin{drills}[label=drills:fio-combine]
+\item 從零寫：印出 \texttt{stdin} 的最後一行（相當於 \texttt{tail -n
+1} 的文字檔版本）。 行長不超過 $1023$ 字元。
+\item \texttt{csv-to-bin.c} 若把 \texttt{Record r = \{0\}} 改成未初
+始化的 \texttt{Record r;}，Alice 之後讀 Bob，名字欄可能出現什麼殘餘？
+\item \texttt{list} 若改成 \texttt{while (!feof(fp)) \{ fread...
+report...\}}，最後一筆會印幾次？
+\item 改寫：迴圈條件若寫 \texttt{fscanf(...) == 3}，改成
+\texttt{fgets} 加 \texttt{sscanf}。
+\end{drills}
+
+\section{錯誤清單}
+\label{sec:fio-checklist}
+
+下面每一條都對應前面某一節。
+
+\begin{itemize}
+\item 診斷走 \texttt{stderr}，結果走 \texttt{stdout}。
+接線叫重新導向；\texttt{|} 叫管線。
+（第~\ref{sec:fio-stream}~節）
+\item 先讀、看回傳值，再用 \texttt{feof}/\texttt{ferror} 分類。
+\texttt{while (!feof(fp))} 會讓最後一行重複。
+（第~\ref{sec:fio-state}~節）
+\item \texttt{printf} 無換行可能留在串流緩衝區。
+\texttt{fflush(stdout)} 合法，\texttt{fflush(stdin)} 是未定義行為。
+（第~\ref{sec:fio-state}~節）
+\item \texttt{fopen} 失敗回傳 \texttt{NULL}，先 \texttt{perror} 再離
+開；\texttt{fclose} 的回傳值也要看。 \texttt{w} 會清空既有檔案。 檔
+名從 \texttt{argv} 取。
+（第~\ref{sec:fio-open}~節）
+\item 先問要處理的單位，再選函式。
+（第~\ref{sec:fio-toolbox}~節）
+\item \texttt{fgetc}/\texttt{getchar} 的回傳值用 \texttt{int} 接。
+（第~\ref{sec:fio-char}~節）
+\item 用 \texttt{fgets} 讀行時，換行會留在行陣列裡。 比對結束字串前
+先剝換行。 標準已移除 \texttt{gets}。
+（第~\ref{sec:fio-line}~節）
+\item \texttt{fscanf} 看成功轉換數；scanset 是字元集合，要寫寬度。
+CSV 用 \texttt{fgets} + \texttt{sscanf}。 輸出目標可以做成
+\texttt{FILE *} 參數。
+（第~\ref{sec:fio-fmt}~節）
+\item \texttt{fread}/\texttt{fwrite} 回傳項目數。 填補、端序、指標欄
+位都會進檔案。 結構在宣告時初始化。
+（第~\ref{sec:fio-bin}~節）
+\item 定長紀錄位移 \texttt{index * sizeof}。 \texttt{r+b} 讀寫之間必
+須定位或 \texttt{fflush}。 \texttt{ftell} 失敗是 \texttt{-1L}。
+（第~\ref{sec:fio-seek}~節）
+\end{itemize}
+
+\begin{drills}[label=drills:fio-checklist]
+\item 下面這段有四個錯，請全部標出。
+\begin{verbatim}
+char ch;
+char name[8];
+struct S { int id; char *title; } s;
+FILE *fp = fopen("d.bin", "r+b");
+while (!feof(fp)) {
+    ch = fgetc(fp);
+    fscanf(fp, "%s", name);
+    fwrite(&s, sizeof s, 1, fp);
+}
+\end{verbatim}
+\item 指出錯誤：\texttt{fflush(stdin);}
+\item 指出錯誤：結構裡有 \texttt{char *name}，直接
+\texttt{fwrite(\&s, sizeof s, 1, fp)}。
+\end{drills}
+
+\phantomsection
+\addcontentsline{toc}{section}{附錄：可攜性與底層}
+\section*{附錄：可攜性與底層}
+\label{sec:fio-advanced}
+
+這些內容第一次學檔案用不到，需要時再回來。
+
+\texttt{setvbuf(fp, buf, mode, size)} 可在開檔後、尚未讀寫前改串流緩
+衝策略。 \texttt{mode} 為 \texttt{\_IOFBF}（全）、\texttt{\_IOLBF}（列）、
+\texttt{\_IONBF}（無）。 多數程式用預設即可。
+
+文字模式下，\texttt{fseek} 只保證能回到先前 \texttt{ftell} 回傳的值，
+或回到開頭；隨便算一個位元組位移不一定合法，因為換行轉換會讓邏輯位
+置與位元組位置脫鉤。 二進位模式下，ISO C 不保證 \texttt{SEEK\_END}
+能用（POSIX 通常可以）。 用定位到檔案尾再問 \texttt{ftell} 來量大小，
+在嚴格的標準意義上並非處處成立。
+
+\texttt{fsetpos} 與 \texttt{fgetpos} 用一個不透明的位置型別記位置，
+適合很大的檔案；這一章用 \texttt{fseek} 與 \texttt{ftell} 就夠。
+
+\texttt{FILE *} 底下還有作業系統的檔案描述子，英文叫 file
+descriptor。 POSIX 的 \texttt{read}/\texttt{write} 走那一層；這一章
+停在 \texttt{FILE}。
+
+\phantomsection
+\addcontentsline{toc}{section}{練習解答}
+\section*{練習解答}
+
+各節練習的答案收在這裡。 從零寫與改寫只給能一句話核對的結果；完整程式
+見正文片語。
+
+\paragraph{第~\ref{sec:fio-stream}~節}
+\begin{enumerate}
+\item \texttt{printf} 進 \texttt{log.txt}，\texttt{fprintf(stderr,
+...)} 仍在螢幕。
+\item \texttt{prog1} 的 \texttt{stdout}。
+\item 一旦 \texttt{stdout} 被重新導向接到檔案，走 \texttt{printf} 的
+診斷會跟著消失；\texttt{stderr} 仍留在螢幕。
+\item \texttt{>>}。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:fio-state}~節}
+\begin{enumerate}
+\item 兩行 \texttt{hi}（最後一行重複）。
+\item 假。 旗標尚未立起。
+\item 對輸入串流 \texttt{fflush} 是未定義行為。
+\item 讀取 $\rightarrow$ 看回傳值 $\rightarrow$ 處理這一筆（僅當成功）
+$\rightarrow$ 需要時問 \texttt{feof}/\texttt{ferror}。
+\item 串流緩衝區。 列緩衝還沒遇到換行。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:fio-open}~節}
+\begin{enumerate}
+\item 空的。 \texttt{w} 會截斷。
+\item 不行。 \texttt{argc == 1} 表示只有 \texttt{argv[0]}。
+\item 不一定。 寫入錯誤可能到 \texttt{fclose} 沖洗串流緩衝區時才發生。
+\item \texttt{"r+b"}。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:fio-toolbox}~節}
+\begin{enumerate}
+\item \texttt{fgets}。
+\item \texttt{fread}/\texttt{fwrite}。
+\item 格式不符。
+\item 檔案尾（EOF）。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:fio-char}~節}
+\begin{enumerate}
+\item 讀到 $\mathtt{0xFF}$ 那一格就停，後面沒讀。
+\item $1$ $2$ $3$。
+\item 沒有差別。 \texttt{getchar()} 就是 \texttt{getc(stdin)}。
+\item 同 \texttt{cat-file.c} 的迴圈，檔名來自 \texttt{argv[1]}。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:fio-line}~節}
+\begin{enumerate}
+\item 比不中。 行陣列裡是 \texttt{quit\textbackslash n}。
+\item \texttt{abc} 加上空字元，沒有換行。
+\item \texttt{\textbackslash n}（字串 \texttt{"\textbackslash n"}）。
+\item \texttt{puts} 三個字元；\texttt{fputs} 兩個字元，沒有換行。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:fio-fmt}~節}
+\begin{enumerate}
+\item 回傳 $1$。
+\item 寫穿 \texttt{name}，未定義行為。
+\item \texttt{name[50]} 只能再容 $49$ 個字元加一個空字元。
+\item 迴圈條件改 \texttt{fgets != NULL}，每一行用 \texttt{sscanf}，
+失敗就 \texttt{continue}。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:fio-bin}~節}
+\begin{enumerate}
+\item 前 $7$ 個 \texttt{int} 有資料。
+\item 沒有。 檔案裡是指標值。
+\item 不一定。 \texttt{int} 的四個位元組端序相反，\texttt{n} 的數值
+會變。
+\item 文字。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:fio-seek}~節}
+\begin{enumerate}
+\item $0$ 與 $3 \times \texttt{sizeof(Record)}$。
+\item 位置已經移到下一筆開頭；而且讀後直接寫違反共用串流緩衝區的同
+步規定。
+\item 不能。 那是失敗值。
+\item \texttt{fseek(fp, -sizeof(Record), SEEK\_END)} 再 \texttt{fread}
+一筆（附錄：\texttt{SEEK\_END} 在 ISO C 不保證）。 或先量大小再定位
+最後一筆。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:fio-combine}~節}
+\begin{enumerate}
+\item 用行陣列逐行 \texttt{fgets}，每次成功就覆寫；迴圈結束後印出
+（先確認至少成功讀過一行）。
+\item Alice 的殘餘字元留在 Bob 的空字元後面。
+\item 兩次。 與第~\ref{sec:fio-state}~節同一種晚一步。
+\item 同第~\ref{sec:fio-fmt}~節改寫。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:fio-checklist}~節}
+\begin{enumerate}
+\item 四個錯：\texttt{while (!feof(fp))}；\texttt{char ch} 接
+\texttt{fgetc}；\texttt{\%s} 無寬度；讀之後直接 \texttt{fwrite}、中間
+沒有定位。 （\texttt{char *title} 再另算一個，寫出的是位址。）
+\item 未定義行為。
+\item 寫出的是位址，字串內容不在檔案裡。
+\end{enumerate}

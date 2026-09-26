@@ -1,0 +1,890 @@
+\chapter{物件}
+\label{ch:objects}
+
+上一章回答的是「資料怎麼\emph{串起來}」；這一章回答的是另一個問題：
+「程式碼怎麼\emph{分開}」。 一支程式只要稍微大一點，把所有東西塞進一
+個 \texttt{main} 就會開始難以維護——狀態變數散落各處、同樣的邏輯被複
+製貼上好幾份、換一種內部實作就要把用到它的地方全部重寫一遍。 C 沒有
+\texttt{class} 關鍵字，但只要善用\textbf{標頭檔}、\textbf{struct}、
+\textbf{分別編譯}，一樣可以做到「物件」真正重要的那些好處：把狀態包
+起來、把介面和實作分開、換實作不影響呼叫端。
+
+這一章只用一個例子貫穿到底：一個堆疊（stack）模組。 不是為了教堆疊
+這個資料結構本身（上一章已經打好指標與 heap 的基礎），而是拿堆疊當
+\textbf{載體}，一步一步示範「從寫死在 \texttt{main} 裡的陣列，走到一
+個可以換掉內部實作、呼叫端完全不用改的模組」這整個過程。 全章的高潮
+發生在中段：同一份 \texttt{main.c}、同一份 \texttt{stack.h}，只換掉
+\texttt{stack.c}，重新編譯就能跑——那一刻你會真正感覺到「物件」帶來
+的好處是什麼，而不是背一句抽象定義。
+
+\section{從一個具體的痛開始}
+\label{sec:obj-pain}
+
+括號平衡是堆疊最經典的應用：從左到右掃過字串，遇到 \texttt{(} 就推
+進堆疊，遇到 \texttt{)} 就彈出一個；掃完後堆疊該剛好清空。 最直接的
+寫法，把堆疊整個寫死在 \texttt{main} 裡：
+
+\begin{example}{c}{(paren1.c) 堆疊直接寫死在 main 裡}
+#include <stdio.h>
+
+int main(void) {
+    char line[1000];
+    if (!fgets(line, sizeof line, stdin)) return 0;
+
+    int stack[1000];
+    int top = 0;
+    int ok = 1;
+
+    for (int i = 0; line[i] != '\0' && line[i] != '\n'; i++) {
+        char c = line[i];
+        if (c == '(') {
+            stack[top++] = c;
+        } else if (c == ')') {
+            if (top == 0) { ok = 0; break; }
+            top--;
+        }
+    }
+    if (top != 0) ok = 0;
+
+    printf("%s\n", ok ? "balanced" : "not balanced");
+    return 0;
+}
+\end{example}
+
+\iosample{(a(b)c)}{balanced}
+
+能跑，也不難懂。 但現在假設題目多了一個要求：字串裡同時要平衡
+\texttt{()} 跟 \texttt{[]} 兩種括號，各自獨立判斷。 最直覺的做法是再
+開一組 \texttt{stack2}、\texttt{top2}，把上面判斷括號的邏輯複製貼上一
+份，只把變數名字換掉。 再多一種括號，再複製一份。 這份程式碼裡「堆
+疊」這件事——怎麼推進、怎麼彈出、怎麼判斷空——其實完全沒變，變的只
+是「用哪個陣列、哪個索引」。 每次要多一個堆疊，就要重新複製貼上整套
+邏輯，這正是這一章要解決的痛點：\textbf{堆疊的操作邏輯，應該只寫一
+次，寫成「可以重複開新的堆疊來用」的樣子}。
+
+\section{把狀態包成 struct}
+\label{sec:obj-struct}
+
+第一步很小：把 \texttt{stack} 陣列跟 \texttt{top} 這兩個「總是綁在一
+起使用」的變數，包進一個 \texttt{struct}：
+
+\begin{code}{c}{把陣列與 top 包成一個 Stack}
+#define STACK_CAP 1000
+
+typedef struct {
+    int data[STACK_CAP];
+    int top;
+} Stack;
+\end{code}
+
+原本各自散落的操作函式，通通改成吃一個 \texttt{Stack *} 參數：
+
+\begin{code}{c}{操作函式改吃 Stack *}
+void stack_init(Stack *s) {
+    s->top = 0;
+}
+
+void stack_push(Stack *s, int x) {
+    s->data[s->top] = x;
+    s->top++;
+}
+
+int stack_pop(Stack *s) {
+    s->top--;
+    return s->data[s->top];
+}
+\end{code}
+
+現在要開第二個堆疊，只要再宣告一個 \texttt{Stack} 變數，呼叫同一組函
+式、傳不同的位址進去就好——不用複製貼上任何邏輯：
+
+\begin{code}{c}{開兩個獨立的堆疊}
+Stack s1, s2;
+stack_init(&s1);
+stack_init(&s2);
+stack_push(&s1, 'a');
+stack_push(&s2, 'b'); /* s1、s2 互不影響 */
+\end{code}
+
+\keypoint{把「總是綁在一起用」的變數包進一個 \texttt{struct}，操作函式
+改吃這個 struct 的指標——這是把重複邏輯變成「可以開多份」的第一步，也
+是本章所有後續技巧的地基。}
+
+\section{介面：函式宣告先於實作}
+\label{sec:obj-interface}
+
+上一節的 \texttt{stack\_init}／\texttt{stack\_push}／\texttt{stack\_pop}
+還需要再補兩個常用操作：判斷是否為空、判斷是否已滿。 五個函式的\textbf{原
+型}湊在一起，就是這個堆疊模組的\textbf{介面}（interface）——只描述「能
+做什麼」，不涉及「怎麼做到」：
+
+\begin{code}{c}{堆疊模組的介面：五個函式原型}
+void stack_init(Stack *s);
+void stack_push(Stack *s, int x);
+int  stack_pop(Stack *s);
+int  stack_is_empty(const Stack *s);
+int  stack_is_full(const Stack *s);
+\end{code}
+
+這一節要做一件聽起來奇怪的事：\textbf{只靠這五個原型，先把括號平衡的
+\texttt{main.c} 完整寫出來}——這幾個函式的本體到現在都還沒寫。
+
+\begin{code}{c}{main.c：只靠原型，函式本體還不存在}
+Stack s;
+stack_init(&s);
+int ok = 1;
+
+for (int i = 0; line[i] != '\0' && line[i] != '\n'; i++) {
+    char c = line[i];
+    if (c == '(') {
+        stack_push(&s, c);
+    } else if (c == ')') {
+        if (stack_is_empty(&s)) { ok = 0; break; }
+        stack_pop(&s);
+    }
+}
+if (!stack_is_empty(&s)) ok = 0;
+\end{code}
+
+這支 \texttt{main.c} 能不能\textit{編譯}？ 能——編譯器只要看過原型，
+就知道每個函式接受什麼參數、回傳什麼型別，足夠產生呼叫它們的機器碼。
+能不能\textit{連結成執行檔}？ 不能，因為函式本體還不存在，連結器找不
+到它們真正的位址。 這個「能編譯、不能連結」的中間狀態，正是這一節要
+凸顯的重點：\textbf{寫使用端程式碼的人，完全不需要知道實作怎麼寫，只
+需要一份介面}。 這正是\textbf{抽象}（abstraction）這個詞在這裡的具體
+意思——不是什麼玄妙的哲學，就是「先講清楚能做什麼，再決定怎麼做到」。
+
+\keypoint{只靠函式原型（介面），就能把使用端的程式碼完整寫出來、甚至
+編譯出目的檔——不需要等實作寫完。 這件事本身就是「抽象」：把「能做什
+麼」跟「怎麼做到」拆成兩個可以分開處理的問題。}
+
+\section{標頭檔與 include guard}
+\label{sec:obj-header}
+
+上一節那五個原型，該放進一個 \texttt{.h} 檔，讓每個要用堆疊的
+\texttt{.c} 檔都能 \texttt{\#include} 它：
+
+\begin{example}{c}{(stack.h) 堆疊模組的標頭檔}
+#ifndef STACK_H
+#define STACK_H
+
+#define STACK_CAP 1000
+
+typedef struct {
+    int data[STACK_CAP];
+    int top;
+} Stack;
+
+void stack_init(Stack *s);
+void stack_push(Stack *s, int x);
+int  stack_pop(Stack *s);
+int  stack_is_empty(const Stack *s);
+int  stack_is_full(const Stack *s);
+
+#endif
+\end{example}
+
+\texttt{\#ifndef}／\texttt{\#define}／\texttt{\#endif} 這層 include
+guard 前置處理那一章已經講過原理，這裡不重複；記住每個自己寫的標頭檔
+都該包這一層就好。 \texttt{Stack} 這個型別定義也放進標頭檔，因為呼叫
+端要宣告 \texttt{Stack s;} 這種區域變數，編譯器得知道它確切多大。
+
+真正的實作放進對應的 \texttt{stack.c}：
+
+\begin{example}{c}{(stack.c) 堆疊模組的實作}
+#include "stack.h"
+
+void stack_init(Stack *s) {
+    s->top = 0;
+}
+
+void stack_push(Stack *s, int x) {
+    s->data[s->top] = x;
+    s->top++;
+}
+
+int stack_pop(Stack *s) {
+    s->top--;
+    return s->data[s->top];
+}
+
+int stack_is_empty(const Stack *s) {
+    return s->top == 0;
+}
+
+int stack_is_full(const Stack *s) {
+    return s->top == STACK_CAP;
+}
+\end{example}
+
+如果 \texttt{stack.c} 裡還想要一個只給自己內部用、不想讓其他檔案呼叫
+的輔助函式，在它前面加上 \texttt{static}：
+
+\begin{code}{c}{static：只在這個檔案裡看得見}
+static void log_internal_state(const Stack *s) {
+    /* 只有 stack.c 自己會呼叫這個函式，其他 .c 檔看不到它、也連結不到它 */
+}
+\end{code}
+
+檔案範圍的 \texttt{static} 給的是\textbf{內部連結}（internal linkage）
+——這個名字只在目前這個翻譯單元裡看得到，就算另一個 \texttt{.c} 檔剛
+好也定義了一個同名函式，也不會撞名。 這是模組「只暴露該暴露的東西」
+的第一層工具，之後第~\ref{sec:obj-opaque}~節會看到更徹底的做法。
+
+\keypoint{標頭檔放「呼叫端需要知道的東西」（型別定義、函式原型），實
+作放對應的 \texttt{.c} 檔；每個標頭檔都要包 include guard。 檔案範圍的
+\texttt{static} 讓一個名字只在該檔案內部可見，不會跟其他檔案撞名。}
+
+\section{分別編譯}
+\label{sec:obj-compile}
+
+\texttt{stack.h}、\texttt{stack.c}、\texttt{main.c} 三個檔案，怎麼變
+成一支執行檔？ 前置處理那一章已經看過「編譯→組譯→連結」這條流水線；
+分別編譯的意思是：\texttt{stack.c} 跟 \texttt{main.c} \textbf{各自獨
+立}走過前面兩站，變成各自的目的檔，最後才由連結器把它們接起來。
+
+\begin{center}
+\begin{tikzpicture}[node distance=1.0cm and 0.8cm]
+    \node[startend, minimum width=2.0cm, font=\small\sffamily] (s1) {stack.c};
+    \node[process, right=of s1, minimum width=2.6cm, font=\small\sffamily] (c1) {編譯／組譯};
+    \node[startend, right=of c1, minimum width=2.0cm, font=\small\sffamily] (o1) {stack.o};
+
+    \node[startend, below=of s1, minimum width=2.0cm, font=\small\sffamily] (s2) {main.c};
+    \node[process, right=of s2, minimum width=2.6cm, font=\small\sffamily] (c2) {編譯／組譯};
+    \node[startend, right=of c2, minimum width=2.0cm, font=\small\sffamily] (o2) {main.o};
+
+    \node[process, right=3.2cm of o1, minimum width=2.0cm, font=\small\sffamily, yshift=-0.65cm] (link) {連結};
+    \node[startend, right=of link, minimum width=2.0cm, font=\small\sffamily] (exe) {執行檔};
+
+    \draw[flowarrow] (s1) -- (c1);
+    \draw[flowarrow] (c1) -- (o1);
+    \draw[flowarrow] (s2) -- (c2);
+    \draw[flowarrow] (c2) -- (o2);
+    \draw[flowarrow] (o1) -- (link);
+    \draw[flowarrow] (o2) -- (link);
+    \draw[flowarrow] (link) -- (exe);
+\end{tikzpicture}
+\diagcaption{\texttt{stack.c} 與 \texttt{main.c} 各自獨立編譯成目的
+檔，互不干涉；只有連結這一步才把兩份目的檔接成一支執行檔。 只改了
+\texttt{stack.c}，就只需要重新編譯 \texttt{stack.o} 再重新連結，不用
+動 \texttt{main.o}。}
+\label{fig:obj-separate-compile}
+\end{center}
+
+\begin{code}{bash}{手動分別編譯再連結}
+gcc -c stack.c -o stack.o    # 只編譯，不連結，產生目的檔
+gcc -c main.c -o main.o
+gcc stack.o main.o -o paren  # 連結兩個目的檔成執行檔
+\end{code}
+
+\texttt{-c} 讓 \texttt{gcc} 只做到目的檔這一步就停下來。 大型專案通
+常不會手動打這幾行，而是寫一份 \texttt{Makefile}：
+
+\begin{code}{text}{Makefile（最小示意）}
+paren: stack.o main.o
+	gcc stack.o main.o -o paren
+
+stack.o: stack.c stack.h
+	gcc -c stack.c -o stack.o
+
+main.o: main.c stack.h
+	gcc -c main.c -o main.o
+\end{code}
+
+\texttt{make} 會比對檔案的修改時間，只重新編譯真的改過的 \texttt{.c}
+檔，沒改的直接沿用舊的 \texttt{.o}——這也是分別編譯除了「介面與實作分
+開」之外，另一個實務上的好處：專案越大，省下的重複編譯時間越可觀。
+
+\keypoint{分別編譯讓每個 \texttt{.c} 檔各自變成目的檔，連結才把它們接
+起來；只改了其中一個檔案，只需要重新編譯那一個，不用整個專案重編。
+\texttt{Makefile} 把這件事自動化。}
+
+\section{應用一：括號平衡}
+\label{sec:obj-app-paren}
+
+有了 \texttt{stack.h}，第~\ref{sec:obj-pain}~節那支括號平衡程式可以完
+整改寫，而且從頭到尾\textbf{只 \texttt{\#include "stack.h"}}，不需要
+知道 \texttt{stack.c} 內部怎麼實作：
+
+\begin{example}{c}{(main\_paren.c) 只碰 stack.h 的括號平衡}
+#include <stdio.h>
+#include "stack.h"
+
+int main(void) {
+    char line[1000];
+    if (!fgets(line, sizeof line, stdin)) return 0;
+
+    Stack s;
+    stack_init(&s);
+    int ok = 1;
+
+    for (int i = 0; line[i] != '\0' && line[i] != '\n'; i++) {
+        char c = line[i];
+        if (c == '(') {
+            stack_push(&s, c);
+        } else if (c == ')') {
+            if (stack_is_empty(&s)) { ok = 0; break; }
+            stack_pop(&s);
+        }
+    }
+    if (!stack_is_empty(&s)) ok = 0;
+
+    printf("%s\n", ok ? "balanced" : "not balanced");
+    return 0;
+}
+\end{example}
+
+\iosample{(a(b)c)}{balanced}
+
+\section{應用二：對稱字串}
+\label{sec:obj-app-palindrome}
+
+第二個應用一樣只碰 \texttt{stack.h}：把字串整個推進堆疊，再一個一個
+彈出來跟原字串從頭比對——彈出的順序剛好是原字串的反序，兩者完全相同
+就是回文（palindrome）：
+
+\begin{example}{c}{(main\_palindrome.c) 只碰 stack.h 的回文判斷}
+#include <stdio.h>
+#include <string.h>
+#include "stack.h"
+
+int main(void) {
+    char line[1000];
+    if (!fgets(line, sizeof line, stdin)) return 0;
+    int len = (int)strlen(line);
+    if (len > 0 && line[len - 1] == '\n') line[--len] = '\0';
+
+    Stack s;
+    stack_init(&s);
+    for (int i = 0; i < len; i++) stack_push(&s, line[i]);
+
+    int ok = 1;
+    for (int i = 0; i < len; i++) {
+        int c = stack_pop(&s);
+        if (c != line[i]) { ok = 0; break; }
+    }
+
+    printf("%s\n", ok ? "palindrome" : "not palindrome");
+    return 0;
+}
+\end{example}
+
+\iosample{racecar}{palindrome}
+
+兩個應用程式合計沒有出現任何 \texttt{s.data[...]} 或 \texttt{s.top}
+這種直接碰觸內部欄位的寫法，一律透過 \texttt{stack\_push}／
+\texttt{stack\_pop}／\texttt{stack\_is\_empty} 操作。 這不是巧合，是
+下一節「換實作」能夠成立的前提。
+
+\keypoint{只要應用程式全程只透過介面（五個函式）操作
+\texttt{Stack}，不直接碰觸內部欄位，介面背後的實作要怎麼換都不會影響
+到它——這正是下一節要展示的事。}
+
+\section{換一個實作：換掉 stack.c，main.c 不用改}
+\label{sec:obj-swap}
+
+這一節是全章的高潮：把 \texttt{stack.c} 整份換掉，\texttt{stack.h} 一
+個字都不改，\texttt{main.c} 也一個字都不改，重新編譯就能跑。 換掉的
+方向，是把固定大小的陣列，換成\textbf{用得完才長大}的動態陣列——原本
+的 \texttt{Stack} 得先把 \texttt{data} 從「固定大小的陣列欄位」改成
+「指標＋容量」，這一步標頭檔要跟著微調：
+
+\begin{example}{c}{(stack2.h) 用指標＋容量取代固定陣列}
+#ifndef STACK_H
+#define STACK_H
+
+typedef struct {
+    int *data;
+    int top;
+    int capacity;
+} Stack;
+
+void stack_init(Stack *s);
+void stack_push(Stack *s, int x);
+int  stack_pop(Stack *s);
+int  stack_is_empty(const Stack *s);
+int  stack_is_full(const Stack *s);
+void stack_free(Stack *s);
+
+#endif
+\end{example}
+
+多了一個 \texttt{stack\_free}（動態配置的記憶體要記得釋放），介面其
+餘五個函式的原型完全沒變。 現在準備兩份 \texttt{stack.c}，都實作同一
+份介面：
+
+\begin{example}{c}{(stack\_fixed.c) 固定容量版}
+#include <stdlib.h>
+#include "stack2.h"
+
+#define FIXED_CAP 1000
+
+void stack_init(Stack *s) {
+    s->data = malloc(FIXED_CAP * sizeof(int));
+    s->top = 0;
+    s->capacity = FIXED_CAP;
+}
+
+void stack_push(Stack *s, int x) {
+    s->data[s->top] = x;
+    s->top++;
+}
+
+int stack_pop(Stack *s) {
+    s->top--;
+    return s->data[s->top];
+}
+
+int stack_is_empty(const Stack *s) { return s->top == 0; }
+int stack_is_full(const Stack *s)  { return s->top == s->capacity; }
+
+void stack_free(Stack *s) {
+    free(s->data);
+    s->data = NULL;
+}
+\end{example}
+
+\begin{example}{c}{(stack\_dynamic.c) 用完就長大，永遠不會滿}
+#include <stdlib.h>
+#include "stack2.h"
+
+#define INITIAL_CAP 4
+
+void stack_init(Stack *s) {
+    s->data = malloc(INITIAL_CAP * sizeof(int));
+    s->top = 0;
+    s->capacity = INITIAL_CAP;
+}
+
+void stack_push(Stack *s, int x) {
+    if (s->top == s->capacity) {
+        s->capacity *= 2;
+        s->data = realloc(s->data, s->capacity * sizeof(int));
+    }
+    s->data[s->top++] = x;
+}
+
+int stack_pop(Stack *s) {
+    s->top--;
+    return s->data[s->top];
+}
+
+int stack_is_empty(const Stack *s) { return s->top == 0; }
+int stack_is_full(const Stack *s)  { (void)s; return 0; }
+
+void stack_free(Stack *s) {
+    free(s->data);
+    s->data = NULL;
+}
+\end{example}
+
+\texttt{main\_paren.c}（只需要在原本的版本結尾補上一行
+\texttt{stack\_free(\&s);}）分別跟這兩份 \texttt{stack.c} 連結：
+
+\begin{code}{bash}{同一份 main.c，換掉 stack.c 重新編譯}
+gcc -c stack_fixed.c -o stack.o
+gcc -c main_paren.c -o main.o
+gcc stack.o main.o -o paren   # 固定容量版
+
+gcc -c stack_dynamic.c -o stack.o   # 換掉這一步
+gcc stack.o main.o -o paren         # main.o 完全不用重新編譯！
+\end{code}
+
+兩次連結出來的 \texttt{paren} 跑起來結果完全一樣。 差別只有：固定容
+量版遇到超過 1000 層括號巢狀就會寫壞記憶體，動態版永遠不會滿，代價是
+每次擴充要重新配置、搬移資料。 這個抉擇——要不要為了容量彈性多付一
+點效能代價——完全被藏在 \texttt{stack.c} 內部，\texttt{main.c} 完全不
+需要知道，也不需要改。
+
+\keypoint{只要應用程式全程只透過介面操作，換掉背後的實作
+（\texttt{stack.c}），呼叫端的原始碼（\texttt{main.c}）完全不用改，
+重新編譯（甚至只需要重新連結）就能跑。 這是「介面與實作分開」最直接
+的回報。}
+
+\section{不完整型別：更徹底的資訊隱藏}
+\label{sec:obj-opaque}
+
+上一節換了容量的管理策略，但 \texttt{Stack} 的欄位形狀
+（\texttt{data}／\texttt{top}／\texttt{capacity}）沒有變；如果想換成
+完全不同的內部表示——例如上一章講過的\textbf{鏈結串列}——這些欄位名
+字就完全用不上了，而且只要 \texttt{Stack} 的定義還寫在標頭檔裡，任何
+看得到標頭檔的人也看得到內部欄位，可以繞過介面直接寫
+\texttt{s.top = 0}，這種「偷看」在小程式裡看不出問題，專案一大、內部
+表示一換，所有偷看內部欄位的呼叫端都會一起壞掉。
+
+\textbf{不完整型別}（incomplete type）能徹底擋掉這件事：標頭檔只
+\texttt{typedef} 這個型別的\textit{名字}，不寫出它的內容：
+
+\begin{example}{c}{(stack\_opaque.h) 只宣告型別名字，不定義內容}
+#ifndef STACK_H
+#define STACK_H
+
+typedef struct Stack Stack; /* 不完整型別：只宣告，不定義內部長什麼樣 */
+
+Stack *stack_create(void);
+void   stack_destroy(Stack *s);
+void   stack_push(Stack *s, int x);
+int    stack_pop(Stack *s);
+int    stack_is_empty(const Stack *s);
+
+#endif
+\end{example}
+
+看到這份標頭檔的人，只知道「\texttt{Stack} 是某種東西」，完全不知道
+它裡面有什麼欄位——編譯器也一樣不知道，所以呼叫端不能再宣告
+\texttt{Stack s;} 這種區域變數（編譯器不知道要留多少空間），改成一律
+透過 \texttt{stack\_create} 拿一個 \texttt{Stack *}、用完呼叫
+\texttt{stack\_destroy} 釋放。 這正是這個技巧的代價：\textbf{呼叫端從
+此只能透過指標使用這個型別}，換來的是內部表示可以隨便換，標頭檔完全
+不用動。 真正的 \texttt{struct Stack} 定義，只出現在實作的 \texttt{.c}
+檔裡，而且兩種完全不同的內部表示可以並存：
+
+\begin{example}{c}{(stack\_opaque\_array.c) 動態陣列版，struct 定義只有這裡看得到}
+#include <stdlib.h>
+#include "stack_opaque.h"
+
+struct Stack {
+    int *data;
+    int top;
+    int capacity;
+};
+
+Stack *stack_create(void) {
+    Stack *s = malloc(sizeof(Stack));
+    s->capacity = 4;
+    s->data = malloc(s->capacity * sizeof(int));
+    s->top = 0;
+    return s;
+}
+
+void stack_destroy(Stack *s) {
+    free(s->data);
+    free(s);
+}
+
+void stack_push(Stack *s, int x) {
+    if (s->top == s->capacity) {
+        s->capacity *= 2;
+        s->data = realloc(s->data, s->capacity * sizeof(int));
+    }
+    s->data[s->top++] = x;
+}
+
+int stack_pop(Stack *s) {
+    s->top--;
+    return s->data[s->top];
+}
+
+int stack_is_empty(const Stack *s) { return s->top == 0; }
+\end{example}
+
+\begin{example}{c}{(stack\_opaque\_linked.c) 鏈結串列版，跟上面的 struct Stack 完全不同}
+#include <stdlib.h>
+#include "stack_opaque.h"
+
+typedef struct StackNode {
+    int data;
+    struct StackNode *next;
+} StackNode;
+
+struct Stack {
+    StackNode *top;
+};
+
+Stack *stack_create(void) {
+    Stack *s = malloc(sizeof(Stack));
+    s->top = NULL;
+    return s;
+}
+
+void stack_destroy(Stack *s) {
+    while (s->top != NULL) {
+        StackNode *dead = s->top;
+        s->top = s->top->next;
+        free(dead);
+    }
+    free(s);
+}
+
+void stack_push(Stack *s, int x) {
+    StackNode *p = malloc(sizeof(StackNode));
+    p->data = x;
+    p->next = s->top;
+    s->top = p;
+}
+
+int stack_pop(Stack *s) {
+    StackNode *dead = s->top;
+    int v = dead->data;
+    s->top = dead->next;
+    free(dead);
+    return v;
+}
+
+int stack_is_empty(const Stack *s) { return s->top == NULL; }
+\end{example}
+
+兩份 \texttt{struct Stack} 定義的欄位完全不同（一個是指標＋容量、一個
+是鏈結節點），但因為呼叫端只透過 \texttt{Stack *} 這個不透明的指標操
+作，\texttt{main.c} 連 \texttt{.o} 檔都不需要重新編譯，只要換一顆
+\texttt{stack\_*.o} 重新連結就能跑：
+
+\begin{code}{bash}{main.o 完全不用重新編譯，只重新連結}
+gcc -c main_opaque.c -o main.o          # main.o 只編譯這一次
+
+gcc -c stack_opaque_array.c -o stack.o
+gcc stack.o main.o -o paren             # 陣列版
+
+gcc -c stack_opaque_linked.c -o stack.o # 換成完全不同的資料結構
+gcc stack.o main.o -o paren             # main.o 沒有被動過
+\end{code}
+
+Richard Reese 的 \textit{Understanding and Using C Pointers}（見書末
+第~\ref{ch:references}~章）對這個技巧有一句很精準的說法：只把使用一
+個資料結構所需要的資訊暴露給使用者；暴露太多內部細節，使用者遲早會
+依賴這些細節，之後想改內部實作就會弄壞使用者的程式碼。 不完整型別把
+這句話變成編譯器強制的規則，不只是君子協定。
+
+\keypoint{不完整型別（\texttt{typedef struct Stack Stack;} 只宣告不定
+義）讓標頭檔完全不透漏內部欄位，呼叫端只能透過指標使用；代價是要改
+用 create／destroy 動態配置，換來的是內部表示可以換成任何形狀（陣列、
+鏈結串列⋯）都不影響呼叫端，連目的檔都不用重新編譯。}
+
+\section{錯誤處理該由誰負責}
+\label{sec:obj-errors}
+
+\texttt{stack\_pop} 如果被呼叫在一個空堆疊上，該怎麼辦？ 這個問題沒有
+單一「正確」答案，是設計時要做的取捨，常見選項有四種：
+
+\begin{center}
+\begin{tabular}{p{2.6cm}p{5.0cm}p{4.2cm}}
+\toprule
+做法 & 說明 & 取捨 \\
+\midrule
+哨兵值 & 回傳一個資料範圍外的特殊值（例如 \texttt{-1}），呼叫端自己檢
+查 & 簡單，但如果 \texttt{-1} 剛好是合法資料，會混淆 \\
+設 \texttt{errno} & 回傳值照舊，另外設一個全域錯誤碼 & 呼叫端很容易忘
+記檢查，跟標準函式庫的慣例一致 \\
+\texttt{assert} & 直接假設呼叫端不會犯這個錯，錯了就中止 & 只適合「呼
+叫端的邏輯錯誤」，不適合處理使用者輸入 \\
+輸出參數＋\texttt{bool} & 回傳 \texttt{bool} 表示成功與否，真正的值透
+過指標參數帶出來 & 呼叫端一定要檢查回傳值才拿得到資料，介面稍微複雜
+一點點 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+前三種在第~\ref{ch:preprocessing}、\ref{ch:stdlib}~章都看過對應的例
+子。 這裡示範第四種——\textbf{輸出參數＋bool}——因為它最適合「呼叫端
+一定要能區分成功與失敗，而且不能靠特殊值蒙混過去」的場合：
+
+\begin{code}{c}{輸出參數 + bool}
+bool stack_pop(Stack *s, int *out) {
+    if (stack_is_empty(s)) return false;
+    s->top--;
+    *out = s->data[s->top];
+    return true;
+}
+
+/* 呼叫端一定要檢查回傳值，才知道 *out 有沒有意義 */
+int value;
+if (stack_pop(&s, &value)) {
+    printf("%d\n", value);
+} else {
+    printf("stack is empty\n");
+}
+\end{code}
+
+這種寫法的好處是編譯器幫不上忙、但至少介面本身「誠實」：拿不到
+\texttt{bool} 的回傳值，就沒有正當理由去用 \texttt{*out}。 本章前面
+的例子選用最簡單的「呼叫端自己先用 \texttt{stack\_is\_empty} 檢查」
+風格，是為了保持範例精簡；實務上寫一個要給別人用的模組，輸出參數＋
+\texttt{bool} 通常是更穩妥的選擇。
+
+\keypoint{錯誤處理沒有單一正確答案，是設計取捨：哨兵值簡單但可能跟合
+法值混淆、\texttt{errno} 容易被忘記檢查、\texttt{assert} 只適合邏輯錯
+誤、輸出參數＋\texttt{bool} 最誠實但介面稍微複雜。 選一種在整個模組裡
+貫徹，不要同一個模組裡的函式各用一套。}
+
+\section{物件的優點：回頭看做過的事}
+\label{sec:obj-summary}
+
+「物件」常常先給一串抽象名詞：抽象、封裝、資訊隱藏、多型。 這一節反
+過來，把每個詞回指到前面已經動手做過的具體段落：
+
+\begin{itemize}
+\item \textbf{抽象}（abstraction）：第~\ref{sec:obj-interface}~節只靠
+函式原型就把 \texttt{main.c} 寫完——先講清楚「能做什麼」，不用等「怎
+麼做到」寫完。
+\item \textbf{封裝}（encapsulation）：第~\ref{sec:obj-header}~節把狀
+態（\texttt{Stack} 的欄位）跟操作它的函式綁在一起，透過
+\texttt{.h}／\texttt{.c} 分工，標頭檔只放呼叫端需要的東西。
+\item \textbf{資訊隱藏}（information hiding）：第~\ref{sec:obj-opaque}~
+節用不完整型別，讓呼叫端連內部欄位長什麼樣都看不到，只能透過介面操
+作。
+\item \textbf{多型}（polymorphism）：下一節（選讀）會示範怎麼用函式
+指標，讓同一段呼叫端程式碼，依實際傳進來的資料型態，執行不同的實
+作。
+\end{itemize}
+
+四個詞背後都是同一件事的不同切面：\textbf{把「呼叫端需要知道的東
+西」跟「實作者需要自由改動的東西」，用一條清楚的界線分開}。 界線畫
+在哪裡（介面該包含幾個函式、要不要用不完整型別、錯誤處理選哪一
+種），是每次設計模組時真正要做決定的地方，沒有一套公式能自動算出正
+確答案。
+
+\keypoint{抽象、封裝、資訊隱藏、多型不是四個要背的定義，是「介面與實
+作之間那條界線」在不同情境下的四種說法。 回頭看本章走過的每一步，每
+個詞都對應到一段你已經親手寫過、編譯過、跑過的程式碼。}
+
+\section{進階：用函式指標做多型（選讀）}
+\label{sec:obj-polymorphism}
+
+前面的堆疊只處理 \texttt{int}，呼叫端永遠知道自己在跟哪一種
+\texttt{Stack} 打交道。 有些情境需要反過來：呼叫端寫\textit{同一段}
+程式碼，但依實際傳進來的資料型態，執行不同的操作——這正是「多型」在
+C 裡最常見的實現方式：把一張\textbf{函式指標表}放進 struct 的第一個
+欄位。
+
+\begin{example}{c}{(shape-poly.c) 函式指標模擬 vtable}
+#include <stdio.h>
+
+typedef struct Shape {
+    double (*area)(const struct Shape *self);
+    double (*perimeter)(const struct Shape *self);
+} Shape;
+
+typedef struct {
+    Shape base; /* 一定要是第一個欄位 */
+    double width, height;
+} Rectangle;
+
+double rect_area(const Shape *self) {
+    const Rectangle *r = (const Rectangle *)self;
+    return r->width * r->height;
+}
+double rect_perimeter(const Shape *self) {
+    const Rectangle *r = (const Rectangle *)self;
+    return 2 * (r->width + r->height);
+}
+Rectangle make_rectangle(double w, double h) {
+    Rectangle r;
+    r.base.area = rect_area;
+    r.base.perimeter = rect_perimeter;
+    r.width = w;
+    r.height = h;
+    return r;
+}
+
+typedef struct {
+    Shape base;
+    double radius;
+} Circle;
+
+double circle_area(const Shape *self) {
+    const Circle *c = (const Circle *)self;
+    return 3.14159265358979 * c->radius * c->radius;
+}
+double circle_perimeter(const Shape *self) {
+    const Circle *c = (const Circle *)self;
+    return 2 * 3.14159265358979 * c->radius;
+}
+Circle make_circle(double r) {
+    Circle c;
+    c.base.area = circle_area;
+    c.base.perimeter = circle_perimeter;
+    c.radius = r;
+    return c;
+}
+
+void print_shape_info(const Shape *s) {
+    printf("area=%.2f perimeter=%.2f\n", s->area(s), s->perimeter(s));
+}
+
+int main(void) {
+    Rectangle r = make_rectangle(3, 4);
+    Circle c = make_circle(2);
+    print_shape_info((const Shape *)&r);
+    print_shape_info((const Shape *)&c);
+    return 0;
+}
+\end{example}
+
+\iosample{}{area=12.00 perimeter=14.00\\area=12.57 perimeter=12.57}
+
+關鍵在 \texttt{Rectangle} 與 \texttt{Circle} 都把 \texttt{Shape base}
+放在 struct 的\textbf{第一個}欄位——C 標準保證一個 struct 的位址跟它
+第一個欄位的位址相同，所以 \texttt{(const Shape *)\&r} 這個轉型是安全
+的：透過 \texttt{Shape *} 存取，看到的正是 \texttt{r.base} 那兩個函式
+指標。 \texttt{print\_shape\_info} 完全不知道傳進來的是矩形還是圓
+形，只透過 \texttt{s->area(s)} 呼叫「這個形狀自己填好的那個函式」
+——同一行呼叫，依實際型態跑出不同的計算，這正是多型的核心。 在物件導
+向語言裡，編譯器會自動幫你產生並維護這張表（通常稱為 vtable）；C 沒
+有這個語法糖，需要自己手動填。
+
+\keypoint{把函式指標表放進 struct 的第一個欄位，讓不同的具體型別
+（\texttt{Rectangle}、\texttt{Circle}）都能安全地被轉型成基底型別
+（\texttt{Shape}）操作——這是 C 裡手動模擬「多型」最常見的寫法，物件
+導向語言的 vtable 做的正是同一件事，只是編譯器自動幫你維護。}
+
+\section{常見錯誤清單}
+\label{sec:obj-checklist}
+
+下面每一條都對應前面某一節。
+
+\begin{itemize}
+\item 同樣的邏輯散落在多份複製貼上的程式碼裡，是這一章要解決的起點症
+狀；把狀態包進 struct、操作改吃這個 struct 的指標，是第一步。
+（第~\ref{sec:obj-struct}~節）
+\item 只靠函式原型（介面）就能把使用端程式碼寫完、編譯出目的檔，不需
+要等實作寫完——這是抽象的具體意思，不是需要死背的名詞。
+（第~\ref{sec:obj-interface}~節）
+\item 每個自己寫的標頭檔都要包 include guard；檔案範圍的
+\texttt{static} 讓一個名字只在該檔案內部可見。
+（第~\ref{sec:obj-header}~節）
+\item 只改了一個 \texttt{.c} 檔，只需要重新編譯那一個再重新連結，不用
+整個專案重編；\texttt{Makefile} 把這件事自動化。
+（第~\ref{sec:obj-compile}~節）
+\item 應用程式全程只透過介面操作，不直接碰觸內部欄位，是「換實作不影
+響呼叫端」能夠成立的前提。
+（第~\ref{sec:obj-app-paren}、\ref{sec:obj-app-palindrome}~節）
+\item 換掉 \texttt{stack.c} 的內部實作，只要介面（\texttt{stack.h}）
+沒變，\texttt{main.c} 完全不用改。
+（第~\ref{sec:obj-swap}~節）
+\item 標頭檔裡把 struct 定義完整寫出來，呼叫端就能繞過介面直接碰觸內
+部欄位；不完整型別把這條路徹底擋掉，代價是呼叫端只能透過指標使用。
+（第~\ref{sec:obj-opaque}~節）
+\item 錯誤處理沒有單一正確答案，是設計取捨，要在整個模組裡選一種貫
+徹，不要同一個模組各用一套。
+（第~\ref{sec:obj-errors}~節）
+\end{itemize}
+
+\phantomsection
+\addcontentsline{toc}{section}{練習解答}
+\section*{練習解答}
+
+\paragraph{第~\ref{sec:obj-swap}~節}
+\begin{enumerate}
+\item \texttt{stack\_dynamic.c} 版本裡，如果把 \texttt{stack\_push}
+裡「容量不夠就 \texttt{realloc}」那段判斷拿掉，只留
+\texttt{s->data[s->top++] = x;}，會發生什麼事？
+
+\textit{答}：一開始（容量 4 以內）完全正常，一旦推進的元素超過目前
+的 \texttt{capacity}，就會寫到配置範圍之外——這是陣列越界寫入，未定
+義行為，可能悄悄損壞其他資料，也可能讓程式當掉，取決於那塊記憶體後
+面剛好放了什麼。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:obj-opaque}~節}
+\begin{enumerate}
+\item 為什麼不完整型別的版本裡，呼叫端不能再寫
+\texttt{Stack s;} 這種區域變數宣告，一定要改成
+\texttt{Stack *s = stack\_create();}？
+
+\textit{答}：宣告一個區域變數，編譯器要在編譯期就知道它確切占多少位
+元組，才能在 stack 上留出對應的空間；不完整型別只宣告了名字，沒有欄
+位資訊，編譯器不知道 \texttt{Stack} 有多大，所以不允許宣告這種變
+數。 透過 \texttt{stack\_create} 回傳的指標則沒有這個問題，因為配置
+多少記憶體是實作 \texttt{.c} 檔自己知道、自己處理的事，呼叫端只需要
+拿到一個位址。
+\end{enumerate}

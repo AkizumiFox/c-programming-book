@@ -1,0 +1,1631 @@
+\chapter{浮點數}
+\label{ch:floatingpointnumbers}
+
+到目前為止我們處理的資料大多是整數。 但很多真實世界的數量。 溫度、距
+離、比例。 本質上是連續的，需要小數點。 C 語言用 \texttt{float} 與
+\texttt{double} 儲存這類「浮點數」（floating-point number）。
+
+跟整數不同，浮點數在記憶體裡\textbf{不是}十進位小數的精確表示，而是用固
+定數量的位元，以二進位、類似科學記號的方式去\emph{逼近}一個值。 我們熟
+悉的十進位小數（例如 $0.1$）換成二進位之後，很多時候變成無限循環小數，
+電腦只能在有限的位元裡把它捨入成一個「很接近但不完全相等」的值。 這件
+事聽起來抽象，但它會直接影響我們怎麼輸出浮點數、怎麼判斷兩個浮點數是不
+是「相等」，貫穿這一整章；甚至會影響我們該不該一開始就用浮點數來解一個
+問題。
+
+這一章分五段推進：先把宣告、格式化、整數除法陷阱與型別轉型講完，再一口
+氣建立記憶體近似、輸出假象、比較陷阱與 epsilon 的心智模型，接著教能
+用整數就不用浮點的實戰技巧，然後才是 \texttt{math.h} 的幾何應用，最後用
+累加穩定度與迭代方法收尾。 內容對齊本單元課綱（\texttt{float}／\texttt{double}
+型別與 \texttt{scanf}/\texttt{printf} 格式化、精度與位元表示、\texttt{math.h}
+數學函式），難度曲線對應題庫從溫度轉換到多邊形周長的整條路徑。
+
+\section{宣告、讀寫與格式化輸出}
+\label{sec:float-declare-io}
+
+浮點數的宣告跟整數很像，差別在型別關鍵字：\texttt{float} 是單精度（通
+常占 $4$ 個位元組、約 $7$ 位有效數字），\texttt{double} 是雙精度（通
+常占 $8$ 個位元組、約 $15$ 位有效數字）。 沒有特別理由的話，一般都用
+\texttt{double}，因為多數 C 函式庫（包括接下來會用到的數學函式）預設就
+是用 \texttt{double} 在運算，混用 \texttt{float} 反而容易在型別轉換
+的地方出錯。
+
+\begin{code}{c}{宣告並讀入一個 double，輸出到小數點後 N 位}
+double x;
+scanf("%lf", &x);
+printf("%.1f\n", x);
+\end{code}
+
+\texttt{printf} 裡的 \texttt{\%.1f} 表示四捨五入到小數點後 $1$ 位。 浮
+點數輸出幾乎都要指定小數位數，不指定的話預設印 $6$ 位，容易印出一堆沒
+意義的尾數。 這些尾數往往正是浮點數用二進位逼近十進位小數時產生的誤
+差，指定小數位數等於是把這些誤差四捨五入掉，讓輸出看起來乾淨。
+
+\keypoint{\texttt{scanf} 讀 \texttt{double} 要用 \texttt{\%lf}，但
+\texttt{printf} 印 \texttt{double} 只需要 \texttt{\%f}，這是 C 語言留下
+來的不對稱寫法。}
+
+範例 \thechapter.2 把攝氏溫度轉換成華氏溫度，公式是 $F = C \times
+\frac{9}{5} + 32$。 這是本章最簡單的範例，重點不在演算法，而在浮點數運
+算最基本、也最容易忽略的一個地雷：整數除法。
+
+\begin{example}{c}{(celsius-to-fahrenheit.c) 攝氏轉華氏}
+#include <stdio.h>
+
+int main(void) {
+    double c;
+    scanf("%lf", &c);
+
+    // F = C * 9/5 + 32
+    double f = c * 9.0 / 5.0 + 32.0;
+
+    printf("%.1f\n", f);
+}
+\end{example}
+
+\iosample{
+100 \\
+}{
+212.0 \\
+}
+
+\stylepoint{公式裡的 \texttt{9.0}、\texttt{5.0} 特意寫成浮點數常數；如
+果寫成 \texttt{c * 9 / 5}，\texttt{9 / 5} 會先做整數除法變成
+\texttt{1}，答案就錯了。}
+
+這個陷阱值得再多說一句：C 語言的運算子沒辦法「預知」我們接下來想拿這個
+值去跟浮點數相乘，它只看眼前這一個運算子兩側的型別。 \texttt{9} 和
+\texttt{5} 都是整數常數，\texttt{9 / 5} 這個運算單獨看就是整數除法，結
+果被無條件捨去成 \texttt{1}，接下來不管乘上什麼都救不回來。 只要算式裡
+有任何一個運算元是浮點數，那一步運算才會被拉去用浮點數計算，所以在常
+數後面補上 \texttt{.0} 是最簡單、也最保險的做法。 輸入 $100$ 攝氏，算
+出 $212.0$ 華氏，跟範例輸出一致。
+
+\begin{drills}[label=drills:float-declare-io]
+\item \texttt{scanf} 讀 \texttt{double} 該用哪個格式碼？ \texttt{printf}
+印 \texttt{double} 呢？
+\item 為什麼公式裡要把 \texttt{9} 和 \texttt{5} 寫成 \texttt{9.0} 和
+\texttt{5.0}？ 若寫成 \texttt{c * 9 / 5} 會發生什麼事？
+\item \texttt{printf("\%f", x)} 不指定小數位數時，預設會印幾位？
+\end{drills}
+
+\section{科學記號、e 格式，以及整數除法再看一次}
+\label{sec:float-sci-notation}
+
+很大或很小的浮點數，用小數點寫會一長串零。 C 允許科學記號常數（例如
+\texttt{1.2e-4} 表示 $1.2 \times 10^{-4}$），\texttt{printf} 的
+\texttt{\%e} 則把值印成「尾數 $\times$ 十的次方」。 範例
+\thechapter.3 把 $12345.678$ 先用三位科學記號印出，再用兩位
+\texttt{\%f} 印出。 四捨五入後分別是 \texttt{1.235e+04} 與
+\texttt{12345.68}。
+
+\begin{example}{c}{(sci-format.c) 科學記號與固定小數位}
+#include <stdio.h>
+
+int main(void) {
+    double x = 12345.678;
+    printf("%.3e\n", x);
+    printf("%.2f\n", x);
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+1.235e+04 \\
+12345.68 \\
+}
+
+讀 \texttt{float} 用 \texttt{\%f}（或 \texttt{\%e}），讀
+\texttt{double} 用 \texttt{\%lf}；印的時候 \texttt{float} 會被提升成
+\texttt{double}，所以 \texttt{printf} 一律用 \texttt{\%f} 或
+\texttt{\%e} 即可。 \texttt{long double} 更寬，讀寫常用 \texttt{\%Lf}，
+本書範例仍以 \texttt{double} 為主。
+
+整數除法的陷阱在運算那一章講過，這裡再用浮點輸出對一次。 範例
+\thechapter.4 印出三種寫法：\texttt{9 / 5} 仍是整數 $1$；
+\texttt{9.0 / 5} 與 \texttt{(double)9 / 5} 才是 $1.8$。
+
+\begin{example}{c}{(mix-div.c) 整數除法與浮點除法並排}
+#include <stdio.h>
+
+int main(void) {
+    printf("%d\n", 9 / 5);
+    printf("%.1f\n", 9.0 / 5);
+    printf("%.1f\n", (double)9 / 5);
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+1 \\
+1.8 \\
+1.8 \\
+}
+
+第一行必須用 \texttt{\%d}：\texttt{9 / 5} 的型別是 \texttt{int}，若
+硬用 \texttt{\%.1f} 去印，\texttt{printf} 會把整數位元樣式誤讀成浮
+點數，印出來的東西沒有意義。 第二、三行才是浮點除法，所以用
+\texttt{\%.1f}。 攝氏轉華氏那一節把常數寫成 \texttt{9.0 / 5.0}，就
+是為了讓除法從一開始就走這條路。
+
+\begin{drills}[label=drills:float-sci-notation]
+\item \texttt{1.235e+04} 這個 \texttt{\%e} 輸出，換算成一般小數是多少？
+\item 為什麼 \texttt{printf("\%d\textbackslash n", 9 / 5)} 不能改成
+\texttt{printf("\%.1f\textbackslash n", 9 / 5)}？
+\item \texttt{9.0 / 5} 和 \texttt{(double)9 / 5} 這兩種寫法，哪一個運
+算元被轉成浮點數的方式不一樣？
+\end{drills}
+
+\section{強制轉型，以及由左向右的減法}
+\label{sec:float-cast-assoc}
+
+除了在常數後面加 \texttt{.0}，也可以用\emph{強制轉型}（cast）把運算
+元暫時看成另一種型別。 \texttt{(double)(a + b) / 2} 先把整數和轉成
+\texttt{double}，再除以 $2$，商才會帶小數。 括號必須包住要轉的那一
+段：若寫成 \texttt{(double) a + b / 2}，除法仍可能先在整數裡做完。
+
+\begin{example}{c}{(half-cast.c) 用轉型得到帶小數的平均}
+#include <stdio.h>
+
+int main(void) {
+    int a, b;
+    scanf("%d %d", &a, &b);
+    printf("%.1f\n", (double)(a + b) / 2);
+    return 0;
+}
+\end{example}
+
+\iosample{
+1 2 \\
+}{
+1.5 \\
+}
+
+最後用減法把結合方向講死。 範例用對 \texttt{10 3 2}
+分別印出 \texttt{a - b - c} 與 \texttt{a - (b - c)}。 前者是
+\texttt{(10 - 3) - 2 = 5}；後者是 \texttt{10 - (3 - 2) = 9}。 差 $4$
+不是溢位，只是括號放錯位置。
+
+\begin{example}{c}{(assoc-minus.c) 減法由左結合，括號會改答案}
+#include <stdio.h>
+
+int main(void) {
+    int a, b, c;
+    scanf("%d %d %d", &a, &b, &c);
+    printf("%d\n", a - b - c);
+    printf("%d\n", a - (b - c));
+    return 0;
+}
+\end{example}
+
+\iosample{
+10 3 2 \\
+}{
+5 \\
+9 \\
+}
+
+整數加到超出 \texttt{int} 能表示的範圍時，行為在語言裡沒有保證。 我
+們在這台機器上把當時的最大值再加 $1$，觀察到數字從
+\texttt{2147483647} 繞成 \texttt{-2147483648}。 這是這次編譯器與硬
+體的現象，不是「加一之後一定變負數」的定理。 題目數字可能變大時，
+應改用 \texttt{long long}，不要賭溢位剛好繞成你要的答案。
+
+\keypoint{同樣優先順序的加減由左向右算。 需要小數時，用 \texttt{.0}
+或 \texttt{(double)} 把除法送進浮點；需要更大範圍時，提早換
+\texttt{long long}。}
+
+\begin{drills}[label=drills:float-cast-assoc]
+\item 為什麼 \texttt{(double) a + b / 2} 不能保證得到帶小數的平均？
+正確寫法該把括號放在哪裡？
+\item 輸入 \texttt{10 3 2}，\texttt{a - b - c} 跟 \texttt{a - (b - c)}
+分別是多少？ 差在哪裡？
+\item 減法的結合方向是由左向右還是由右向左？
+\end{drills}
+
+\section{記憶體中的浮點數：有限位元下的近似}
+\label{sec:float-bit-repr}
+
+整數在記憶體裡通常就是它的二進位值本身：\texttt{int} 占 $4$ 個位元組，
+能表示的範圍固定、每個可表示的整數都精確無誤。 浮點數則不同。 它占用的
+位元數也是固定的（\texttt{float} 通常 $4$ 個位元組、\texttt{double}
+通常 $8$ 個），但這些位元\textbf{不是}直接存十進位小數，而是存一組「符
+號 + 指數 + 尾數」，用類似科學記號 $m \times 2^e$ 的方式去逼近一個
+值。 這套格式在幾乎所有現代處理器上都遵循 IEEE 754 標準。
+
+\begin{center}
+\begin{tikzpicture}
+    \node[idxlbl] (lbl) {\texttt{float}：};
+    \node[cell, minimum width=0.5cm, right=0.15cm of lbl] (s) {S};
+    \node[hlcell, minimum width=2.7cm, right=0pt of s] (e) {指數 $E$（8 位）};
+    \node[hlcell2, minimum width=5.4cm, right=0pt of e] (m) {尾數 $M$（23 位）};
+    \node[idxlbl, below=0.15cm of s] {1 位};
+    \node[idxlbl, below=0.15cm of e] {8 位};
+    \node[idxlbl, below=0.15cm of m] {23 位};
+\end{tikzpicture}
+\diagcaption{\texttt{float} 在記憶體裡占 $32$ 位（$4$ 個位元組），分成
+符號、指數、尾數三段；\texttt{double} 占 $64$ 位，指數 $11$ 位、尾數
+$52$ 位，精度更高。}
+\label{fig:ch07-float-bit-layout}
+\end{center}
+
+這代表什麼？ 代表電腦能「精確表示」的數，其實只是所有實數裡的一個有限
+子集。 很多十進位看起來很簡單的小數。 $0.1$、$0.2$、$0.3$。 在二進位
+裡是無限循環小數，跟 $\frac{1}{3} = 0.333\ldots$ 在十進位裡循環一樣；
+電腦只能存前 $23$（或 $52$）位尾數，其餘全部捨入。 所以 \texttt{double
+x = 0.1;} 這行寫起來像是把 $0.1$ 存進 \texttt{x}，但 \texttt{x} 裡實
+際上存的是「最接近 $0.1$ 的那個可表示二進位浮點數」，兩者不完全相等。
+
+範例 \thechapter.7 把這件事具體化：先印出 \texttt{float} 和
+\texttt{double} 各占幾個位元組，再把 \texttt{0.1} 用完整精度印出來，
+最後用 \texttt{union} 把 \texttt{0.1f} 的 $32$ 位元原封不動當成整數
+印成十六進位。 這是最後一行的用途，不是要你背十六進位值，而是讓你看
+到「同一塊記憶體，解讀成浮點數跟解讀成整數，看到的是完全不同的東
+西」。
+
+\begin{example}{c}{(float-storage-demo.c) 觀察浮點數的儲存方式}
+#include <stdio.h>
+#include <stdint.h>
+
+int main(void) {
+    printf("sizeof(float) = %zu, sizeof(double) = %zu\n",
+           sizeof(float), sizeof(double));
+
+    // 0.1 在記憶體裡不是精確的 0.1
+    double x = 0.1;
+    printf("%.17f\n", x);
+
+    // 把 float 的 32 位元原樣當成整數印出（十六進位）
+    union {
+        float f;
+        uint32_t u;
+    } bits;
+    bits.f = 0.1f;
+    printf("%08x\n", bits.u);
+}
+\end{example}
+
+\iosample{}{
+sizeof(float) = 4, sizeof(double) = 8 \\
+0.10000000000000001 \\
+3dcccccd \\
+}
+
+第一行確認 \texttt{float} 占 $4$ 個位元組、\texttt{double} 占 $8$ 個
+位元組。 第二行用 \texttt{\%.17f} 印出 \texttt{0.1} 的完整精度。 注意
+最後一位是 \texttt{1} 而不是 \texttt{0}，這就是捨入後的近似值。 第三
+行 \texttt{3dcccccd} 是 \texttt{0.1f} 在記憶體裡的 $32$ 位元樣子；同
+一個 \texttt{union} 裡，改寫 \texttt{bits.f} 再讀 \texttt{bits.u}，就
+是在看「這塊記憶體的 raw bits」，之後指標那一章會更常碰到這種「同一塊
+記憶體、不同型別解讀」的觀念。
+
+指數那一段不是直接存數學上的 $e$，而是存一個平移過的整數，讓負指數
+也能用無號數表示。 以 \texttt{float} 來說，8 位指數常見的做法是把實
+際指數加上 $127$ 再寫進去。 這個平移量叫做偏移（bias）。 我們現在
+不必手算 bias，只要建立這個直覺：同樣是 $32$ 位，浮點數把多數位元拿
+去記「小數有多長」，所以能表示的範圍比 \texttt{int} 大很多，但相鄰
+兩個可表示值的間距不是固定的。 靠近 $0$ 的地方比較密，數字越大，間
+距越寬。 這也是後面「相對誤差」會出現的硬體原因：大數字本來就沒辦
+法分辨「差 $0.5$」這種在小數點附近看起來很大的差距。
+
+\keypoint{浮點數變數存的是「在有限位元下最接近的那個可表示值」，不是
+數學上精確的十進位小數；這是硬體層面的限制，不是某個編譯器的 bug。}
+
+\begin{drills}[label=drills:float-bit-repr]
+\item \texttt{float} 跟 \texttt{double} 各占幾個位元組？ 各自的指數欄
+位有幾位？
+\item \texttt{double x = 0.1;} 之後，\texttt{x} 裡存的真的是數學上精確
+的 $0.1$ 嗎？
+\item 浮點數格式裡，靠近 $0$ 的地方跟數字很大的地方，哪一邊相鄰可表示
+值的間距比較密？
+\end{drills}
+
+\section{輸出位數會把誤差藏起來}
+\label{sec:float-hidden-error}
+
+指定小數位數不只是「讓輸出好看」，它實際上是在做四捨五入。 同一個
+\texttt{0.1}，用 \texttt{\%.1f} 印成 \texttt{0.1}，用 \texttt{\%.2f}
+印成 \texttt{0.10}，看起來都像精確的十分之一；只有把精度拉到
+\texttt{\%.17f}，才看得到記憶體裡真正存的
+\texttt{0.10000000000000001}。 這跟上一節範例 \thechapter.7 用完整
+精度印 \texttt{0.1} 時看到的尾數是同一回事。 範例 \thechapter.8 把這三行並排印
+出。 解題時若只用眼睛對輸出的短格式，很容易以為浮點數「算準了」，
+等到後面用 \texttt{==} 比較才突然失敗。
+
+\begin{example}{c}{(prec-mask.c) 同一筆 0.1，三種小數位數}
+#include <stdio.h>
+
+int main(void) {
+    double x = 0.1;
+    printf("%.1f\n", x);
+    printf("%.2f\n", x);
+    printf("%.17f\n", x);
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+0.1 \\
+0.10 \\
+0.10000000000000001 \\
+}
+
+\keypoint{題目要求印到小數點後 $k$ 位，是在規定輸出怎麼捨入，不是
+保證變數裡的值精確到那一位。 比較相等仍然要用容許誤差，不能靠
+\texttt{printf} 的外觀。}
+
+\begin{drills}[label=drills:float-hidden-error]
+\item \texttt{0.1} 用 \texttt{\%.1f}、\texttt{\%.2f}、\texttt{\%.17f}
+分別印出來，結果一樣「乾淨」嗎？ 要看到真正的近似值該用哪一個？
+\item 「印出來看起來是整數」跟「變數裡的值精確等於那個整數」是同一件
+事嗎？
+\end{drills}
+
+\section{為什麼不能用 \texttt{==} 比較浮點數}
+\label{sec:float-no-equality}
+
+上一節用 \texttt{\%.1f} 把 \texttt{0.1} 印成乾乾淨淨的小數，但
+\texttt{==} 比的是記憶體裡的位元樣式，不是輸出長相。 這一節看這件事在
+「比較相等」上會造成什麼後果。 範例 \thechapter.9 把 $0.1$ 加十次，理論上應該等於
+$1.0$，但印出完整精度後可以看到誤差。 而且用 \texttt{==} 直接比較會得到
+「不相等」。
+
+\begin{example}{c}{(float-precision-demo.c) 觀察浮點數的累積誤差}
+#include <stdio.h>
+#include <math.h>
+
+int main(void) {
+    // 把 0.1 加十次，理論上應該等於 1.0
+    double sum = 0.0;
+    for (int i = 0; i < 10; i++) {
+        sum += 0.1;
+    }
+
+    printf("%.17f\n", sum);
+    printf("%d\n", sum == 1.0);
+    printf("%d\n", fabs(sum - 1.0) < 1e-9);
+}
+\end{example}
+
+\iosample{}{
+0.99999999999999989 \\
+0 \\
+1 \\
+}
+
+第一行印出的完整精度顯示，\texttt{sum} 其實是 $0.99999999999999989$，
+跟數學上的 $1.0$ 差了一點點；第二行用 \texttt{==} 直接比較，因為兩者不
+是真的相等，得到 \texttt{0}（假）；第三行改用容許誤差比較，因為差距遠
+小於 \texttt{1e-9}，得到 \texttt{1}（真）。
+
+為什麼 \texttt{==} 會失敗？ 因為 \texttt{==} 比的是「記憶體裡那兩個
+位元樣式是否完全相同」，不是「數學上是否相等」。 每次 \texttt{sum +=
+0.1}，加進去的 \texttt{0.1} 本身就已經是近似值，十次累加後誤差會一點一
+點堆上去；而 \texttt{1.0} 在記憶體裡是另一個可精確表示的值，兩者的位
+元樣式自然對不上。 這不是 C 語言的特例。 幾乎所有遵循 IEEE 754 的語言
+都有同樣的問題。
+
+\begin{code}{c}{用容許誤差 eps 比較兩個浮點數是否「足夠接近」}
+#include <math.h>
+double eps = 1e-9;
+if (fabs(a - b) < eps) {
+    // 視為相等
+}
+\end{code}
+
+片語 \thechapter.10 是浮點數比較的標準寫法：先算兩者的差距，再跟一個很
+小的容許值 \texttt{eps} 比。 \texttt{eps} 取多少要看題目要求的精度。 
+輸出到小數點後 $3$ 位，\texttt{1e-6} 通常就夠；需要更高精度時再調小。
+\keypoint{永遠不要用 \texttt{==} 直接比較兩個浮點數；應該判斷兩者的差
+有沒有小於一個很小的容許誤差 \texttt{eps}，也就是
+\texttt{fabs(a - b) < eps}。}
+
+\begin{drills}[label=drills:float-no-equality]
+\item 把 \texttt{0.1} 加十次，數學上應該等於 \texttt{1.0}；這台機器上
+用 \texttt{==} 比較會得到真還是假？ 為什麼？
+\item 正確比較兩個浮點數是否「足夠接近」該怎麼寫？
+\item \texttt{==} 比的到底是「數學上是否相等」還是「記憶體裡的位元樣
+式是否相同」？
+\end{drills}
+
+\section{0.1 加 0.2，以及絕對誤差對相對誤差}
+\label{sec:float-abs-rel-error}
+
+把 $0.1$ 加十次會偏離 $1.0$，更短的式子也一樣。 範例
+\thechapter.11 計算 \texttt{0.1 + 0.2}：這台機器上印出
+\texttt{0.30000000000000004}，跟常數 \texttt{0.3} 做 \texttt{==} 得到
+$0$。 不是加法算錯，是三個字面常數各自被捨入成不同的可表示值。 
+\texttt{0.1}、\texttt{0.2}、\texttt{0.3} 在二進位裡都是循環小數，
+兩段捨入加起來，不必剛好等於第三段捨入。
+
+\begin{example}{c}{(point-one-two.c) 0.1 加 0.2 並不恰好是 0.3}
+#include <stdio.h>
+
+int main(void) {
+    double s = 0.1 + 0.2;
+    printf("%.17f\n", s);
+    printf("%d\n", s == 0.3);
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+0.30000000000000004 \\
+0 \\
+}
+
+\texttt{fabs(a - b) < 1e-9} 是絕對誤差：不管數字本身有多大，都只允
+許差 $10^{-9}$。 兩個接近 $10^{12}$ 的數，差 $0.5$ 在數學上相對很小
+（大約十兆分之零點五），但絕對誤差測試會判「不相等」，因為 $0.5$
+遠大於 $10^{-9}$。 這不是比較函式寫錯，是門檻跟數字的數量級不匹配：
+大數字在浮點格式裡本來就比較「疏」，$10^{12}$ 附近相鄰兩個可表示值
+的間距已經遠大於 $10^{-9}$，要求兩個大數差不到 $10^{-9}$，等於在要
+求硬體做不到的事。
+
+範例 \thechapter.12 對 \texttt{1e12} 與 \texttt{1e12 + 0.5} 分別用
+絕對與相對門檻：前者失敗，後者
+\texttt{fabs(a - b) < 1e-9 * fabs(a)} 成功。 相對誤差把容許差距
+按 $|a|$ 放大，數量級大的時候門檻也跟著變寬。 題目若沒指定，先用
+絕對誤差（對齊輸出位數最直覺）；數值範圍可能差很多個數量級時，才
+考慮相對誤差。 比較前也可以先把兩個數都除掉某個典型大小，變成「相
+對 $1$ 附近」再比，觀念上跟相對誤差是同一件事。
+
+\begin{drills}[label=drills:float-abs-rel-error]
+\item \texttt{0.1 + 0.2 == 0.3} 這台機器上印出真還是假？
+\item 兩個接近 $10^{12}$ 的數字差 $0.5$，用絕對誤差 \texttt{1e-9} 測試
+會判斷「相等」還是「不相等」？ 為什麼跟直覺不一樣？
+\item 相對誤差的門檻該怎麼寫？（提示：把絕對誤差按哪個值放大？）
+\end{drills}
+
+\begin{example}{c}{(rel-eps.c) 絕對誤差與相對誤差}
+#include <stdio.h>
+#include <math.h>
+
+int main(void) {
+    double a = 1e12;
+    double b = 1e12 + 0.5;
+    printf("%d\n", fabs(a - b) < 1e-9);
+    printf("%d\n", fabs(a - b) < 1e-9 * fabs(a));
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+0 \\
+1 \\
+}
+
+\section{float.h 裡的精度常數}
+\label{sec:float-limits}
+
+編譯器在 \texttt{<float.h>} 提供這台機器上浮點型別的範圍與精度，不
+必背數字。 範例 \thechapter.13 印出 \texttt{DBL\_DIG}（十進位有效位數
+的保證值）、\texttt{DBL\_EPSILON}（$1$ 與下一個可表示值的間距），以
+及 \texttt{DBL\_MAX}。 這台機器上分別觀察到 $15$、$2.22045\times
+10^{-16}$、以及約 $1.80\times 10^{308}$。 與 IEEE 754 雙精度的常見數
+字一致，但這是觀察結果，不是語言保證每台電腦都印同一個字串。
+
+\begin{example}{c}{(float-limits.c) 印出 double 的精度與範圍}
+#include <stdio.h>
+#include <float.h>
+
+int main(void) {
+    printf("%d\n", DBL_DIG);
+    printf("%.5e\n", DBL_EPSILON);
+    printf("%.5e\n", DBL_MAX);
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+15 \\
+2.22045e-16 \\
+1.79769e+308 \\
+}
+
+\texttt{DBL\_EPSILON} 量的是「$1$ 附近」的間距。 前面說過，浮點數越
+大，相鄰可表示值差得越遠，所以在 $10^{12}$ 附近用
+\texttt{1e-9} 當絕對門檻會失敗，並不是 \texttt{DBL\_EPSILON} 變了，
+而是那個間距已經被指數放大。 \texttt{eps} 若小過
+\texttt{DBL\_EPSILON} 很多，對接近 $1$ 的數根本分辨不了「下一個可表
+示值」；若大到 $0.01$，又等於放棄小數點後兩位。 門檻要對齊題目要求
+的輸出位數，而不是抄一個永遠正確的魔術數字。
+
+\begin{drills}[label=drills:float-limits]
+\item \texttt{<float.h>} 要 include 才能用；\texttt{DBL\_EPSILON} 量
+的是「哪個數附近」的間距？
+\item 為什麼在 $10^{12}$ 附近用 \texttt{1e-9} 當絕對誤差門檻會失敗？
+是 \texttt{DBL\_EPSILON} 變了嗎？
+\end{drills}
+
+\section{無窮大與 NaN}
+\label{sec:float-inf-nan}
+
+IEEE 754 把「超出範圍」與「不是一個數」編進位元樣式裡。 浮點除以零
+在多數實作上不會像整數那樣未定義：\texttt{1.0 / 0.0} 得到正無窮，
+\texttt{0.0 / 0.0} 得到 NaN（Not a Number）。 範例 \thechapter.14
+用 \texttt{isinf}、\texttt{isnan} 檢查這台機器上的結果，並確認正無
+窮比一個很大的有限數還大。
+
+\begin{example}{c}{(inf-nan.c) 觀察無窮大與 NaN}
+#include <stdio.h>
+#include <math.h>
+
+int main(void) {
+    double inf = 1.0 / 0.0;
+    double nanv = 0.0 / 0.0;
+    printf("%d\n", isinf(inf));
+    printf("%d\n", isnan(nanv));
+    printf("%d\n", inf > 1e300);
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+1 \\
+1 \\
+1 \\
+}
+
+NaN 最容易讓人踩的坑是：它跟任何值比較（包括它自己）都不會得到
+「小於」或「等於」那種直覺結果。 這台機器上
+\texttt{nanv == nanv}、\texttt{nanv < 0.0}、\texttt{nanv > 0.0} 三
+個比較全部印出 $0$。 所以一旦算式可能產生 NaN（例如對負數開平方
+根、對非正數取對數），後面的 \texttt{if} 可能整條走錯。 條件看起來
+寫了，但永遠不會成立。 發現輸出變成 \texttt{nan} 或 \texttt{inf}，
+先回頭查有沒有除以零、對數的真數非正、或平方根的參數為負，再用
+\texttt{isnan}／\texttt{isinf} 把異常值擋下來，不要假裝它還是普通
+的有限數字。
+
+\keypoint{看到 \texttt{nan} 或 \texttt{inf}，先查定義域（除數、對
+數、開根），不要繼續拿這個值去做比較或累加。}
+
+\begin{drills}[label=drills:float-inf-nan]
+\item \texttt{1.0 / 0.0} 跟 \texttt{0.0 / 0.0} 這台機器上分別得到什麼？
+\item \texttt{nanv == nanv} 這種「NaN 跟自己比較」會是真還是假？
+\item 看到輸出變成 \texttt{nan} 或 \texttt{inf}，第一步該檢查什麼？
+\end{drills}
+
+\section{能用整數算的錢，就不要用浮點}
+\label{sec:float-money-int}
+
+金額看起來像小數（$1.99$ 元），本質上卻是離散的「分」。 若用
+\texttt{double} 去累加一長串價錢，每一筆的 $0.1$、$0.01$ 都會帶進
+二進位捨入，加到最後可能連「該不該剛好是整數元」都說不準。 更穩的
+做法是全程用整數記「分」，只在最後輸出時除以 $100$ 變成小數點。
+
+\begin{code}{c}{金額用「分」累加，最後再換成元}
+long long cents = 0;
+cents += price_in_cents;
+printf("%lld.%02lld\n", cents / 100, cents % 100);
+\end{code}
+
+範例 \thechapter.16 讀 $n$ 筆以分為單位的價錢，加總後印成「元.分」。
+輸入 $199$、$250$、$51$ 分，總和 $500$ 分，正好是 $5.00$ 元。 全程
+沒有浮點加法。 \texttt{\%02lld} 讓分的部分固定兩位，所以 $5$ 元 $0$
+分仍會印成 \texttt{5.00}，不會變成 \texttt{5.0}。
+
+\begin{example}{c}{(cents-sum.c) 用整數分累加金額}
+#include <stdio.h>
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+
+    long long cents = 0;
+    for (int i = 0; i < n; i++) {
+        int p;
+        scanf("%d", &p);
+        cents += p;
+    }
+
+    printf("%lld.%02lld\n", cents / 100, cents % 100);
+    return 0;
+}
+\end{example}
+
+\iosample{
+3 \\
+199 \\
+250 \\
+51 \\
+}{
+5.00 \\
+}
+
+問題本身是有理數或離散量時，全程用整數往往比較乾淨。 溫度、距離、
+統計才是浮點數真正該上場的地方。
+
+\begin{drills}[label=drills:float-money-int]
+\item 為什麼金額用 \texttt{double} 直接累加，加多了可能連整數元都對不
+準？
+\item \texttt{\%02lld} 印分的部分，作用是什麼？ 少了它 \texttt{5.00}
+可能印成什麼？
+\item 199、250、51 分加起來，換算成「元.分」該怎麼印？
+\end{drills}
+
+\section{避免比較浮點數：用整數交叉相乘}
+\label{sec:float-cross-mult}
+
+上一節用整數記「分」累加金額；這一節換一個角度：比較兩個分數的大小，
+也可以全程只用整數乘法，搜尋過程完全不出現浮點數。 假設要在好幾組「折扣金額
+$d$、原價 $p$」中，找出折扣率 $d / p$ 最高的一組。 如果 $d$ 跟 $p$ 都是
+整數，與其每組都算一次除法比較，不如用交叉相乘比較兩個分數的大小：
+$\dfrac{d_1}{p_1} > \dfrac{d_2}{p_2} \iff d_1 \times p_2 > d_2 \times
+p_1$（假設 $p_1, p_2 > 0$）。 右式全部都是整數運算，完全不會有浮點誤差，
+也不用擔心「比較兩個很接近的浮點數」的問題，因為整個搜尋過程根本不曾出
+現浮點數。
+
+\begin{example}{c}{(best-discount-rate.c) 用整數交叉相乘找出最高折扣率}
+#include <stdio.h>
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+
+    // 用交叉相乘比較 d/p，搜尋過程完全不用浮點數
+    long long bestD = 0, bestP = 1;
+    for (int i = 0; i < n; i++) {
+        long long d, p;
+        scanf("%lld %lld", &d, &p);
+        if (d * bestP > bestD * p) {
+            bestD = d;
+            bestP = p;
+        }
+    }
+
+    printf("%.4f\n", (double)bestD / bestP);
+}
+\end{example}
+
+\iosample{
+3 \\
+3 10 \\
+5 20 \\
+9 20 \\
+}{
+0.4500 \\
+}
+
+三組折扣分別是 $0.3$、$0.25$、$0.45$，程式全程只用整數乘法比較大小，
+最後印出結果時才轉成浮點數：\texttt{9/20 = 0.4500} 確實是三者之中最高的。
+比較 \texttt{9 * 1 > 0 * 20} 時，左邊 $9$、右邊 $0$，更新最佳答案；下一
+輪 \texttt{5 * 20 > 9 * 20} 不成立（$100 \not> 180$）；第三輪
+\texttt{9 * 20 > 5 * 20} 成立，最終得到 \texttt{bestD=9, bestP=20}。
+
+\keypoint{搜尋過程全部用整數運算完成，只在最後印出結果時才做一次除法；
+能用整數解決的比較，就不要提早換成浮點數。}
+
+\begin{drills}[label=drills:float-cross-mult]
+\item 比較 $\frac{d_1}{p_1}$ 跟 $\frac{d_2}{p_2}$ 哪個大，交叉相乘要怎
+麼寫成不含除法的整數比較？
+\item 這個技巧的前提是 $p_1, p_2$ 要符合什麼條件？
+\item 為什麼交叉相乘完全不用擔心浮點數比較的誤差問題？
+\end{drills}
+
+\section{數學函式庫：以計算兩點距離為例}
+\label{sec:float-math-lib}
+
+C 的標準函式庫把平方根、三角函數、對數等數學函式集中放在 \texttt{math.h}
+裡，使用前要 \texttt{\#include <math.h>}。 範例 \thechapter.18 用兩點座
+標算歐幾里得距離 $\sqrt{(x_2-x_1)^2 + (y_2-y_1)^2}$，會用到 \texttt{sqrt}
+函式；這是我們第一次在程式裡使用「數學函式庫」而不是自己手刻演算法，之
+後遇到平方根、對數、三角函數，都可以直接呼叫對應的函式，不用重新發明。
+
+\begin{example}{c}{(euclidean-distance.c) 計算兩點距離}
+#include <stdio.h>
+#include <math.h>
+
+int main(void) {
+    double x1, y1, x2, y2;
+    scanf("%lf %lf %lf %lf", &x1, &y1, &x2, &y2);
+
+    // 歐幾里得距離公式
+    double dx = x2 - x1, dy = y2 - y1;
+    printf("%.3f\n", sqrt(dx * dx + dy * dy));
+}
+\end{example}
+
+\iosample{
+0 0 3 4 \\
+}{
+5.000 \\
+}
+
+範例輸入的兩點是 $(0, 0)$ 與 $(3, 4)$，$dx = 3$、$dy = 4$，
+$\sqrt{3^2 + 4^2} = \sqrt{25} = 5$，剛好是最經典的一組整數邊長直角三角
+形，方便我們用心算驗證程式對不對。 \texttt{sqrt} 回傳的是
+\texttt{double}，我們用 \texttt{\%.3f} 四捨五入到小數點後三位輸出。
+
+\keypoint{使用 \texttt{math.h} 裡的函式（如 \texttt{sqrt}）時，編譯常
+需要額外加上 \texttt{-lm} 連結數學函式庫，例如
+\texttt{gcc program.c -o program -lm}。}
+
+\begin{drills}[label=drills:float-math-lib]
+\item 兩點 $(0,0)$ 與 $(3,4)$ 之間的歐幾里得距離是多少？
+\item 用 \texttt{math.h} 的函式時，編譯常常需要額外加上什麼選項？
+\end{drills}
+
+\section{floor、ceil、round 與 fmod}
+\label{sec:float-round-fns}
+
+\texttt{math.h} 除了剛才用到的 \texttt{sqrt}，還有往不同方向
+取整的函式。 \texttt{floor} 往 $-\infty$ 取整，\texttt{ceil} 往
+$+\infty$ 取整，\texttt{round} 對「恰好一半」的情況往遠離零的整數
+靠（C99）。 範例 \thechapter.19 對輸入 \texttt{3.5} 印出
+\texttt{3 4 4}：$\lfloor 3.5\rfloor = 3$，$\lceil 3.5\rceil = 4$，
+四捨五入也是 $4$。
+
+這些函式對負數的方向最容易搞反。 對 $-1.5$，這台機器上
+\texttt{floor} 得到 $-2$（往更小的整數）、\texttt{ceil} 得到 $-1$
+（往比較大的整數）、\texttt{round} 得到 $-2$（一半時遠離零）。 如
+果你心裡想的是「拿掉小數部分」，那比較接近往零取整，C99 另有
+\texttt{trunc}；\texttt{floor} 不是那個意思。
+
+\begin{example}{c}{(round-fns.c) 下取整、上取整與四捨五入}
+#include <stdio.h>
+#include <math.h>
+
+int main(void) {
+    double x;
+    scanf("%lf", &x);
+    printf("%.0f %.0f %.0f\n", floor(x), ceil(x), round(x));
+    return 0;
+}
+\end{example}
+
+\iosample{
+3.5 \\
+}{
+3 4 4 \\
+}
+
+浮點數沒有 \texttt{\%}。 要「實數除法的餘數」用 \texttt{fmod}。 範例
+\thechapter.20：\texttt{7.5} 除以 \texttt{2.0}，商是 $3$、餘
+\texttt{1.50}，因為 $3 \times 2.0 + 1.50 = 7.5$。 跟整數 \texttt{\%}
+一樣，它給的是「扣掉整數倍之後剩下的」，不是四捨五入。 週期現象
+（角度模 $2\pi$、時間模一天的秒數）常用這一招，但別忘了浮點餘數本
+身也帶捨入誤差，累加很多次之後仍可能慢慢漂離。
+
+\begin{example}{c}{(fmod-demo.c) 浮點數的餘數}
+#include <stdio.h>
+#include <math.h>
+
+int main(void) {
+    double a, b;
+    scanf("%lf %lf", &a, &b);
+    printf("%.2f\n", fmod(a, b));
+    return 0;
+}
+\end{example}
+
+\iosample{
+7.5 2.0 \\
+}{
+1.50 \\
+}
+
+距離公式若寫成 \texttt{sqrt(x * x + y * y)}，當 $x$、$y$ 都很大時，
+平方可能先溢成無窮，再開根就得到 \texttt{inf}，即使真正的距離其實
+還在 \texttt{double} 能表示的範圍內。 \texttt{hypot(x, y)} 是函式庫
+提供的較穩寫法，內部會先縮放再算，減少這種中間溢位。 範例
+\thechapter.21 對 \texttt{3 4} 仍得到 \texttt{5.0000}，跟前面的兩點
+距離一致；日常測資兩者沒差，極端座標時差就出現了。
+
+\begin{example}{c}{(hypot-demo.c) 用 hypot 算歐氏長度}
+#include <stdio.h>
+#include <math.h>
+
+int main(void) {
+    double x, y;
+    scanf("%lf %lf", &x, &y);
+    printf("%.4f\n", hypot(x, y));
+    return 0;
+}
+\end{example}
+
+\iosample{
+3 4 \\
+}{
+5.0000 \\
+}
+
+\stylepoint{座標可能很大時，優先寫 \texttt{hypot(dx, dy)}，而不是
+自己平方再開根；正確性通常一樣，數值穩定性比較好。}
+
+\begin{drills}[label=drills:float-round-fns]
+\item 對 $-1.5$，\texttt{floor}、\texttt{ceil}、\texttt{round} 這台機
+器上分別得到什麼？
+\item \texttt{fmod(7.5, 2.0)} 的結果是多少？ 它跟整數的 \texttt{\%} 概
+念上做的是同一件事嗎？
+\item 為什麼 \texttt{sqrt(x*x + y*y)} 在 $x$、$y$ 很大時可能不如
+\texttt{hypot(x, y)} 穩定？
+\end{drills}
+
+\section{用對數計算位數，避免處理超大整數}
+\label{sec:float-log-digits}
+
+一個正整數 $N$ 的十進位位數是 $\lfloor \log_{10} N \rfloor + 1$，而
+$\log_{10}(a^b) = b \times \log_{10} a$。 這代表我們可以直接用對數算出
+$a^b$ 有幾位數，不需要真的算出 $a^b$ 本身。 畢竟 $a^b$ 可能大到連
+\texttt{long long} 都裝不下，而位數只是一個很小的整數，用對數就能一步
+算出來，完全不用面對「數字太大存不下」的問題。
+
+\begin{example}{c}{(power-digit-count.c) 計算 a 的 b 次方有幾位數}
+#include <stdio.h>
+#include <math.h>
+
+int main(void) {
+    int a, b;
+    scanf("%d %d", &a, &b);
+
+    // log10(a^b) = b * log10(a)，位數 = floor(log10(a^b)) + 1
+    double logVal = b * log10((double)a);
+    int digits = (int)floor(logVal + 1e-9) + 1;
+
+    printf("%d\n", digits);
+}
+\end{example}
+
+\iosample{
+2 10 \\
+}{
+4 \\
+}
+
+驗證一下：$2^{10} = 1024$，確實是 $4$ 位數，跟 $\lfloor \log_{10} 1024
+\rfloor + 1 = \lfloor 3.01 \rfloor + 1 = 3 + 1 = 4$ 吻合。 這裡我們
+把 \texttt{log10} 的結果存在 \texttt{double} 裡。 對數本身也是浮點
+數，所以最後取 \texttt{floor} 轉成整數時，要記得上一節的 \texttt{floor} 用法，以及前面容許誤差比較裡 \texttt{1e-9} 的防禦性寫法。
+
+\stylepoint{\texttt{floor} 前先加一個很小的 \texttt{1e-9} 是防禦性寫
+法：\texttt{log10} 的結果理論上可能因浮點誤差落在整數邊界下方，先加一
+點容許值可以避免少算一位。}
+
+\begin{drills}[label=drills:float-log-digits]
+\item $2^{10} = 1024$ 是幾位數？ 用 $\log_{10}$ 怎麼算出這個位數，不必
+真的算出 $2^{10}$ 本身？
+\item 為什麼這個技巧特別適合 $a^b$ 大到 \texttt{long long} 裝不下的情況？
+\item \texttt{floor(logVal + 1e-9)} 裡加 \texttt{1e-9} 是為了防止什麼
+情況？
+\end{drills}
+
+\section{綜合應用：凸多邊形的周長}
+\label{sec:float-polygon-perimeter}
+
+先用一個把距離累加起來的綜合範例：給定一個凸多邊形依序排列的頂點座
+標，求周長。
+做法是把本章學到的技巧串起來。 用陣列存下所有頂點、用迴圈依序走訪相鄰
+的兩個頂點、用 \texttt{sqrt} 算兩點距離、把每一段的距離加總。 最後一個
+頂點要繞回第一個頂點，這裡沿用陣列那一章介紹過的 \texttt{\% n} 環繞寫法：
+當 \texttt{i} 是最後一個索引 $n - 1$ 時，\texttt{(i + 1) \% n} 會繞回
+$0$，正好是第一個頂點。
+
+\begin{example}{c}{(polygon-perimeter.c) 計算凸多邊形周長}
+#include <stdio.h>
+#include <math.h>
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+
+    double x[1005], y[1005];
+    for (int i = 0; i < n; i++) {
+        scanf("%lf %lf", &x[i], &y[i]);
+    }
+
+    // 累加每一段相鄰頂點的距離，最後一段用 % n 繞回第一個頂點
+    double perimeter = 0;
+    for (int i = 0; i < n; i++) {
+        int j = (i + 1) % n;
+        double dx = x[j] - x[i], dy = y[j] - y[i];
+        perimeter += sqrt(dx * dx + dy * dy);
+    }
+
+    printf("%.3f\n", perimeter);
+}
+\end{example}
+
+\iosample{
+4 \\
+0 0 \\
+4 0 \\
+4 4 \\
+0 4 \\
+}{
+16.000 \\
+}
+
+範例輸入是一個邊長 $4$ 的正方形，四段邊長分別是 $4, 4, 4, 4$，加總後周
+長是 $16$，跟輸出一致。 這個範例也再次用到本章強調的重點：每一段距離都
+是用 \texttt{sqrt} 算出來的浮點數，而 \texttt{perimeter} 是好幾個浮點
+數累加的結果，如果題目要求判斷周長是不是恰好等於某個整數，就要用容許誤
+差比較（片語 \thechapter.10 的寫法），而不是 \texttt{==}。
+題庫後半還會碰到「頂點不是直接給座標、而是兩條直線的交點」。 那個
+寫法留到本章更後面，先把「有座標就能累加邊長」練熟。
+
+\begin{drills}[label=drills:float-polygon-perimeter]
+\item 邊長 $4$ 的正方形四個頂點依序給定時，周長怎麼算？
+\item \texttt{(i + 1) \% n} 在 \texttt{i} 是最後一個索引時算出什麼？
+這個寫法的用途是什麼？
+\item 若要判斷周長是不是恰好等於某個整數，該用 \texttt{==} 還是容許誤
+差比較？
+\end{drills}
+
+\section{弧長、給定的 pi，以及繞過障礙的面積}
+\label{sec:float-arc-area}
+
+周長不一定是直線。 若路徑是半徑 $r$ 的圓的四分之三弧，長度是
+$\frac{3}{4} \times 2\pi r$。 題目若給定 $\pi$，就用那個常數，不要
+自己另記一串數字。 兩個人各背一組不同位數的 $\pi$，答案會在小數點
+後幾位對不起來。 範例 \thechapter.24 用
+\texttt{3.141592653589793} 計算 $r=10$ 的弧長：
+$1.5 \times \pi \times 10 \approx 47.123889\ldots$，印到小數點後三
+位是 \texttt{47.124}。
+
+\begin{example}{c}{(three-quarter-arc.c) 四分之三圓周}
+#include <stdio.h>
+
+int main(void) {
+    double r;
+    scanf("%lf", &r);
+    double pi = 3.141592653589793;
+    double len = 0.75 * 2.0 * pi * r;
+    printf("%.3f\n", len);
+    return 0;
+}
+\end{example}
+
+\iosample{
+10 \\
+}{
+47.124 \\
+}
+
+面積也常是「整圓的幾分之幾」。 想像一條繩子拴在矩形房屋的牆角，房
+屋擋住一個象限，繩子夠短、還繞不過牆的時候，動物能走的就是其餘
+$\frac{3}{4}$ 圓。 繩子比某一邊牆還長時，多出來的長度可以沿著那一面
+牆再繞出一個半徑更短的 $\frac{1}{4}$ 圓。 兩邊牆都可能發生，所以最
+多要加兩次。
+
+\begin{center}
+\begin{tikzpicture}[scale=0.7]
+    \fill[black!12] (0,0) rectangle (2.2,1.6);
+    \draw (0,0) rectangle (2.2,1.6);
+    \node at (1.1,0.8) {\small 房屋};
+    \fill (0,0) circle (1.6pt);
+    \draw[thick] (0,2.4) arc[start angle=90, end angle=360, radius=2.4];
+    \node[idxlbl] at (0.15,-0.35) {拴點};
+    \node[idxlbl] at (-1.55,1.1) {$\frac{3}{4}$ 圓};
+\end{tikzpicture}
+\diagcaption{房屋占掉一個象限時，短繩子掃過的是其餘四分之三圓；繩
+子長過牆邊才會再繞出更小的四分之一圓。}
+\label{fig:ch07-rope-corner-arc}
+\end{center}
+
+範例 \thechapter.25 用題目給定的 $\pi = 3.1415926$。 輸入邊長
+$10$、$10$ 與繩長 $5$：繩子比兩邊都短，面積就是
+$\frac{3}{4}\pi\cdot 5^2 = \frac{3}{4}\times 3.1415926\times 25 =
+58.90486125$，用 \texttt{\%f} 印六位小數得到 \texttt{58.904861}。
+若繩長改成 $15$，兩邊都會繞出半徑 $5$ 的四分之一圓，面積變成
+$\frac{3}{4}\pi\cdot 15^2 + 2\times\frac{1}{4}\pi\cdot 5^2$，這台
+機器印出 \texttt{569.413659}。 先畫圖判斷「會不會繞過牆」，再決定
+要不要加上那兩個小扇形，比一開始就堆公式不容易漏情況。
+
+\begin{example}{c}{(cow-graze.c) 四分之三圓加上繞牆的扇形}
+#include <stdio.h>
+
+int main(void) {
+    double a, b, c;
+    scanf("%lf %lf %lf", &a, &b, &c);
+    double pi = 3.1415926;
+    double area = 0.75 * pi * c * c;
+    if (c > a) {
+        double r = c - a;
+        area += 0.25 * pi * r * r;
+    }
+    if (c > b) {
+        double r = c - b;
+        area += 0.25 * pi * r * r;
+    }
+    printf("%f\n", area);
+    return 0;
+}
+\end{example}
+
+\iosample{
+10.0 10.0 5.0 \\
+}{
+58.904861 \\
+}
+
+\stylepoint{題目寫「假設 $\pi = \cdots$」時，把那一串數字原樣寫進程
+式，不要改用 \texttt{acos(-1.0)} 另算一個 $\pi$。 評測比的是輸出字
+串，常數不一致就會錯在最後幾位。}
+
+\begin{drills}[label=drills:float-arc-area]
+\item 半徑 $r$ 的圓，四分之三弧長的公式是什麼？
+\item 題目給定一個 $\pi$ 的近似值時，該用題目給的，還是自己用
+\texttt{acos(-1.0)} 另外算一個？ 為什麼？
+\item 繩子拴在牆角，什麼情況下動物能走的範圍不只是四分之三圓？
+\end{drills}
+
+\section{由直線交點圍成多邊形}
+\label{sec:float-line-intersect}
+
+稍早的周長範例直接讀頂點座標。 另一種常見輸入是：$n$ 條直線
+$ax+by+c=0$，相鄰兩條的交點才是頂點，再依序把邊長加起來。 兩條直線
+$a_1x+b_1y+c_1=0$、$a_2x+b_2y+c_2=0$ 的交點可以用二階克拉瑪公式：
+
+\[
+x = \frac{b_1 c_2 - b_2 c_1}{a_1 b_2 - a_2 b_1},\quad
+y = \frac{c_1 a_2 - c_2 a_1}{a_1 b_2 - a_2 b_1}.
+\]
+
+分母是兩個法向量的行列式，平行時為 $0$。 凸多邊形的相鄰邊不應該平
+行，測資通常保證交點存在。 第 $i$ 條與第 $i+1$ 條交出第 $i$ 個頂
+點，最後一條再跟第一條交出最後一個頂點，然後跟前面一樣用
+\texttt{\% n} 繞一圈累加 \texttt{hypot}。
+
+\begin{center}
+\begin{tikzpicture}[scale=0.55]
+    \draw[thick] (-0.5,0) -- (5.5,0);
+    \draw[thick] (0,-0.5) -- (0,5.5);
+    \draw[thick] (4,-0.5) -- (4,5.5);
+    \draw[thick] (-0.5,4) -- (5.5,4);
+    \fill (0,0) circle (2pt);
+    \fill (4,0) circle (2pt);
+    \fill (4,4) circle (2pt);
+    \fill (0,4) circle (2pt);
+    \node[idxlbl, below left] at (0,0) {$(0,0)$};
+    \node[idxlbl, below right] at (4,0) {$(4,0)$};
+    \node[idxlbl, above right] at (4,4) {$(4,4)$};
+    \node[idxlbl, above left] at (0,4) {$(0,4)$};
+\end{tikzpicture}
+\diagcaption{四條直線 $x=0$、$y=0$、$x=4$、$y=4$ 兩兩相鄰相交，頂點
+正好是邊長 $4$ 的正方形。}
+\label{fig:ch07-polygon-intersections}
+\end{center}
+
+範例 \thechapter.26 就用這四條直線（寫成
+$1\cdot x+0\cdot y+0=0$ 這種一般式）。 四個交點是
+$(0,0)$、$(4,0)$、$(4,4)$、$(0,4)$，周長 $16$，跟直接給頂點的正方形
+例子一致。 寫的時候每一條直線都用 \texttt{double} 讀 $a,b,c$，交點
+也存 \texttt{double}；最後用 \texttt{\%.3f} 輸出，對齊常見的周長精
+度要求。
+
+\begin{example}{c}{(line-polygon.c) 相鄰直線交點圍成的周長}
+#include <stdio.h>
+#include <math.h>
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+
+    double a[250], b[250], c[250];
+    for (int i = 0; i < n; i++) {
+        scanf("%lf %lf %lf", &a[i], &b[i], &c[i]);
+    }
+
+    double px[250], py[250];
+    for (int i = 0; i < n; i++) {
+        int j = (i + 1) % n;
+        double det = a[i] * b[j] - a[j] * b[i];
+        px[i] = (b[i] * c[j] - b[j] * c[i]) / det;
+        py[i] = (c[i] * a[j] - c[j] * a[i]) / det;
+    }
+
+    double peri = 0.0;
+    for (int i = 0; i < n; i++) {
+        int j = (i + 1) % n;
+        peri += hypot(px[j] - px[i], py[j] - py[i]);
+    }
+    printf("%.3f\n", peri);
+    return 0;
+}
+\end{example}
+
+\iosample{
+4 \\
+1 0 0 \\
+0 1 0 \\
+1 0 -4 \\
+0 1 -4 \\
+}{
+16.000 \\
+}
+
+\begin{drills}[label=drills:float-line-intersect]
+\item 兩條直線 $a_1x+b_1y+c_1=0$ 與 $a_2x+b_2y+c_2=0$ 的交點公式裡，
+分母是什麼？ 它等於 $0$ 代表什麼幾何情況？
+\item 求出所有交點之後，怎麼把它們串成周長？
+\end{drills}
+
+\section{累加與數值穩定性：平均與變異數}
+\label{sec:float-mean-variance}
+
+有些題目需要對一整排浮點數做統計，例如平均值與變異數。 變異數的公式是
+「每個值與平均值的差的平方，取平均」，所以要先知道平均值才能算每個值的
+差。 得先掃一遍陣列算出平均值，才能再掃第二遍算變異數。 這跟陣列那一
+章「先掃一遍拿到資訊、再掃第二遍利用它」的節奏完全一樣，差別只在於這裡
+處理的是浮點數，多了一層數值精確度的考量。 前面也看過：浮點數
+累加會一點一點堆誤差，統計題尤其要留意。
+
+\begin{example}{c}{(mean-and-variance.c) 兩階段計算平均與變異數}
+#include <stdio.h>
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+
+    // 第一遍：讀入資料並累加，算出平均值
+    double a[100005];
+    double sum = 0;
+    for (int i = 0; i < n; i++) {
+        scanf("%lf", &a[i]);
+        sum += a[i];
+    }
+    double mean = sum / n;
+
+    // 第二遍：用平均值算出變異數
+    double sq = 0;
+    for (int i = 0; i < n; i++) {
+        double d = a[i] - mean;
+        sq += d * d;
+    }
+    double variance = sq / n;
+
+    printf("%.4f %.4f\n", mean, variance);
+}
+\end{example}
+
+\iosample{
+5 \\
+1 2 3 4 5 \\
+}{
+3.0000 2.0000 \\
+}
+
+用 $1, 2, 3, 4, 5$ 驗證：平均值是 $\frac{1+2+3+4+5}{5} = 3$；每個值與
+平均值的差分別是 $-2, -1, 0, 1, 2$，平方後是
+$4, 1, 0, 1, 4$，總和是 $10$，除以 $5$ 得到變異數 $2$，跟範例輸出一致。
+
+變異數也可以用單次掃描公式 $\overline{x^2} - \overline{x}^2$ 邊讀邊算，
+不用存整個陣列，也不用掃兩遍。 只要邊讀邊累加 $\sum x_i$ 跟
+$\sum x_i^2$，最後一次算完就好，寫起來甚至比兩階段版本更短。 但兩個很接
+近的大數相減會放大浮點誤差：當 $\overline{x^2}$ 跟 $\overline{x}^2$ 本
+身都很大、而兩者的差相對很小時，這個差值的有效位數會被嚴重侵蝕，資料量
+大或數值範圍大時甚至可能算出負的變異數（理論上變異數永遠不會是負的）。
+
+\keypoint{兩階段的做法比單次掃描公式慢，但數值上更穩定，這是精確度與效
+率之間常見的取捨。}
+
+\begin{drills}[label=drills:float-mean-variance]
+\item $1, 2, 3, 4, 5$ 這組資料的平均值與變異數各是多少？
+\item 為什麼算變異數要先掃一遍拿到平均值，才能掃第二遍？
+\item 單次掃描公式 $\overline{x^2} - \overline{x}^2$ 比兩階段法快，但
+可能有什麼數值上的風險？
+\end{drills}
+
+\section{迭代逼近：牛頓法}
+\label{sec:float-newton}
+
+有些題目不給閉式公式，而要你把同一個更新做 $k$ 次。 求 $\sqrt{a}$ 可
+以看成解 $f(x) = x^2 - a = 0$。 牛頓法的一步是沿著切線走到 $x$ 軸：
+$x \leftarrow x - f(x)/f'(x)$。 對這個 $f$，化簡之後正好是
+$x \leftarrow \dfrac{1}{2}\bigl(x + a/x\bigr)$。 每一步都把目前的猜測
+跟「$a$ 除以猜測」平均一次，直觀上就是在逼近幾何平均。
+
+範例 \thechapter.28 從 $x=1$ 開始，對 $a=9$ 做 $6$ 次。 我們逐步把每
+一輪的值寫出來（這台機器、中間用更高精度印）：
+
+\begin{center}
+\begin{tabular}{cr}
+輪次 & $x$ \\
+1 & $5.000000$ \\
+2 & $3.400000$ \\
+3 & $3.023529$ \\
+4 & $3.000092$ \\
+5 & $3.000000$ \\
+6 & $3.000000$ \\
+\end{tabular}
+\end{center}
+
+第一輪從 $1$ 跳到 $5$，還差很遠；第三輪已經到 $3.02$，第四輪以後在
+\texttt{\%.4f} 底下就跟精確的 $3$ 分不出來了。 次數不夠會停在近似
+值；題目若規定做 $k$ 次再輸出，就真的只做 $k$ 次，不要自己改成「誤
+差夠小就停」。 那是另一種寫法，答案對測資不一定符合。
+
+\begin{example}{c}{(newton-sqrt.c) 牛頓迭代求平方根}
+#include <stdio.h>
+
+int main(void) {
+    double a;
+    int k;
+    scanf("%lf %d", &a, &k);
+
+    double x = 1.0;
+    for (int i = 0; i < k; i++) {
+        x = 0.5 * (x + a / x);
+    }
+    printf("%.4f\n", x);
+    return 0;
+}
+\end{example}
+
+\iosample{
+9 6 \\
+}{
+3.0000 \\
+}
+
+推廣到任意多項式時，每一輪都要同時算出 $f(x)$ 與 $f'(x)$。 把係數
+從高次寫到常數項，霍納法則（Horner）用一次掃描同時求出兩者：每讀進
+一個係數，先用「目前的 $f$」去更新導數（乘上 $x$ 再累加），再用這個
+係數更新 $f$。 片語 \thechapter.30 就是這一層；外面再套 $k$ 次
+$x \leftarrow x - f/f'$。
+
+\begin{code}{c}{霍納法則同時求多項式值與導數}
+double f = 0.0, df = 0.0;
+for (int i = 0; i <= degree; i++) {
+    df = df * x + f;
+    f = f * x + coef[i];
+}
+x = x - f / df;
+\end{code}
+
+範例 \thechapter.30 對 $f(x) = x^2 - 2$（係數 \texttt{1 0 -2}）從
+$x=1$ 做 $5$ 次，每一步先印目前的 $x$ 與 $f(x)$，再更新。 第一行
+\texttt{1.0000 -1.0000} 就是起點：$1^2-2=-1$。 下一步
+$x \leftarrow 1 - (-1)/2 = 1.5$，對應第二行 $1.5^2-2=0.25$。 之後
+很快靠近 $\sqrt{2}\approx 1.4142$，後兩行的函數值在四位小數下已經
+是 $0$。 導數若變成 $0$，這一除會爆炸。 測資通常會保證切線不水平，
+寫程式時仍該知道這個失敗模式。
+
+\begin{drills}[label=drills:float-newton]
+\item 牛頓法求 $\sqrt{a}$ 的更新公式是什麼？
+\item 題目規定做 $k$ 次迭代時，該做滿 $k$ 次，還是「誤差夠小就提早停」？
+\item 霍納法則在同一次掃描裡，同時算出多項式的哪兩個量？
+\end{drills}
+
+\begin{example}{c}{(newton-poly.c) 對多項式做牛頓迭代}
+#include <stdio.h>
+
+int main(void) {
+    int d, k;
+    scanf("%d", &d);
+
+    double coef[12];
+    for (int i = 0; i <= d; i++) {
+        scanf("%lf", &coef[i]);
+    }
+    scanf("%d", &k);
+    double x;
+    scanf("%lf", &x);
+
+    for (int t = 0; t < k; t++) {
+        double f = 0.0, df = 0.0;
+        for (int i = 0; i <= d; i++) {
+            df = df * x + f;
+            f = f * x + coef[i];
+        }
+        printf("%.4f %.4f\n", x, f);
+        x = x - f / df;
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+2 \\
+1 0 -2 \\
+5 \\
+1 \\
+}{
+1.0000 -1.0000 \\
+1.5000 0.2500 \\
+1.4167 0.0069 \\
+1.4142 0.0000 \\
+1.4142 0.0000 \\
+}
+
+\section{上三角方程組的回代}
+\label{sec:float-back-sub}
+
+解一般的線性方程組要用高斯消去，但若係數矩陣已經是上三角（對角線
+以下都是 $0$），從最後一個未知數往回代就夠了。 兩條式子
+$a_{11}x + a_{12}y = b_1$、$a_{22}y = b_2$ 時，先
+$y = b_2/a_{22}$，再 $x = (b_1 - a_{12} y)/a_{11}$。 範例
+\thechapter.31 讀入 \texttt{2 1 5} 與 \texttt{1 1}，對應
+$2x+y=5$、$y=1$，得到 $y=1$、$x=(5-1)/2=2$。
+
+\begin{example}{c}{(back-sub.c) 二階上三角方程組的回代}
+#include <stdio.h>
+
+int main(void) {
+    double a11, a12, b1;
+    double a22, b2;
+    scanf("%lf %lf %lf", &a11, &a12, &b1);
+    scanf("%lf %lf", &a22, &b2);
+    double y = b2 / a22;
+    double x = (b1 - a12 * y) / a11;
+    printf("%.4f %.4f\n", x, y);
+    return 0;
+}
+\end{example}
+
+\iosample{
+2 1 5 \\
+1 1 \\
+}{
+2.0000 1.0000 \\
+}
+
+$n$ 階時，第 $i$ 個未知數（從 $0$ 數）等於「右端減掉右邊已經求出的
+那些項，再除以對角線」。 所以外層迴圈從 $n-1$ 走到 $0$，內層把
+$j = i+1,\ldots,n-1$ 的 $a_{ij}x_j$ 扣掉。
+
+\begin{center}
+\begin{tikzpicture}
+    \node[cell] (r0c0) {\texttt{a00}};
+    \node[cell, right=0pt of r0c0] (r0c1) {\texttt{a01}};
+    \node[cell, right=0pt of r0c1] (r0c2) {\texttt{a02}};
+
+    \node[cell, below=0pt of r0c0] (r1c0) {\texttt{0}};
+    \node[cell, right=0pt of r1c0] (r1c1) {\texttt{a11}};
+    \node[cell, right=0pt of r1c1] (r1c2) {\texttt{a12}};
+
+    \node[cell, below=0pt of r1c0] (r2c0) {\texttt{0}};
+    \node[cell, right=0pt of r2c0] (r2c1) {\texttt{0}};
+    \node[hlcell, right=0pt of r2c1] (r2c2) {\texttt{a22}};
+
+    \node[idxlbl, right=0.8cm of r0c2] {$x_0$（最後算）};
+    \node[idxlbl, right=0.8cm of r1c2] {$x_1$};
+    \node[idxlbl, right=0.8cm of r2c2] {$x_2$（最先算）};
+    \draw[diagarrow] (r2c2.east) -- ++(0.6,0);
+\end{tikzpicture}
+\diagcaption{上三角矩陣從右下角的對角線除起，每求出一個 $x_i$，就
+拿去消掉上面那些列裡還沒處理的項。}
+\label{fig:ch07-back-substitution}
+\end{center}
+
+範例 \thechapter.32 讀 $n=3$ 與
+
+\[
+\begin{bmatrix}
+1 & 1 & 1 \\
+0 & 1 & 1 \\
+0 & 0 & 1
+\end{bmatrix}
+\begin{bmatrix} x_0 \\ x_1 \\ x_2 \end{bmatrix}
+=
+\begin{bmatrix} 6 \\ 3 \\ 1 \end{bmatrix}.
+\]
+
+先 $x_2 = 1/1 = 1$，再 $x_1 = (3-1\cdot 1)/1 = 2$，最後
+$x_0 = (6-1\cdot 2-1\cdot 1)/1 = 3$。 對角線接近 $0$ 時，這一層會
+把上面的捨入誤差放大。 這是數值線性代數的起點，現階段先保證測資
+的樞紐不是零，也別在過程中把已經是 $0$ 的下三角元素拿來除。
+
+\begin{example}{c}{(back-sub-n.c) n 階上三角回代}
+#include <stdio.h>
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+
+    double a[16][16], y[16], x[16];
+    for (int i = 0; i < n; i++) {
+        for (int j = 0; j < n; j++) {
+            scanf("%lf", &a[i][j]);
+        }
+    }
+    for (int i = 0; i < n; i++) {
+        scanf("%lf", &y[i]);
+    }
+
+    for (int i = n - 1; i >= 0; i--) {
+        double s = y[i];
+        for (int j = i + 1; j < n; j++) {
+            s -= a[i][j] * x[j];
+        }
+        x[i] = s / a[i][i];
+    }
+
+    for (int i = 0; i < n; i++) {
+        printf("%.4f\n", x[i]);
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+3 \\
+1 1 1 \\
+0 1 1 \\
+0 0 1 \\
+6 \\
+3 \\
+1 \\
+}{
+3.0000 \\
+2.0000 \\
+1.0000 \\
+}
+
+\keypoint{浮點數適合連續量的近似計算。 輸出位數、容許誤差、以及能不
+能改成整數交叉相乘，這三件事要想清楚，再開始寫公式。}
+
+\begin{drills}[label=drills:float-back-sub]
+\item 上三角方程組回代時，先解出哪一個未知數？ 最後解出哪一個？
+\item $n$ 階回代時，外層迴圈從哪個索引走到哪個索引？
+\item 若對角線元素非常接近 $0$，回代過程可能出現什麼問題？
+\end{drills}
+
+\addcontentsline{toc}{section}{練習解答}
+\section*{練習解答}
+
+各節練習的答案收在這裡。 短題只給能一句話核對的結果。
+
+\paragraph{第~\ref{sec:float-declare-io}~節}
+\begin{enumerate}
+\item \texttt{scanf} 用 \texttt{\%lf}；\texttt{printf} 用 \texttt{\%f}。
+\item 因為 \texttt{9}、\texttt{5} 都是整數常數，\texttt{9 / 5} 會先做
+整數除法變成 \texttt{1}，之後乘什麼都救不回來。
+\item 預設印 $6$ 位小數。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:float-sci-notation}~節}
+\begin{enumerate}
+\item $1.235 \times 10^4 = 12350$。
+\item 因為 \texttt{9 / 5} 的型別是 \texttt{int}，用 \texttt{\%.1f} 印
+會把整數位元樣式誤讀成浮點數，印出無意義的內容。
+\item \texttt{9.0 / 5} 是常數 \texttt{9.0} 本身就是浮點數；
+\texttt{(double)9 / 5} 是用強制轉型把 \texttt{9} 轉成浮點數。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:float-cast-assoc}~節}
+\begin{enumerate}
+\item 因為除法可能先在括號外的整數運算裡做完；正確寫法要把
+\texttt{a + b} 整個括起來轉型：\texttt{(double)(a + b) / 2}。
+\item \texttt{a - b - c = 5}，\texttt{a - (b - c) = 9}，差在括號位置
+改變了運算順序。
+\item 由左向右。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:float-bit-repr}~節}
+\begin{enumerate}
+\item \texttt{float} 占 $4$ 個位元組（指數 $8$ 位）；\texttt{double}
+占 $8$ 個位元組（指數 $11$ 位）。
+\item 不是，\texttt{x} 裡存的是「最接近 $0.1$ 的可表示二進位浮點數」。
+\item 靠近 $0$ 的地方比較密。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:float-hidden-error}~節}
+\begin{enumerate}
+\item 三者印出來的字面不同（\texttt{0.1}、\texttt{0.10}、
+\texttt{0.10000000000000001}）；要看到真正的近似值要用
+\texttt{\%.17f}。
+\item 不是同一件事；印出來像整數只是輸出位數把誤差藏起來了。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:float-no-equality}~節}
+\begin{enumerate}
+\item 得到假（\texttt{0}），因為十次累加的誤差讓 \texttt{sum} 跟
+\texttt{1.0} 的位元樣式不同。
+\item \texttt{fabs(a - b) < eps}，用一個很小的容許誤差判斷是否「足夠
+接近」。
+\item 比的是記憶體裡的位元樣式是否相同，不是數學上是否相等。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:float-abs-rel-error}~節}
+\begin{enumerate}
+\item 印出假（\texttt{0}）。
+\item 判斷「不相等」，因為 $0.5$ 遠大於絕對門檻 \texttt{1e-9}，即使相
+對這兩個大數字而言差距很小。
+\item \texttt{fabs(a - b) < eps * fabs(a)}，把容許誤差按 $|a|$ 放大。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:float-limits}~節}
+\begin{enumerate}
+\item 量的是 $1$ 附近的間距。
+\item 因為 $10^{12}$ 附近相鄰可表示值的間距已經遠大於 \texttt{1e-9}，
+不是 \texttt{DBL\_EPSILON} 本身變了，而是間距被指數放大了。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:float-inf-nan}~節}
+\begin{enumerate}
+\item \texttt{1.0 / 0.0} 得到正無窮；\texttt{0.0 / 0.0} 得到 NaN。
+\item 假（\texttt{0}）；NaN 跟任何值比較，包括自己，都不會得到「相
+等」。
+\item 檢查有沒有除以零、對數的真數非正、或平方根的參數為負。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:float-money-int}~節}
+\begin{enumerate}
+\item 因為每一筆金額的小數部分累加時都帶著二進位捨入誤差，加久了可能
+連該不該是整數元都說不準。
+\item 讓分的部分固定印兩位；少了它，\texttt{5.00} 可能印成
+\texttt{5.0}。
+\item $199 + 250 + 51 = 500$ 分，印成 \texttt{5.00} 元。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:float-cross-mult}~節}
+\begin{enumerate}
+\item $d_1 \times p_2 > d_2 \times p_1$。
+\item $p_1, p_2 > 0$。
+\item 因為整個搜尋過程只用整數乘法，完全不出現浮點數，所以沒有浮點誤
+差的問題。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:float-math-lib}~節}
+\begin{enumerate}
+\item $\sqrt{3^2+4^2} = 5$。
+\item 常要加上 \texttt{-lm} 連結數學函式庫。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:float-round-fns}~節}
+\begin{enumerate}
+\item \texttt{floor} 得 $-2$，\texttt{ceil} 得 $-1$，\texttt{round}
+得 $-2$。
+\item \texttt{fmod(7.5, 2.0) = 1.50}；概念上是同一件事，只是換成浮點數
+版本。
+\item 因為 $x$、$y$ 平方後可能先溢成無窮，\texttt{hypot} 內部會先縮放
+再算，減少中間溢位。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:float-log-digits}~節}
+\begin{enumerate}
+\item $4$ 位數；用 $\lfloor \log_{10}(2^{10}) \rfloor + 1$ 直接算出來，
+不必真的算出 $2^{10}$。
+\item 因為 $a^b$ 可能大到任何整數型別都裝不下，而位數本身只是一個很小
+的整數。
+\item 防止 \texttt{log10} 的結果因浮點誤差落在整數邊界下方，導致少算
+一位。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:float-polygon-perimeter}~節}
+\begin{enumerate}
+\item 把相鄰頂點的距離依序用 \texttt{sqrt} 算出來再加總，得到 $16$。
+\item 算出 $0$，讓最後一段繞回第一個頂點。
+\item 容許誤差比較，不要用 \texttt{==}。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:float-arc-area}~節}
+\begin{enumerate}
+\item $\frac{3}{4} \times 2\pi r$。
+\item 用題目給的；不同位數的 $\pi$ 常數會讓答案在小數點後幾位對不起
+來。
+\item 繩子比某一邊牆還長時，會沿那面牆再繞出一個更小的四分之一圓。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:float-line-intersect}~節}
+\begin{enumerate}
+\item 分母是兩個法向量的行列式 $a_1 b_2 - a_2 b_1$；等於 $0$ 代表兩條
+直線平行，沒有交點。
+\item 依序求出相鄰兩條直線的交點當頂點，再用 \texttt{\% n} 繞一圈累加
+兩點距離。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:float-mean-variance}~節}
+\begin{enumerate}
+\item 平均值 $3$，變異數 $2$。
+\item 因為變異數公式需要用到平均值，必須先算完平均值才能算每個值跟它
+的差。
+\item 兩個很接近的大數相減，可能讓有效位數被嚴重侵蝕，資料量大時甚至
+可能算出負的變異數。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:float-newton}~節}
+\begin{enumerate}
+\item $x \leftarrow \frac{1}{2}(x + a/x)$。
+\item 做滿規定的 $k$ 次，不要自己改成誤差夠小就提早停。
+\item 同時算出多項式的值 $f(x)$ 與導數 $f'(x)$。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:float-back-sub}~節}
+\begin{enumerate}
+\item 先解出最後一個未知數（對角線最下面那個），最後解出第一個。
+\item 從 $n-1$ 走到 $0$。
+\item 這一層會把上面已經有的捨入誤差放大。
+\end{enumerate}

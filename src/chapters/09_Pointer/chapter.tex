@@ -1,0 +1,1170 @@
+\chapter{指標}
+\label{ch:pointer}
+
+到目前為止，我們操作的變數多是值本身：把 $7$ 存進 \texttt{int x}，
+\texttt{x} 就代表 $7$。 但每個變數在記憶體裡都占一個\textbf{位址}。
+\textbf{指標}（pointer）是一種變數，存的是另一個物件的位址；用
+\texttt{\&} 取位址、用 \texttt{*} 沿位址讀寫，是這一章的核心操作。
+
+這一章分五段推進：先建立左值／右值與 wild pointer 的防禦習慣，再整
+合指標參數、純函式與副作用的取捨、\texttt{const} 保護、回傳指標的生
+命週期；接著釐清陣列與指標是不同東西、退化與指標算術如何運作；然後
+看多維攤平、列指標與函式指標；最後集中越界、型別不匹配與懸空指標等
+陷阱。 函式章已預告傳值改不到原變數；這一章用位址把那一限制補完整。
+
+\section{左值、右值與指標基礎}
+\label{sec:ptr-basics}
+
+左值（l-value）與右值（r-value）是理解指標的起點。 寫下
+\texttt{int x = 7} 時，編譯器會在記憶體裡分配一塊剛好放得下
+\texttt{int} 的空間，並把名字 \texttt{x} 綁到這塊空間的位址。 這個
+名字代表一塊\textbf{有固定位址}的記憶體物件，可以出現在賦值左邊，
+也可以對它取 \texttt{\&}；這類物件稱為左值，l-value 的 l 來自
+locator，意思是它能指出物件住在哪。 字面常數 \texttt{42}、算式
+\texttt{x + 1} 的結果則只是\textbf{內容值}，沒有自己的持久位址，稱
+為右值。 \texttt{\&} 只能加在左值前面：我們取的是這個物件住在哪。
+
+指標變數本身也是左值：編譯器同樣給它分配一塊空間，只是這塊空間裡
+存的內容剛好是另一個物件的位址。 所以指標有兩層：\texttt{p} 自己
+住在某個位址，\texttt{p} 裡又記著別人的位址。
+
+\subsection{宣告}
+
+指標變數的宣告格式是 \textbf{型別 *變數名}。 例如 \texttt{int *p}
+代表 p 是一個指向 \texttt{int} 的指標。 星號 \texttt{*} 在宣告時是
+\textbf{型別修飾符}，讀法是指向 \ldots 的指標。
+
+\begin{code}{c}{指標宣告的多種形式}
+int *p;           // p 是指向 int 的指標
+double *q;        // q 是指向 double 的指標
+int *p1, *p2;     // 多個指標：都要加 *
+int *p3, x;       // 陷阱：p3 是指標，但 x 只是普通 int
+\end{code}
+
+宣告指標後必須立即指派一個有效的位址，否則對它解參考是未定義行為。
+
+\subsection{指定（賦值）位址}
+
+將一個變數或陣列元素的位址指派給指標，使用 \texttt{\&} 運算子（取
+位址）。
+
+\begin{code}{c}{用 \& 取位址，指派給指標}
+int x = 42;
+int *p = &x;      // p 現在指向 x（存著 x 的位址）
+
+int arr[5];
+int *pa = &arr[0];  // 指向陣列第一個元素
+int *pa2 = arr;     // 陣列名在此當成首元素位址（退化，後面會細講）
+\end{code}
+
+\subsection{取值（解參考）}
+
+用 \texttt{*} 運算子沿著指標指向的位址讀出（或修改）那個位置的值。
+這個動作叫做\textbf{解參考}（dereference）。
+
+\begin{code}{c}{用 * 取值}
+int x = 42;
+int *p = &x;
+printf("%d\n", *p);   // 讀：印出 42
+*p = 100;             // 寫：現在 x 變成 100
+\end{code}
+
+\texttt{*p} 與 \texttt{x} 代表同一個整數，只是走不同的路徑：
+\begin{itemize}
+  \item \texttt{x} 是直接存取變數
+  \item \texttt{*p} 是沿著指標指向的位址讀取
+\end{itemize}
+
+\begin{center}
+\begin{tikzpicture}
+    \node[cell] (xcell) {42};
+    \node[idxlbl, below=0.15cm of xcell] {\texttt{x}};
+
+    \node[cell, right=1.3cm of xcell] (pcell) {};
+    \node[idxlbl, font=\scriptsize] at (pcell.center) {$\rightarrow$~\texttt{x}};
+    \node[idxlbl, below=0.15cm of pcell] {\texttt{p}};
+
+    \draw[diagarrow] (pcell.west) .. controls ($(pcell.west)!0.5!(xcell.east)+(0,0.35)$) .. (xcell.east);
+\end{tikzpicture}
+\diagcaption{變數 \texttt{x} 存值 $42$；指標 \texttt{p} 存的是 \texttt{x}
+的位址（箭頭表示指向）。 \texttt{*p} 沿箭頭讀到的就是 $42$。}
+\label{fig:ch09-pointer-basic}
+\end{center}
+
+\subsection{Wild pointer 與 NULL}
+
+若宣告指標卻不初始化，它會含當時那塊記憶體碰巧留下的垃圾值。 這種
+指標叫做 \textbf{wild pointer}（野指標）。 對它做 \texttt{*} 等於往
+一個隨機位址讀寫：輕則立刻 Segmentation Fault，重則默默改掉別的變
+數，之後的 bug 極難追。 宣告當下就要給它一個有效位址，或先設成
+\texttt{NULL}。
+
+\texttt{NULL} 是刻意表示目前不指向任何有效物件的哨兵值。 對
+\texttt{NULL} 做 \texttt{*} 幾乎一定立刻 crash（Segmentation
+Fault），這反而比較好查：錯就停在解參考那一步，不會默默改到一塊看
+起來還能跑的記憶體。 因此在使用指標前，一定要確認它不是
+\texttt{NULL}。
+
+\begin{code}{c}{安全地使用指標}
+int *p = NULL;           // 宣告時初始化成 NULL
+int x = 5;
+p = &x;                  // 現在指向有效變數
+
+if (p != NULL) {
+    printf("%d\n", *p);  // 安全：先檢查再使用
+}
+\end{code}
+
+習慣上，宣告指標時立刻初始化成 \texttt{NULL} 或指向某個有效物件，
+避免指標含垃圾值。
+
+\subsection{取位址運算子 \&}
+
+\texttt{\&} 運算子得到變數在記憶體中的位址。 對於陣列，陣列名本身
+在很多上下文中就代表起始位址。
+
+\begin{code}{c}{\& 運算子的使用}
+int x = 42;
+printf("%p\n", &x);      // 印出 x 的位址（格式 %p）
+
+int arr[5] = {1, 2, 3, 4, 5};
+printf("%p\n", arr);      // 陣列名 = 首元素位址
+printf("%p\n", &arr[0]);  // 明確取首元素位址（相同）
+printf("%p\n", &arr[2]);  // 取第三個元素的位址
+\end{code}
+
+範例 \thechapter.6 把取位址、解參考、透過指標改寫原變數串在一起。
+跑起來會看到 \texttt{\&x} 與 \texttt{p} 印出同一個位址；對
+\texttt{*p} 賦值之後，\texttt{x} 的值跟著變成 $100$。
+
+\begin{example}{c}{(pointer-basics.c) 指標的基本操作}
+#include <stdio.h>
+
+int main(void) {
+    int x = 42;
+    int *p = &x;           // p 指向 x
+
+    printf("x 的值：%d\n", x);
+    printf("*p 的值：%d\n", *p);    // 沿 p 讀 x
+    printf("x 的位址：%p\n", &x);
+    printf("p 存的位址：%p\n", p);
+
+    *p = 100;              // 透過指標改 x
+    printf("改變後 x：%d\n", x);
+
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+x 的值：42 \\
+*p 的值：42 \\
+x 的位址：0x7ffc8b7c4abc \\
+p 存的位址：0x7ffc8b7c4abc \\
+改變後 x：100 \\
+}
+
+\keypoint{\texttt{\&} 從變數得到位址，\texttt{*} 從位址得到值；指標
+變數本身存的是位址。 型別必須一致：\texttt{int *p} 只能指向
+\texttt{int}。}
+
+\begin{drills}[label=drills:ptr-basics]
+\item 字面常數 \texttt{42} 跟運算式 \texttt{x + 1}，是左值還是右值？
+\texttt{\&} 運算子只能加在哪一種前面？
+\item \texttt{int *p3, x;} 這樣宣告，\texttt{x} 是指標還是普通
+\texttt{int}？
+\item 為什麼指標宣告後不能放著不管，要立刻指派有效位址或
+\texttt{NULL}？
+\item 對 \texttt{NULL} 指標解參考通常會發生什麼事？為什麼這種
+crash 反而「比較好查」？
+\end{drills}
+
+\section{指標參數與多重回傳}
+\label{sec:ptr-params}
+
+函式那一章說過：一般變數當參數傳進函式時，傳的是\textbf{值的複製}，
+函式裡改參數不會影響呼叫者原本的變數。 片語 \thechapter.2 已經讓指
+標握著別人的位址；把這個位址傳進函式，函式就能沿著位址改寫呼叫者
+那邊的記憶體。
+
+\subsection{交換變數值}
+
+\begin{code}{c}{用指標參數交換兩個整數}
+void swap(int *pa, int *pb) {
+    int temp = *pa;
+    *pa = *pb;
+    *pb = temp;
+}
+
+int main(void) {
+    int a = 3, b = 7;
+    swap(&a, &b);          // 傳位址
+    printf("%d %d\n", a, b);  // 輸出 7 3
+}
+\end{code}
+
+\texttt{swap(\&a, \&b)} 傳進去的是 \texttt{a}、\texttt{b} 的位址。
+函式裡的 \texttt{*pa}、\texttt{*pb} 實際上在改呼叫者那邊的
+\texttt{a}、\texttt{b}。 對照函式章那個改不到原變數的 \texttt{swap}：
+那一版交換的是自己 stack frame 裡的複本；這一版沿位址改的是呼叫者
+的那兩格。
+
+\begin{center}
+\begin{tikzpicture}
+    \node[hlcell2, minimum width=1.1cm] (a1) {3};
+    \node[idxlbl, below=0.15cm of a1] {\texttt{a}};
+    \node[hlcell2, minimum width=1.1cm, right=0.4cm of a1] (b1) {7};
+    \node[idxlbl, below=0.15cm of b1] {\texttt{b}};
+
+    \node[hlcell2, minimum width=1.1cm, below=1.3cm of a1] (a2) {7};
+    \node[idxlbl, below=0.15cm of a2] {\texttt{a}};
+    \node[hlcell2, minimum width=1.1cm, right=0.4cm of a2] (b2) {3};
+    \node[idxlbl, below=0.15cm of b2] {\texttt{b}};
+
+    \draw[diagarrow] ($(a1)!0.5!(b1)$ |- a1.south) -- ($(a2)!0.5!(b2)$ |- a2.north);
+    \coordinate (rowmid) at ($(a1)!0.5!(a2)$);
+    \node[idxlbl, right=1.7cm of rowmid] {交換後};
+\end{tikzpicture}
+\diagcaption{函式沿位址改寫兩格記憶體，交換完成。}
+\label{fig:ch09-pointer-swap}
+\end{center}
+
+\begin{example}{c}{(swap-with-pointers.c) 用指標交換兩個整數}
+#include <stdio.h>
+
+void swap(int *pa, int *pb) {
+    int temp = *pa;
+    *pa = *pb;
+    *pb = temp;
+}
+
+int main(void) {
+    int a, b;
+    scanf("%d %d", &a, &b);
+    swap(&a, &b);
+    printf("%d %d\n", a, b);
+}
+\end{example}
+
+\iosample{
+3 7 \\
+}{
+7 3 \\
+}
+
+用輸入 $3$ 與 $7$ 走一遍：\texttt{swap} 收到的是這兩個變數的位址，
+\texttt{temp} 先接住 $3$，再把 $7$ 寫進 \texttt{a}、把 $3$ 寫進
+\texttt{b}。 \texttt{main} 印出的就是 $7$ $3$。
+
+\subsection{輸出參數}
+
+除了交換，指標參數還常拿來當\textbf{輸出參數}（output parameter）：
+函式除了 \texttt{return} 一個值，還透過指標把額外結果寫回給呼叫者。
+
+\begin{example}{c}{(output-parameter.c) 用指標參數回傳最大值與索引}
+#include <stdio.h>
+
+void findMax(int a[], int n, int *maxVal, int *maxIdx) {
+    *maxVal = a[0];
+    *maxIdx = 0;
+    for (int i = 1; i < n; i++) {
+        if (a[i] > *maxVal) {
+            *maxVal = a[i];
+            *maxIdx = i;
+        }
+    }
+}
+
+int main(void) {
+    int a[1005], n;
+    scanf("%d", &n);
+    for (int i = 0; i < n; i++) {
+        scanf("%d", &a[i]);
+    }
+
+    int maxVal, maxIdx;
+    findMax(a, n, &maxVal, &maxIdx);
+    printf("%d %d\n", maxVal, maxIdx);
+}
+\end{example}
+
+\iosample{
+5 \\
+1 4 8 9 10 \\
+}{
+10 4 \\
+}
+
+呼叫端準備 \texttt{maxVal}、\texttt{maxIdx} 兩個變數，把位址傳給函
+式；函式執行完後，這兩個變數裡就寫好了結果。 這跟
+\texttt{scanf("\%d", \&n)} 是同一個模式：我們請函式把答案寫進我們
+準備好的格子。 測資裡最大值是 $10$、落在索引 $4$，所以印出
+\texttt{10 4}。
+
+\subsection{純函式與副作用的取捨}
+
+指標參數讓函式可以改寫呼叫者的變數，這正是一種副作用。 函式那一章
+已經把\textbf{純函式}（pure function）講清楚了：給定相同輸入永遠得
+到相同輸出，而且不改外部狀態。 純函式好測試、好組合、也好並行；指
+標把改寫外部狀態這條路打開了，所以更要克制。 需要改寫呼叫者、或一
+次交出兩個結果時，才用指標當輸出參數；其餘情況仍優先寫只靠
+\texttt{return} 交回結果的純函式。
+
+\keypoint{指標參數用於改寫呼叫者的變數，或一次回傳多個結果。 呼叫
+時必須傳 \texttt{\&變數}。 能寫純函式就寫純函式，只在必要時才用指
+標製造副作用。}
+
+\begin{drills}[label=drills:ptr-params]
+\item \texttt{swap(\&a, \&b)} 裡的 \texttt{\&a}、\texttt{\&b} 在傳什
+麼？ 如果寫成 \texttt{swap(a, b)}（漏掉 \texttt{\&}）會發生什麼事？
+\item \texttt{findMax} 為什麼要用兩個指標參數 \texttt{maxVal}、
+\texttt{maxIdx}，而不是只 \texttt{return} 一個值？
+\item 純函式跟用指標製造副作用的函式，什麼情況該選前者、什麼情況才
+用後者？
+\end{drills}
+
+\section{用 \texttt{const} 保護唯讀參數}
+\label{sec:ptr-const}
+
+\texttt{const} 加在指標宣告上，可以保護兩件不同的事：指向的資料，
+或指標自己存的位址。 兩種寫法長得很像，語意差很多，讀的時候從右往
+左拆。
+
+\texttt{const int *p}：\texttt{p} 是指向 \texttt{const int} 的指標。
+可以改 \texttt{p} 指向哪裡，不能透過 \texttt{p} 改那格的值。
+\texttt{int * const p}：\texttt{p} 是指向 \texttt{int} 的常數指標。
+可以改 \texttt{*p}，不能讓 \texttt{p} 改指向別的物件。
+
+\begin{code}{c}{const int * 與 int * const}
+int x = 10, y = 20;
+
+const int *p_data = &x;   // 保護資料：不能寫 *p_data
+p_data = &y;              // 可以改指向
+// *p_data = 0;           // 編譯錯誤
+
+int * const p_addr = &x;  // 保護指標本身：不能改 p_addr
+*p_addr = 30;             // 可以改資料
+// p_addr = &y;           // 編譯錯誤
+\end{code}
+
+範例 \thechapter.11 把這兩種組合都跑一遍：先讓指向資料的指標改指向
+\texttt{y}，再讓常數指標把 \texttt{x} 改成 $30$。
+
+\begin{example}{c}{(const-pointer-kinds.c) 兩種 const 指標組合}
+#include <stdio.h>
+
+int main(void) {
+    int x = 10;
+    int y = 20;
+
+    const int *p_data = &x;   // 可改指向，不可改資料
+    p_data = &y;
+    printf("%d\n", *p_data);
+
+    int * const p_addr = &x;  // 可改資料，不可改指向
+    *p_addr = 30;
+    printf("%d\n", x);
+
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+20 \\
+30 \\
+}
+
+還有第三種寫法 \texttt{const int * const p}，資料與指向都不能改。
+那一種、以及 \texttt{static} 等修飾詞，會在宣告修飾那一章系統整理。
+\texttt{*}、\texttt{[]}、\texttt{()} 疊在一起的讀法，也在那一章後段練。
+這一章先把最常用的兩種 \texttt{const} 指標分開即可。
+
+函式若只需要\textbf{讀}陣列、不需要改元素，就在參數上加
+\texttt{const}，向編譯器保證本函式不會透過這個指標寫入。 這對唯讀
+走訪、加總、查找特別有用，也能避免手滑改到呼叫者的資料。 參數寫成
+\texttt{const int a[]} 與 \texttt{const int *a} 在這裡語意相近，都
+是保護資料的那種組合。
+
+\begin{code}{c}{唯讀陣列參數}
+int sumReadonly(const int a[], int n) {
+    int total = 0;
+    for (int i = 0; i < n; i++) {
+        total += a[i];
+    }
+    // a[i] = 0;  // 編譯錯誤：不能改 const 資料
+    return total;
+}
+\end{code}
+
+\begin{example}{c}{(sum-readonly.c) 用 const 保護唯讀陣列參數}
+#include <stdio.h>
+
+int sumReadonly(const int a[], int n) {
+    int total = 0;
+    for (int i = 0; i < n; i++) {
+        total += a[i];
+    }
+    return total;
+}
+
+int main(void) {
+    int a[1005], n;
+    scanf("%d", &n);
+    for (int i = 0; i < n; i++) {
+        scanf("%d", &a[i]);
+    }
+    printf("%d\n", sumReadonly(a, n));
+}
+\end{example}
+
+\iosample{
+5 \\
+1 4 8 9 10 \\
+}{
+32 \\
+}
+
+\texttt{sumReadonly} 只把元素加起來，完全不需要改陣列，所以參數加
+\texttt{const}。 測資 $1+4+8+9+10 = 32$。 需要改陣列時才拿掉
+\texttt{const}，像前面的 \texttt{swap} 就不能加。
+
+\keypoint{\texttt{const int *p} 保護指向的資料；\texttt{int *
+const p} 保護指標本身。 唯讀走訪的函式參數用前一種，編譯器會擋掉
+意外的賦值。}
+
+\begin{drills}[label=drills:ptr-const]
+\item \texttt{const int *p} 跟 \texttt{int * const p}，哪一個不能改
+\texttt{p} 指向哪裡？哪一個不能改 \texttt{*p} 的值？
+\item 一個只需要讀陣列、不需要改元素的函式，參數該不該加
+\texttt{const}？ 這樣做編譯器會幫忙擋掉什麼？
+\item \texttt{const int * const p} 同時保護了什麼？
+\end{drills}
+
+\section{回傳指標與生命週期}
+\label{sec:ptr-return-lifetime}
+
+上一節用指標參數把結果\textbf{寫回}呼叫者；這一節談函式\textbf{回
+傳}指標本身。 回傳指標安全的前提是：那個物件的生命週期必須超過這
+次函式呼叫。 區域變數活在這次呼叫的 stack frame 裡，函式
+\texttt{return} 後這一層就被銷毀，位址立刻失效。
+
+\subsection{安全的回傳}
+
+範例 \thechapter.14 示範兩種安全情況：回傳全域陣列的位址，以及回傳
+呼叫者傳進來的陣列裡某個元素的位址。 這兩塊記憶體在函式結束後都還
+在。
+
+\begin{example}{c}{(return-pointer-safe.c) 安全的指標回傳}
+#include <stdio.h>
+
+int global_arr[10];
+
+int *getGlobalArray() {
+    return global_arr;     // 全域物件，函式結束後仍在
+}
+
+int *findInArray(int arr[], int n, int target) {
+    for (int i = 0; i < n; i++) {
+        if (arr[i] == target) {
+            return &arr[i];  // 指向呼叫者的陣列，安全
+        }
+    }
+    return NULL;
+}
+
+int main(void) {
+    int nums[] = {1, 2, 3, 4, 5};
+    int *found = findInArray(nums, 5, 3);
+    if (found != NULL) {
+        printf("找到：%d\n", *found);
+    }
+}
+\end{example}
+
+\iosample{}{
+找到：3 \\
+}
+
+\texttt{findInArray} 在 \texttt{nums} 裡找到 $3$，回傳
+\texttt{\&nums[2]}。 \texttt{nums} 是 \texttt{main} 的陣列，函式結
+束後仍在，所以 \texttt{*found} 讀到 $3$。 找不到時回傳
+\texttt{NULL}，呼叫端先檢查再解參考。
+
+\subsection{危險的做法}
+
+\begin{code}{c}{危險：回傳局部變數指標}
+int *badFunction() {
+    int x = 42;
+    return &x;      // x 是區域變數，函式結束後會被銷毀
+}
+\end{code}
+
+\texttt{badFunction} 回傳的位址指向一塊已經歸還給系統的記憶體。 之
+後讀這個指標是未定義行為：有時碰巧還看得到 $42$，有時會讀到被蓋掉
+的垃圾，有時直接 crash。 動態配置的記憶體生命週期由我們自己用
+\texttt{malloc}／\texttt{free} 決定，可以活過函式呼叫，那一種會在
+高等技術那一章展開；現階段能安全回傳的，就是參數陣列與全域變數。
+
+\keypoint{回傳指標安全的條件是：指向的物件活得比這次函式呼叫久。
+參數陣列、全域變數可以；區域變數不行。}
+
+\begin{drills}[label=drills:ptr-return-lifetime]
+\item \texttt{badFunction} 回傳 \texttt{\&x} 為什麼是危險的？
+\texttt{x} 是哪一種生命週期的變數？
+\item 回傳指標安全的條件是什麼？參數陣列和全域變數為什麼符合這個條
+件？
+\item \texttt{findInArray} 找不到 \texttt{target} 時回傳什麼？呼叫端
+在解參考回傳值之前應該先做什麼？
+\end{drills}
+
+\section{陣列與指標：兩種不同的東西}
+\label{sec:ptr-array-vs-pointer}
+
+指標參數常常搭配陣列一起出現，\texttt{int *p = a} 看起來也很順，
+所以初學者很容易把兩者混成同一個東西。 編譯器對它們的處理差很多。
+\texttt{int a[5]} 在宣告當下就配置連續 $5$ 個 \texttt{int} 的記憶
+體，\texttt{a} 這個名字在編譯期就綁在這塊空間的起始位址上。
+\texttt{int *p} 只是\textbf{一個}存位址的變數，本身不占那 $5$ 格；
+執行時 CPU 得先把 \texttt{p} 裡的位址載出來，再拿那個位址當起點。
+
+最直覺的證據是 \texttt{sizeof}。 範例 \thechapter.16 在同一個程式
+裡印出陣列與指標的大小。
+
+\begin{example}{c}{(array-vs-pointer.c) 陣列與指標的 sizeof 不同}
+#include <stdio.h>
+
+int main(void) {
+    int a[5];
+    int *p = a;
+
+    printf("%zu %zu\n", sizeof(a), sizeof(p));
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+20 8 \\
+}
+
+在常見的 $64$ 位元環境上，\texttt{sizeof(a)} 是 $5$ 個
+\texttt{int} 的總位元組（例如 $20$），\texttt{sizeof(p)} 只是指標
+變數本身的大小（例如 $8$）。 \texttt{p = a} 之後兩者都能用來走訪
+同一排元素，型別系統仍把它們當成不同東西：陣列是一塊固定大小的記
+憶體，指標是一個存放位址的變數。
+
+\keypoint{陣列是連續配置的固定大小記憶體；指標是存放位址的變數。
+語法上常一起出現，\texttt{sizeof} 會立刻拆穿兩者的差別。}
+
+\begin{drills}[label=drills:ptr-array-vs-pointer]
+\item \texttt{int a[5]; int *p = a;} 之後，\texttt{sizeof(a)} 跟
+\texttt{sizeof(p)} 會一樣嗎？
+\item 陣列在宣告當下做了什麼、指標又做了什麼，導致上一題兩者的
+\texttt{sizeof} 不同？
+\end{drills}
+
+\section{退化與指標算術}
+\label{sec:ptr-decay-arith}
+
+上一節強調陣列與指標是不同型別；但在大多數\textbf{運算式}裡，陣列
+名會暫時\textbf{退化}（decay）成指向第一個元素的指標。 傳進函式當
+參數時也會退化，所以 \texttt{void f(int a[])} 與
+\texttt{void f(int *a)} 對編譯器來說幾乎是同一種參數。 這讓我們能
+用指標語法走訪陣列。
+
+\texttt{sizeof(a)} 與 \texttt{\&a} 是少數不會退化的情況：前者量的
+是整塊陣列，後者得到的是指向整塊陣列的指標，型別是
+\texttt{int (*)[N]}，跟指向首元素的 \texttt{int *} 不同。 下一節談
+多維陣列時還會再碰到這種列指標。
+
+\begin{code}{c}{陣列名退化為指標}
+int a[5] = {1, 4, 8, 9, 10};
+
+int *p = a;           // a 退化成 &a[0]
+// a[i]   等同 *(a + i)
+// &a[i]  等同 (a + i)
+\end{code}
+
+\begin{example}{c}{(walk-array-pointer.c) 用指標走訪陣列並累加}
+#include <stdio.h>
+
+int main(void) {
+    int a[1005], n;
+    scanf("%d", &n);
+    for (int i = 0; i < n; i++) {
+        scanf("%d", &a[i]);
+    }
+
+    int sum = 0;
+    int *p = a;              // p 指向 a[0]
+    for (int i = 0; i < n; i++) {
+        sum += *p;
+        p++;                 // 移到下一個元素
+    }
+    printf("%d\n", sum);
+}
+\end{example}
+
+\iosample{
+5 \\
+1 4 8 9 10 \\
+}{
+32 \\
+}
+
+\texttt{p++} 移動一個 \texttt{int} 的寬度（通常 $4$ bytes），不是
+$1$ byte。 這種寫法與 \texttt{for (int i = 0; i < n; i++) sum +=
+a[i];} 完全等價，測資加總仍是 $32$。
+
+\subsection{指標算術}
+
+\texttt{p + 1} 的意義是：記憶體位址增加 \texttt{sizeof(*p)} 個位元
+組，也就是往後一個元素。 編譯器依指標的型別決定跨多遠，我們不用自
+己乘上元素大小。
+
+指標可以做有限的算術：
+\begin{itemize}
+  \item \texttt{p + n}：移動 n 個元素的距離
+  \item \texttt{p - q}（兩個指標都指向同一個陣列時）：算出相隔幾
+        個元素
+\end{itemize}
+
+\begin{code}{c}{指標算術示例}
+int a[5] = {10, 20, 30, 40, 50};
+int *p = &a[1];
+int *q = &a[3];
+
+printf("%d\n", *(p + 2));    // 等同 a[3]，印出 40
+printf("%d\n", q - p);        // 相隔 2 個元素
+\end{code}
+
+\begin{example}{c}{(pointer-arithmetic.c) 指標加減}
+#include <stdio.h>
+
+int main(void) {
+    int arr[5] = {10, 20, 30, 40, 50};
+    int *p = arr;
+
+    printf("%d\n", *p);           // 10
+    printf("%d\n", *(p + 1));     // 20
+    printf("%d\n", *(p + 4));     // 50
+
+    int *q = &arr[4];
+    printf("%ld\n", q - p);       // 4 個元素的差距
+}
+\end{example}
+
+\iosample{}{
+10 \\
+20 \\
+50 \\
+4 \\
+}
+
+\texttt{p} 指向 \texttt{arr[0]}，\texttt{*(p + 4)} 就是
+\texttt{arr[4]}。 \texttt{q - p} 得到 $4$，單位是元素個數，已經把
+位元組差距除以 \texttt{sizeof(int)} 了。
+
+\keypoint{陣列名在多數運算式裡會退化成指向首元素的指標；\texttt{p
++ 1} 移動的是一個元素的位元組數，兩個指向同一陣列的指標相減得到元
+素間距。}
+
+\begin{drills}[label=drills:ptr-decay-arith]
+\item \texttt{sizeof(a)} 跟 \texttt{\&a} 為什麼是陣列名「不會退化」
+的兩個例外？
+\item \texttt{p + 1} 實際上移動幾個位元組？這跟 \texttt{p} 的型別有
+沒有關係？
+\item 兩個指向同一陣列的指標相減，得到的單位是位元組還是元素個數？
+\end{drills}
+
+\section{多維陣列與記憶體攤平}
+\label{sec:ptr-multidim}
+
+一維走訪弄清楚之後，二維陣列在記憶體裡仍然是一長條。 陣列章已經把
+列優先（row-major）講過：\texttt{mat[r][c]} 對應的偏移是
+\texttt{r * C + c}。 若手上有兩個指向同一塊矩陣的指標，相減就能還
+原出行、列座標。
+
+\begin{code}{c}{由指標相減還原列與欄索引}
+int mat[10][10], R = 8, C = 6;
+int *start = &mat[0][0];           // 矩陣第一格
+int *ptr = &mat[r][c];             // 指向 mat[r][c]
+
+int offset = (int)(ptr - start);
+int row = offset / C;
+int col = offset % C;
+\end{code}
+
+範例 \thechapter.22 用一維陣列模擬攤平後的矩陣，驗證這組公式。
+
+\begin{example}{c}{(matrix-pointer.c) 二維陣列的指標操作}
+#include <stdio.h>
+
+int main(void) {
+    int R, C, r, c;
+    scanf("%d %d %d %d", &R, &C, &r, &c);
+
+    int mat[10005];
+    for (int i = 0; i < R * C; i++) {
+        mat[i] = i + 1;
+    }
+
+    int *start = mat;
+    int *ptr = mat + r * C + c;
+    int row = (int)((ptr - start) / C);
+    int col = (int)((ptr - start) % C);
+    printf("%d %d\n", row, col);
+}
+\end{example}
+
+\iosample{
+8 6 4 2 \\
+}{
+4 2 \\
+}
+
+輸入 $R=8$、$C=6$、$r=4$、$c=2$，偏移量是 $4 \times 6 + 2 = 26$，還
+原回來仍是列 $4$、欄 $2$。
+
+\subsection{雙重解參考與列指標}
+
+\texttt{a[i][j]} 在編譯器裡會展開成 \texttt{*(*(a + i) + j)}。 先
+看型別就順了。 \texttt{int a[M][N]} 的元素是長度為 $N$ 的一維陣列；
+\texttt{a} 退化之後得到的是指向第一列的指標，型別是
+\texttt{int (*)[N]}。 \texttt{a + i} 一次跳一整列（$N$ 個
+\texttt{int}），\texttt{*(a + i)} 是第 $i$ 列這條陣列，再退化成
+\texttt{int *}，加上 \texttt{j} 才指到格子本身。
+
+所以指向二維陣列的指標必須宣告成 \texttt{int (*p)[N]}：括號不能省，
+\texttt{int *p[N]} 會變成指標陣列，下一節再對照。 \texttt{p + 1}
+移動的是 \texttt{sizeof(*p)}，也就是一列的位元組數。
+
+\begin{code}{c}{a[i][j] 展開與列指標}
+int a[2][3] = {{1, 2, 3}, {4, 5, 6}};
+int (*p)[3] = a;          // p 指向一列（3 個 int）
+
+// a[i][j]  展開成  *(*(a + i) + j)
+// p[1][2]  與      *(*(p + 1) + 2)  都是 6
+// sizeof(*p) 是 3 * sizeof(int)
+\end{code}
+
+範例 \thechapter.24 印出 \texttt{sizeof(*p)} 與右下角那一格，用來
+核對一次跳一列、再解兩次參考的路徑。
+
+\begin{example}{c}{(row-pointer.c) 用列指標走訪二維陣列}
+#include <stdio.h>
+
+int main(void) {
+    int a[2][3] = {
+        {1, 2, 3},
+        {4, 5, 6}
+    };
+    int (*p)[3] = a;
+
+    printf("%zu\n", sizeof(*p));
+    printf("%d\n", *(*(p + 1) + 2));
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+12 \\
+6 \\
+}
+
+\texttt{sizeof(*p)} 是 $12$，因為一列有 $3$ 個 \texttt{int}。
+\texttt{p + 1} 跳到第二列，再加 $2$ 走到該列第三格，值是 $6$，跟
+\texttt{a[1][2]} 相同。
+
+\keypoint{\texttt{a[i][j]} 會展開成雙重解參考。 指向二維陣列的指標
+要寫成 \texttt{int (*p)[N]}，\texttt{p + 1} 一次跳一整列。}
+
+\begin{drills}[label=drills:ptr-multidim]
+\item \texttt{int (*p)[3] = a;} 之後，\texttt{p + 1} 移動的是多少個
+\texttt{int}？
+\item \texttt{a[i][j]} 展開成哪一種雙重解參考的寫法？
+\item \texttt{int (*p)[N]} 跟 \texttt{int *p[N]}，型別上差在哪裡？
+\end{drills}
+
+\section{陣列的陣列與指標陣列}
+\label{sec:ptr-array-of-pointers}
+
+真正的二維陣列 \texttt{int grid[2][3]} 在記憶體裡是連續 $6$ 個
+\texttt{int}；用 \texttt{grid[r][c]} 存取時，編譯器用列優先公式一
+次算好偏移。 另一種常見寫法是 \texttt{int *rows[2]}：這是\textbf{
+指標陣列}（array of pointers），每個元素是一個 \texttt{int *}，可
+以指向長度不同的列。 這種各列分開、用指標串起來的結構，有時叫做
+Iliffe vector。 兩者語法都有 \texttt{[行][列]}，底層記憶體布局完
+全不同。
+
+\begin{code}{c}{連續二維陣列 vs 指標陣列}
+int grid[2][3] = {{1, 2, 3}, {4, 5, 6}};  // 6 個 int 連續存放
+int row0[] = {1, 2, 3};
+int row1[] = {4, 5, 6};
+int *rows[2] = {row0, row1};              // 兩個指標，各指向一列
+
+// grid[1][2] 靠偏移一次算完；rows[1][2] 先取指標再偏移
+\end{code}
+
+\begin{center}
+\begin{tikzpicture}
+    \node[cell] (c0) {1};
+    \node[cell, right=0pt of c0] (c1) {2};
+    \node[cell, right=0pt of c1] (c2) {3};
+    \node[cell, right=0pt of c2] (c3) {4};
+    \node[cell, right=0pt of c3] (c4) {5};
+    \node[cell, right=0pt of c4] (c5) {6};
+    \node[idxlbl, left=0.2cm of c0] {\texttt{grid}};
+
+    \node[cell, below=1.5cm of c0] (p0) {};
+    \node[idxlbl, font=\scriptsize] at (p0.center) {$\rightarrow$};
+    \node[idxlbl, below=0.15cm of p0] {\texttt{rows[0]}};
+    \node[cell, right=0.35cm of p0] (p1) {};
+    \node[idxlbl, font=\scriptsize] at (p1.center) {$\rightarrow$};
+    \node[idxlbl, below=0.15cm of p1] {\texttt{rows[1]}};
+
+    \node[cell, right=1.6cm of p1] (r00) {1};
+    \node[cell, right=0pt of r00] (r01) {2};
+    \node[cell, right=0pt of r01] (r02) {3};
+    \node[cell, below=0pt of r00] (r10) {4};
+    \node[cell, right=0pt of r10] (r11) {5};
+    \node[cell, right=0pt of r11] (r12) {6};
+
+    \draw[diagarrow] (p0) -- (r00.west);
+    \draw[diagarrow] (p1) -- (r10.west);
+\end{tikzpicture}
+\diagcaption{上面是連續的 \texttt{int grid[2][3]}，六格排成一長條。
+下面是指標陣列：\texttt{rows[0]}、\texttt{rows[1]} 各握一列的起始
+位址，兩列不必相鄰。}
+\label{fig:ch09-iliffe}
+\end{center}
+
+\texttt{grid[1][2]} 用 $1 \times 3 + 2$ 一次算出位移；
+\texttt{rows[1][2]} 先從 \texttt{rows[1]} 取出第二列的位址，再往後
+走 $2$ 格。 步數不同，列與列之間也不保證連續，所以不能把其中一種
+的指標直接當成另一種來用。 後面做到動態配置列、二層表時，多半就是
+指標陣列這條路。
+
+\keypoint{\texttt{int a[M][N]} 是陣列的陣列，記憶體連續；
+\texttt{int *a[M]} 是指標陣列，每一列可以分開存放。 存取步數與布
+局不同，不可混用。}
+
+\begin{drills}[label=drills:ptr-array-of-pointers]
+\item \texttt{int grid[2][3]} 跟 \texttt{int *rows[2]}，記憶體布局上
+差在哪裡？
+\item \texttt{rows[1][2]} 要經過幾個步驟才能找到那個值？跟
+\texttt{grid[1][2]} 比起來呢？
+\end{drills}
+
+\section{函式指標}
+\label{sec:ptr-funcptr}
+
+變數有位址，函式也有。 \textbf{函式指標}（function pointer）存的
+是某個函式的進入點，讓我們在執行期才決定要呼叫哪一個函式。 宣告時
+括號的位置差一個，型別就完全不同。
+
+\texttt{int *f(int)} 是函式：接受 \texttt{int}，回傳
+\texttt{int *}。 因為函式宣告的 \texttt{()} 綁得比 \texttt{*} 緊，
+星號先貼上了回傳型別。 \texttt{int (*f)(int)} 才是指標：指向一個
+接受 \texttt{int}、回傳 \texttt{int} 的函式。 要宣告函式指標，括
+號必須把 \texttt{*f} 包起來。
+
+\begin{code}{c}{函式指標的宣告與回調}
+int *g(int n);            // 函式：回傳 int *
+int (*f)(int);            // 指標：指向  int(int) 這種函式
+
+typedef int (*BinOp)(int, int);
+
+int apply(BinOp op, int a, int b) {
+    return op(a, b);      // 執行期才決定呼叫哪一個
+}
+
+int add(int x, int y) { return x + y; }
+int mul(int x, int y) { return x * y; }
+// apply(add, 5, 3) 得到 8
+// apply(mul, 5, 3) 得到 15
+\end{code}
+
+\texttt{apply} 把函式當參數傳進來，這就是回調（callback）：呼叫者
+決定策略，被呼叫者在適當時機執行。 把多個函式放進陣列，還能依輸入
+動態切換演算法，這種寫法常被叫做策略模式（strategy pattern）。
+
+範例 \thechapter.27 用函式指標陣列存放加、減、乘，再用一個整數指令
+選要用哪一個。
+
+\begin{example}{c}{(function-pointer-ops.c) 用函式指標陣列切換運算}
+#include <stdio.h>
+
+int add(int a, int b) {
+    return a + b;
+}
+
+int sub(int a, int b) {
+    return a - b;
+}
+
+int mul(int a, int b) {
+    return a * b;
+}
+
+int main(void) {
+    int (*ops[3])(int, int) = {add, sub, mul};
+    int a, b, cmd;
+
+    scanf("%d %d %d", &a, &b, &cmd);
+    if (cmd >= 0 && cmd < 3) {
+        printf("%d\n", ops[cmd](a, b));
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+10 3 0 \\
+}{
+13 \\
+}
+
+\texttt{ops[0]} 是 \texttt{add}、\texttt{ops[1]} 是 \texttt{sub}、
+\texttt{ops[2]} 是 \texttt{mul}。 輸入 \texttt{10 3 0} 時呼叫
+\texttt{add(10, 3)}，得到 $13$；指令改成 $1$ 會得到 $7$，改成 $2$
+會得到 $30$。 \texttt{main} 裡沒有一串 \texttt{if}-\texttt{else}
+去分運算，只是查表之後呼叫。
+
+函式指標也可以當成狀態機的目前狀態：每個狀態對應一個處理函式，處
+理完再把指標改成下一個狀態。 剖析輸入、協定處理常用這種寫法；觀念
+上就是把目前該做的事存在一個函式指標裡，跟上面的策略表同一種工具。
+
+\keypoint{\texttt{int (*f)(int)} 是函式指標，\texttt{int *f(int)}
+是回傳指標的函式。 函式指標用來做回調、動態切換策略，以及把狀態機
+的目前狀態存在指標裡。}
+
+\begin{drills}[label=drills:ptr-funcptr]
+\item \texttt{int *f(int)} 跟 \texttt{int (*f)(int)}，哪一個才是函式
+指標？
+\item \texttt{apply(BinOp op, int a, int b)} 這種把函式當參數傳進去
+的寫法，叫做什麼？
+\item 範例 \texttt{function-pointer-ops.c} 裡，若輸入指令改成
+\texttt{2}，會呼叫哪一個函式？
+\end{drills}
+
+\section{常見陷阱與最佳實踐}
+\label{sec:ptr-pitfalls}
+
+前幾節已經談過 wild pointer、回傳區域變數指標、陣列與指標的型別差
+異。 指標讓改寫呼叫者、走訪陣列、多維布局與函式策略都成為可能，也
+把越界、型別、生命週期的責任交給我們。 這一節集中列出 C 不會幫你
+擋的幾類實戰陷阱。
+
+\subsection{越界與 buffer overflow}
+
+C 語言不檢查陣列邊界；指標算術多走一步，可能讀寫到別的變數，或直
+接 Segmentation Fault。 這就是 buffer overflow：寫過了這塊緩衝區
+的盡頭，把後面的記憶體破壞掉。
+
+\begin{code}{c}{越界走訪（錯誤示範）}
+int arr[5];
+int *p = arr;
+for (int i = 0; i <= 5; i++) {   // i=5 時已越界
+    printf("%d\n", *p++);
+}
+\end{code}
+
+比較穩的走法是先算出尾端指標，迴圈條件用 \texttt{p < end}，讓合法
+範圍寫在一個地方。
+
+\begin{code}{c}{用 end 指標限定範圍}
+int *end = arr + 5;
+for (int *p = arr; p < end; p++) {
+    printf("%d\n", *p);
+}
+\end{code}
+
+\subsection{型別不匹配}
+
+\texttt{int *} 只能指向 \texttt{int}；把 \texttt{double *} 硬指到
+\texttt{int} 會觸發警告或未定義行為。 就算強制轉型編譯過了，解參
+考時仍會用錯的寬度去讀記憶體。
+
+在 little-endian 機器上，較低的位元組排在較低的位址。 例如
+\texttt{int x = 0x01020304} 在記憶體裡是 \texttt{04 03 02 01} 這四
+個位元組。 若把 \texttt{\&x} 轉成 \texttt{short *} 再解參考，讀到
+的是前兩個位元組組成的 \texttt{0x0304}，也就是 $772$，後面兩個位
+元組被截掉了。 數值看起來像個普通整數，其實已經跟原本的
+\texttt{int} 對不上。
+
+\begin{code}{c}{型別必須一致}
+double x = 3.14;
+double *p = &x;              // 正確
+// int *q = &x;              // 編譯警告：型別不符
+
+int n = 0x01020304;
+short *ps = (short *)&n;     // 強制轉型，little-endian 上 *ps 常是 772
+\end{code}
+
+\subsection{懸空指標}
+
+動態配置的完整規則會在高等技術那一章系統地講；這裡只要先認識一種
+跟生命週期有關的陷阱。 \texttt{malloc} 從 heap 要來的記憶體，生命
+週期由我們自己決定：\texttt{free} 之後那塊空間已經不屬於程式，但
+指標變數裡往往還握著舊位址。 這種指向已釋放記憶體的指標叫做
+\textbf{懸空指標}（dangling pointer）。 再對它讀寫是未定義行為。
+
+好習慣是 \texttt{free} 之後立刻把指標設成 \texttt{NULL}。 之後若
+不小心再解參考，會立刻以對 \texttt{NULL} 解參考的形式爆掉，比默默
+用到已經被別人回收的記憶體好查得多。
+
+\begin{code}{c}{free 之後把指標設成 NULL}
+#include <stdlib.h>
+
+int *p = (int *)malloc(sizeof(int));
+if (p != NULL) {
+    *p = 42;
+    free(p);
+    p = NULL;     // 避免懸空指標
+    // *p = 1;    // 現在會立刻出問題，比較好查
+}
+\end{code}
+
+區域變數回傳造成的失效指標，本質上也是懸空指標：物件先消失，指標
+還留著舊位址。 兩種情況的防禦相同：不要讓指標活得比它指向的物件久，
+失效後就把它設成 \texttt{NULL}。
+
+\subsection{跨檔案：陣列 vs 指標宣告}
+
+前面強調陣列與指標型別不同，跨檔用 \texttt{extern} 宣告時也要一致。
+一邊定義成陣列、另一邊卻宣告成指標，連結之後行為會異常。
+
+\begin{code}{c}{file1.c：定義陣列}
+int arr[100];
+\end{code}
+
+\begin{code}{c}{file2.c：extern 必須與定義一致}
+extern int arr[];    // 正確：仍是陣列型別
+// extern int *arr;  // 錯誤：型別變成指標，連結後行為異常
+\end{code}
+
+\subsection{最佳實踐}
+
+\begin{itemize}
+\item \textbf{宣告即初始化}：指標立刻指向有效物件或 \texttt{NULL}
+\item \textbf{使用前檢查}：解參考前確認 \texttt{p != NULL}
+\item \textbf{確認範圍}：走訪時用 \texttt{end} 指標或索引邊界
+\item \textbf{型別匹配}：指標型別與指向物件一致，不要靠強制轉型
+      混用寬度不同的型別
+\item \textbf{陣列參數帶 \texttt{n}}：函式無法從 \texttt{int a[]}
+      推得長度
+\item \textbf{唯讀走訪加 \texttt{const}}：避免意外修改
+\item \textbf{失效即清空}：\texttt{free} 之後、或物件生命週期結
+      束之後，把指標設成 \texttt{NULL}
+\end{itemize}
+
+\keypoint{指標讓改寫呼叫者、走訪陣列、動態配置、資料結構與函式指
+標成為可能，也是 bug 與安全問題的來源。 把位址、退化、生命週期與
+\texttt{const} 記清楚，大多數陷阱都能避開。}
+
+\begin{drills}[label=drills:ptr-pitfalls]
+\item 什麼是 buffer overflow？範例裡 \texttt{for (int i = 0; i <= 5;
+i++)} 走訪 \texttt{int arr[5]} 錯在哪？
+\item \texttt{free(p)} 之後為什麼建議立刻把 \texttt{p} 設成
+\texttt{NULL}？
+\item \texttt{extern int arr[];} 跟 \texttt{extern int *arr;} 為什
+麼不能拿來宣告同一個陣列？
+\end{drills}
+
+\addcontentsline{toc}{section}{練習解答}
+\section*{練習解答}
+
+各節練習的答案收在這裡。 短題只給能一句話核對的結果。
+
+\paragraph{第~\ref{sec:ptr-basics}~節}
+\begin{enumerate}
+\item \texttt{42} 是右值，\texttt{x + 1} 也是右值；\texttt{\&} 只能
+加在左值前面。
+\item \texttt{x} 只是普通 \texttt{int}；只有 \texttt{p3} 前面有
+\texttt{*}，才是指標。
+\item 因為宣告完但未指派的指標是 wild pointer，內容是垃圾值，對它解
+參考是未定義行為。
+\item 幾乎立刻 Segmentation Fault；因為錯誤會停在解參考那一步，不會
+默默改到別的記憶體，比較容易定位。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:ptr-params}~節}
+\begin{enumerate}
+\item 傳的是 \texttt{a}、\texttt{b} 的位址；漏寫 \texttt{\&} 會變成
+傳值，\texttt{swap} 內部改的只是自己的參數複本，\texttt{main} 裡的
+\texttt{a}、\texttt{b} 不會交換。
+\item 因為一次要交出兩個結果（最大值與其索引），\texttt{return} 只
+能回傳一個值，所以用指標參數把兩個結果都寫回呼叫者。
+\item 沒有必要改呼叫者狀態、或只需要一個回傳值時，優先寫純函式；需
+要改寫呼叫者的變數或一次回傳多個結果時，才用指標參數。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:ptr-const}~節}
+\begin{enumerate}
+\item \texttt{int * const p} 不能改 \texttt{p} 指向哪裡；\texttt{const
+int *p} 不能改 \texttt{*p} 的值。
+\item 該加；編譯器會擋掉函式內任何想寫入該資料的敘述，避免手滑改到
+呼叫者的陣列。
+\item 同時保護了指標本身（不能改指向）與指向的資料（不能改值）。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:ptr-return-lifetime}~節}
+\begin{enumerate}
+\item \texttt{x} 是區域變數，函式結束後它的 stack frame 就被銷毀，
+\texttt{\&x} 變成指向已回收記憶體的位址。
+\item 指向的物件生命週期要長過這次函式呼叫；參數陣列與全域變數都不
+是這次呼叫的區域變數，函式結束後仍然存在。
+\item 回傳 \texttt{NULL}；呼叫端要先檢查回傳值是否為 \texttt{NULL}，
+再解參考。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:ptr-array-vs-pointer}~節}
+\begin{enumerate}
+\item 不一樣；\texttt{sizeof(a)} 是整個陣列的位元組數，\texttt{sizeof(p)}
+只是一個指標變數的大小。
+\item 陣列宣告時配置了連續 $5$ 個 \texttt{int} 的空間；指標宣告時只
+配置一個存位址的變數，本身不占那 $5$ 格。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:ptr-decay-arith}~節}
+\begin{enumerate}
+\item \texttt{sizeof(a)} 量的是整塊陣列的大小，\texttt{\&a} 得到的是
+指向整個陣列的指標，兩者都沒有退化成指向首元素的 \texttt{int *}。
+\item 移動 \texttt{sizeof(*p)} 個位元組；有關係，編譯器依指標指向的
+型別決定跨多遠。
+\item 元素個數；位元組差距已經被除以該型別的大小。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:ptr-multidim}~節}
+\begin{enumerate}
+\item 移動 $3$ 個 \texttt{int}（一整列）。
+\item \texttt{*(*(a + i) + j)}。
+\item \texttt{int (*p)[N]} 是指向一整列（$N$ 個 \texttt{int}）的指
+標；\texttt{int *p[N]} 是有 $N$ 個 \texttt{int *} 元素的指標陣列。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:ptr-array-of-pointers}~節}
+\begin{enumerate}
+\item \texttt{grid} 是連續 $6$ 個 \texttt{int}；\texttt{rows} 的每一
+列可以分別存放在記憶體裡不相鄰的地方。
+\item \texttt{rows[1][2]} 要先讀 \texttt{rows[1]} 拿到該列位址，再偏
+移 $2$；\texttt{grid[1][2]} 只需用列優先公式一次算出偏移。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:ptr-funcptr}~節}
+\begin{enumerate}
+\item \texttt{int (*f)(int)} 是函式指標；\texttt{int *f(int)} 是回
+傳 \texttt{int *} 的函式。
+\item 回調（callback），也是策略模式的一種寫法。
+\item \texttt{mul}，因為 \texttt{ops[2]} 對應 \texttt{mul}。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:ptr-pitfalls}~節}
+\begin{enumerate}
+\item buffer overflow 是寫或讀超過緩衝區邊界；\texttt{i <= 5} 讓
+\texttt{i = 5} 時仍執行，但 \texttt{arr[5]} 已經越界。
+\item 避免懸空指標：之後若不小心再解參考 \texttt{p}，會立刻對
+\texttt{NULL} 解參考而明顯出錯，比默默用到已釋放的記憶體好查。
+\item 兩者型別不同：一個仍是陣列，一個變成指標，跨檔案宣告與定義的
+型別不一致，連結後行為會異常。
+\end{enumerate}

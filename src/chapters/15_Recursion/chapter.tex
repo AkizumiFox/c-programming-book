@@ -1,0 +1,1891 @@
+\chapter{遞迴}
+\label{ch:recursion}
+
+遞迴（recursion）是一種把問題交給同一個函式、但規模更小的輸入去解的寫
+法。 一個問題能不能這樣拆，取決於它是否長得像自己的縮小版：空的情況可
+以立刻回答，非空的情況則可以假設縮小版已經解完，再把那個答案組回現在
+這層要的結果。
+
+第~\ref{ch:function}~章的範例~\ref{ex:print-digits}（\texttt{printDigits}）
+其實已經用過遞迴：先把數字除以 $10$ 交給下一層處理，這一層再印出個位。
+當時我們把它當成 \texttt{void} 函式的例子。 這一章要把這種寫法變成一套
+可以反覆套用的設計步驟，並一路看到它在整數、陣列、字串、鏈結結構上長
+什麼樣子，以及在 C 裡會踩到哪些只屬於這門語言的陷阱。
+
+這一章分四段推進。 先用自我相似把副本模型種下來，再用三個問題寫出第一
+個遞迴，接著才畫呼叫堆疊、把回程上那些待完成的運算講清楚。 然後按資料
+的形狀走一遍：整數、陣列區間、字串、鏈結與樹。 再處理多重遞迴、記憶化、
+尾遞迴，以及把遞迴轉成迴圈。 最後才進入回溯法。 排列與 N 皇后會等到那
+一節才出現，因為它們在遞迴之上又多了一層選擇與撤銷。
+
+節末練習的答案收在章末。
+
+\section{自我相似：不寫程式碼的暖身}
+\label{sec:rec-self-sim}
+
+資料夾裡面還可以再放資料夾。 打開最外層會看到下一層，一直打開到空資料
+夾為止。 若要數整個目錄樹裡有幾個檔案，做法很固定：空資料夾貢獻 $0$；
+非空資料夾的檔案數，等於自己這一層放的檔案，加上裡面每一個子資料夾的
+檔案數。 子資料夾的問題跟原本的問題長得一模一樣，只是規模更小。 這種
+自己裡面還有一個自己的結構，叫做\textbf{自我相似}。
+
+走廊上站了一排同學，也可以看成同一件事。 最前面的人被問到 $1$ 加到
+$5$ 是多少。 他自己只記得一件事：如果後面那個人能告訴他 $1$ 加到 $4$
+的和，他再加 $5$ 就得到答案。 於是他把問題傳給後面的人，後面的人又如
+法炮製，一直傳到最後一個被問 $1$ 加到 $0$ 的人，那個人立刻回答 $0$。
+答案再一層一層傳回來，每一個人都把自己負責的那個數字加上去。
+
+\begin{center}
+\begin{tikzpicture}
+    \foreach \i/\name/\q in {0/甲/\texttt{sum(3)}, 1/乙/\texttt{sum(2)}, 2/丙/\texttt{sum(1)}, 3/丁/\texttt{sum(0)}} {
+        \node[cell, minimum width=1.7cm, minimum height=1.05cm] (p\i) at (2.35*\i, 0) {\name};
+        \node[idxlbl, above=3pt of p\i] {\q};
+    }
+    \foreach \i in {0,1,2} {
+        \pgfmathtruncatemacro{\j}{\i+1}
+        \draw[diagarrow] ([yshift=4pt]p\i.east) -- ([yshift=4pt]p\j.west);
+        \draw[diagarrow] ([yshift=-4pt]p\j.west) -- ([yshift=-4pt]p\i.east);
+    }
+    \node[idxlbl, above=2pt] at ($(p0.east)!0.5!(p1.west)+(0,0.22)$) {問};
+    \node[idxlbl, below=2pt] at ($(p0.east)!0.5!(p1.west)+(0,-0.22)$) {答};
+\end{tikzpicture}
+\diagcaption{一排同學同時站在走廊上，每人手上拿著自己那一層的問題。
+問題往後傳、答案往前傳；這四個人在同一時間都還在，各自獨立。}
+\label{fig:rec-line-of-people}
+\end{center}
+
+這排同學在同一時間都還站在走廊上，每人手上拿著自己的問題，等後面那個
+人回覆。 這就是這一章要先種下的圖像：同一份函式定義，同時存在好多份
+各自獨立的執行。 讀過迴圈的人，很容易把遞迴想成同一個函式在原地把
+$n$ 改小再跑一次；走廊上的同學告訴我們，每一層都是一個還活著的人，
+有自己的問題、自己的等待。 函式那一章已經把這件事叫做 stack frame：
+每一次呼叫都有自己的參數複本。 遞迴只是同一份函式被呼叫了很多次，所
+以同一時間會有很多層長得很像、但參數不同的 frame 疊在堆疊上。
+
+\keypoint{遞迴的每一層都是一次獨立的函式呼叫，有自己的參數與區域變數。
+同一時間可以有許多層同時活著，各自等自己的子呼叫回來。}
+
+\begin{drills}[label=drills:rec-self-sim]
+\item 圖~\ref{fig:rec-line-of-people} 在問題傳到 \texttt{sum(0)} 的那一
+刻，走廊上同時站著幾個人？ 每人手上的問題分別是什麼？
+\item 若把遞迴想成同一個人把 $n$ 改小再算一次，這張圖裡哪一件事會對不
+上？
+\item 用三句話寫出數資料夾檔案的基礎情況、縮小方式、組合方式。
+\end{drills}
+
+\section{寫遞迴的三個問題}
+\label{sec:rec-three-q}
+
+要把一個問題寫成遞迴函式，我們每次都問同樣的三件事：
+
+\begin{enumerate}
+\item 最小的情況是什麼？ 它的答案是什麼？
+\item 假設這個函式對更小的輸入已經是對的，我要怎麼用它的回傳值，組出
+現在這層的答案？
+\item 每次呼叫是否嚴格逼近最小情況？
+\end{enumerate}
+
+第一問決定\textbf{基礎情況}（base case）：小到可以立刻回答、不必再拆。
+第二問決定\textbf{遞迴情況}：把問題縮小，再把子問題的答案組合回來。
+第三問保證程式會停：如果每次呼叫都沒有比較小，基礎情況永遠走不到，堆
+疊就會一直長，直到程式被作業系統殺掉。
+
+第二問有一個寫的時候必須遵守的紀律。 我們在寫 $n$ 這一層的時候，不准
+跟著子呼叫一路追下去看它內部怎麼算；我們直接相信 \texttt{sum(n - 1)}
+已經回傳正確的 $1 + \cdots + (n-1)$，只負責把 $n$ 加上去。 這種把遞迴
+呼叫當成已經算對的黑盒子的寫法，叫做\textbf{遞迴信仰之躍}
+（recursive leap of faith）。 設計遞迴時靠的就是它；一層一層把堆疊畫
+出來，是後面用來核對與除錯的工具，兩件事分開做。
+
+\keypoint{寫遞迴時，把遞迴呼叫當成已經算對的黑盒子：只負責處理最小情
+況，以及如何把子問題的回傳值組合成現在這層的答案。 這叫做遞迴信仰之躍。}
+
+片語~\ref{idiom:three-q} 把三個問題寫成固定的程式骨架。 註解裡的 (1)(2)(3)
+對應上面那三問，之後每一個例子都會再標一次。
+
+\begin{code}[label=idiom:three-q]{text}{寫遞迴的三個問題}
+回傳型別 f(較小的輸入) {
+    if (已經是最小情況) {          // (1) 基礎情況
+        return 最小情況的答案;
+    }
+    子答案 = f(更小的輸入);         // (2) 信仰之躍：假設這一步是對的
+    return 用子答案組出這一層的答案; // (3) 組合；輸入必須比現在小
+}
+\end{code}
+
+第一個完整例子用 $1$ 加到 $n$。 三個問題逐一填：
+
+\begin{itemize}
+\item 最小情況：$n = 0$，空的加總是 $0$。
+\item 信仰之躍：假設 \texttt{sum(n - 1)} 已經是 $1 + \cdots + (n-1)$。
+\item 組合：現在的答案是 $n + \texttt{sum(n - 1)}$。
+\item 進度：每次把 $n$ 減 $1$，對非負整數一定會走到 $0$。
+\end{itemize}
+
+\begin{example}[label=ex:sum]{c}{(sum.c) 用遞迴求 1 加到 n}
+#include <stdio.h>
+
+int sum(int n) {
+    if (n == 0) {              // (1) 最小情況：空的和是 0
+        return 0;
+    }
+    return n + sum(n - 1);     // (2) 縮小成 n-1  (3) 用加法組合
+}
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+    printf("%d\n", sum(n));
+}
+\end{example}
+
+\iosample{
+5 \\
+}{
+15 \\
+}
+
+用信仰之躍來看 \texttt{sum(5)}，我們只寫一步：
+\texttt{sum(5) = 5 + sum(4)}。 相信 \texttt{sum(4) = 10}，所以答案是
+$15$。 不必在這一層就把 \texttt{sum(4)}、\texttt{sum(3)}、
+\texttt{sum(2)} 全部展開。 正是因為每一層都只做一件事，整條鏈才組得出
+$5+4+3+2+1+0 = 15$。
+
+基礎情況也可以寫成 $n = 1$ 時回傳 $1$，對正整數 $n$ 答案一樣。 差別在
+$n = 0$：以 $0$ 為基礎情況的版本仍然正確，以 $1$ 為基礎的版本會再呼叫
+\texttt{sum(0)}，然後 \texttt{sum(-1)}、\texttt{sum(-2)}，永遠走不到停
+下的地方。 基礎情況選哪一個，取決於函式的定義域包含哪些輸入。
+
+\stylepoint{先把三個問題用一句話寫在註解或草稿上，再填程式；不要一邊
+寫 \texttt{return} 一邊想像整條呼叫鏈，那會把信仰之躍換成窮舉追蹤。}
+
+\begin{drills}[label=drills:rec-three-q]
+\item 只寫一步信仰之躍：\texttt{sum(4)} 等於什麼？ 不要把 \texttt{sum(3)}
+再展開。
+\item 把範例~\ref{ex:sum} 的基礎情況改成 \texttt{if (n == 1) return 1;}，
+再呼叫 \texttt{sum(0)}。 程式會停嗎？ 停的話答案是多少？
+\item 補基礎情況：求 $1^2 + 2^2 + \cdots + n^2$ 的遞迴，最小情況與它的
+答案各是什麼？
+\item 從零寫：用三個問題填表，寫出求 $1+3+5+\cdots+(2n-1)$ 的函式。
+\end{drills}
+
+\section{整數上的遞迴與溢位}
+\label{sec:rec-int}
+
+$n!$ 的定義本身就是遞迴的：$0! = 1$，且 $n! = n \times (n-1)!$。 三個
+問題幾乎直接從定義抄下來。 片語~\ref{idiom:factorial} 是對應的骨架。
+
+\begin{code}[label=idiom:factorial]{c}{階乘的遞迴骨架}
+long long factorial(int n) {
+    if (n <= 1) {                 // (1) 0! = 1! = 1
+        return 1;
+    }
+    return n * factorial(n - 1);  // (2)(3) 乘上縮小後的階乘
+}
+\end{code}
+
+這裡把回傳型別寫成 \texttt{long long}，是因為 $n!$ 長大的速度非常快。
+32-bit 有號整數的上限 \texttt{INT\_MAX} 是 $2147483647$。
+\[
+12! = 479001600 < 2147483647, \qquad
+13! = 6227020800 > 2147483647.
+\]
+若把回傳型別寫成 \texttt{int}，\texttt{factorial(13)} 在 C 裡是
+\textbf{有號整數溢位}，屬於未定義行為：編譯器不保證印出哪個數字，也不
+保證程式還能繼續正常跑。 64-bit 的 \texttt{long long} 可以撐到 $20!$
+（$2432902008176640000$）；$21!$ 連 \texttt{long long} 都會溢位。
+
+\begin{example}{c}{(factorial.c) 用 long long 計算階乘}
+#include <stdio.h>
+
+long long factorial(int n) {
+    if (n <= 1) {
+        return 1;
+    }
+    return n * factorial(n - 1);
+}
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+    printf("%lld\n", factorial(n));
+}
+\end{example}
+
+\iosample{
+10 \\
+}{
+3628800 \\
+}
+
+輸入 $10$，程式先一路呼叫到 \texttt{factorial(1)} 回傳 $1$，再在回程
+上依序乘 $2, 3, \ldots, 10$，得到 $3628800$。 乘法發生在遞迴呼叫的
+\texttt{return} 裡、子呼叫回來之後；這一點下一節會畫出來。 若輸入改成
+$20$，同一支程式印出 $2432902008176640000$；若仍用 \texttt{int}，連
+$13$ 都已經超出範圍。
+
+同樣的骨架可以套到乘冪：$a^0 = 1$，$a^n = a \times a^{n-1}$。
+
+\begin{code}{c}{乘冪的遞迴骨架}
+long long power(long long a, int n) {
+    if (n == 0) {
+        return 1;
+    }
+    return a * power(a, n - 1);
+}
+\end{code}
+
+這個骨架只處理 $n \ge 0$。 若 $n$ 是負數，$n-1$ 會愈來愈小，永遠走不
+到 $n == 0$，程式會一直呼叫直到堆疊溢位。 負指數要另外定義，例如改成
+回傳分數，或一開始就拒絕 $n < 0$。
+
+\keypoint{遞迴算階乘、費氏數列這類快速長大的整數時，先問結果會不會超
+出 \texttt{int}。 $13!$ 與後面會遇到的 $\mathrm{fib}(47)$ 都已經超過
+32-bit 有號整數；需要時改用 \texttt{long long}，並記得它也有上限。}
+
+\begin{drills}[label=drills:rec-int]
+\item 若 \texttt{factorial} 的回傳型別是 \texttt{int}，呼叫
+\texttt{factorial(13)} 在 C 裡是什麼行為？ 能靠印出來的數字判斷它包了
+幾圈嗎？
+\item \texttt{power(2, -3)} 用本節的骨架會停嗎？ 為什麼？
+\item $20!$ 用 \texttt{long long} 印得出來；$21!$ 呢？
+\end{drills}
+
+\section{遞迴呼叫時發生什麼事：堆疊與回程}
+\label{sec:rec-stack}
+
+信仰之躍讓我們能寫出 \texttt{factorial}。 若要核對它真的做對、或找出
+為什麼會停不下來，就需要看執行期在記憶體裡發生什麼事。 第~\ref{ch:function}~章
+已經介紹過呼叫堆疊：每次呼叫在堆疊頂端壓入一層 frame，參數與區域變數都
+住在那一層裡，\texttt{return} 時整層彈掉。 遞迴只是同一份函式被壓了
+很多次，所以同一時間會有好多層 \texttt{factorial}，各自帶著自己的
+\texttt{n}。
+
+關鍵在\textbf{回程}。 \texttt{return n * factorial(n - 1);} 這一行裡
+的乘法，並沒有在往下呼叫的路上做完。 它被掛在這一層的 frame 裡，等子
+呼叫把 $(n-1)!$ 帶回來才乘。 往基礎情況走的那一段叫做去程（active
+flow），從基礎情況帶著回傳值往回走、把掛著的運算做完的那一段叫做回程
+（passive flow / backward flow）。 學生最常漏掉的就是回程：以為工作
+全部發生在往下走的路上，子呼叫一回來答案就已經好了。
+
+圖~\ref{fig:rec-stack-down} 是 \texttt{factorial(3)} 走到基礎情況時
+的堆疊。 因為基礎情況是 $n \le 1$，最深一層是 $n = 1$，正在執行、準備
+回傳 $1$；下面兩層都暫停著，各自掛著一個還沒做的乘法。 這一層\emph{不
+會}再呼叫 \texttt{factorial(0)}。
+
+\begin{center}
+\begin{tikzpicture}
+    \node[hlcell, minimum width=5.6cm, minimum height=0.72cm] (f1)
+        {\texttt{factorial} \quad $n=1$ \quad 回傳 $1$};
+    \node[cell, minimum width=5.6cm, minimum height=0.72cm, below=0pt of f1] (f2)
+        {\texttt{factorial} \quad $n=2$ \quad 待做：$2 \times \cdots$};
+    \node[cell, minimum width=5.6cm, minimum height=0.72cm, below=0pt of f2] (f3)
+        {\texttt{factorial} \quad $n=3$ \quad 待做：$3 \times \cdots$};
+    \node[cell, minimum width=5.6cm, minimum height=0.72cm, below=0.55cm of f3] (mn)
+        {\texttt{main} \quad 等 \texttt{factorial(3)} 回來};
+
+    \node[idxlbl, anchor=east, xshift=-0.12cm] at (f1.west) {頂};
+    \node[idxlbl, anchor=west, align=left, xshift=0.2cm] at (f1.east)
+        {目前執行\\這一層};
+    \node[idxlbl, anchor=west, align=left, xshift=0.2cm] at (f2.east)
+        {暫停};
+    \node[idxlbl, anchor=west, align=left, xshift=0.2cm] at (mn.east)
+        {暫停};
+\end{tikzpicture}
+\diagcaption{\texttt{factorial(3)} 的去程結束時：三層 \texttt{factorial}
+疊在 \texttt{main} 上面，最深停在 $n = 1$，下面兩層各自掛著一個還沒做
+的乘法。}
+\label{fig:rec-stack-down}
+\end{center}
+
+回程把掛著的乘法由上往下做完，如圖~\ref{fig:rec-stack-up}。
+\texttt{n = 1} 回傳 $1$ 之後彈掉；\texttt{n = 2} 計算 $2 \times 1 = 2$；
+最後 \texttt{n = 3} 計算 $3 \times 2 = 6$，交回 \texttt{main}。
+
+\begin{center}
+\begin{tikzpicture}
+    \node[process, minimum width=3.4cm] (a) {$n=1$ 回傳 $1$};
+    \node[process, minimum width=3.4cm, below=0.45cm of a] (c) {$2 \times 1 = 2$};
+    \node[process, minimum width=3.4cm, below=0.45cm of c] (d) {$3 \times 2 = 6$};
+    \node[startend, minimum width=3.4cm, below=0.45cm of d] (e) {\texttt{main} 印出 $6$};
+    \draw[diagarrow] (a) -- (c);
+    \draw[diagarrow] (c) -- (d);
+    \draw[diagarrow] (d) -- (e);
+    \node[idxlbl, right=8pt of c] {回程，由上往下};
+\end{tikzpicture}
+\diagcaption{\texttt{factorial(3)} 的回程：每一層把子呼叫的回傳值乘上
+自己的 \texttt{n}，乘法是在回來的路上才發生的。}
+\label{fig:rec-stack-up}
+\end{center}
+
+把 \texttt{sum(3)} 用同一套圖像走一遍，掛著的改成加法，而且基礎情況是
+$n = 0$，所以會多一層：
+$0$ 回傳 $0$，然後 $1+0=1$、$2+1=3$、$3+3=6$。 去程只是把問題越問越小，
+真正把數字組起來的工作發生在回程。 第~\ref{ch:function}~章的
+\texttt{printDigits}（範例~\ref{ex:print-digits}）
+把 \texttt{printf} 放在遞迴呼叫後面，印出的順序是高位到低位，原因也是
+回程：除到只剩最高位時先印，再一路回來印較低的位。
+
+會把這張圖畫出來，跟會寫出遞迴，是兩件不同的技能。 設計時靠三個問題
+與信仰之躍；把 frame 一層一層展開，是用來核對已經寫好的程式、找出基
+礎情況沒寫到或組合步驟寫錯的工具。
+
+\keypoint{\texttt{n * factorial(n - 1)} 裡的乘法掛在這一層的 frame 裡，
+等子呼叫回來才做。 漏掉回程，就會以為遞迴只是把 $n$ 一路減到基礎情況
+的另一種迴圈。}
+
+\begin{drills}[label=drills:rec-stack]
+\item 仿圖~\ref{fig:rec-stack-down} 畫 \texttt{factorial(4)} 去程結束時
+的堆疊：最深一層的 $n$ 是多少？ 總共幾層 \texttt{factorial}？
+\item 第~\ref{ch:function}~章的範例~\ref{ex:print-digits} 把
+\texttt{printf} 放在遞迴呼叫後面。 若改放到呼叫前面，輸入 $123$ 會印出
+什麼順序？
+\item 乘法 \texttt{n * factorial(n - 1)} 發生在去程還是回程？ 用
+\texttt{factorial(3)} 的一層說明。
+\end{drills}
+
+\section{遞迴過程 vs 迭代過程}
+\label{sec:rec-process}
+
+\texttt{sum} 與 \texttt{factorial} 每次呼叫都留下一個待完成的加法或乘
+法，所以 $n$ 層呼叫就掛了 $n$ 個運算，概念上的空間是 $\Theta(n)$。 這
+種執行過程叫做\textbf{線性遞迴過程}（linear recursive process）：程式
+寫成遞迴函式，跑起來也真的在堆疊上留下一串待辦。
+
+同一件工作可以改成每一層都不欠帳。 做法是多傳一個參數，專門用來累積
+目前已經算好的結果，叫做\textbf{累加器}（accumulator）。 下面的片語
+把兩種過程並排放：左邊每一層都欠一個加法，右邊把加法提前做完再往下走。
+
+\begin{code}{c}{遞迴過程與帶累加器的迭代過程}
+int sum(int n) {                 // 線性遞迴過程
+    if (n == 0) {
+        return 0;
+    }
+    return n + sum(n - 1);       // 加法掛著等回來
+}
+
+int sum_iter(int n, int acc) {   // 線性迭代過程
+    if (n == 0) {
+        return acc;
+    }
+    return sum_iter(n - 1, acc + n);  // 這一層什麼都不欠
+}
+\end{code}
+
+\texttt{sum\_iter(5, 0)} 的每一層都把加法做完才呼叫下一層：
+\texttt{sum\_iter(5, 0)} $\rightarrow$ \texttt{sum\_iter(4, 5)}
+$\rightarrow$ \texttt{sum\_iter(3, 9)} $\rightarrow$
+\texttt{sum\_iter(2, 12)} $\rightarrow$ \texttt{sum\_iter(1, 14)}
+$\rightarrow$ \texttt{sum\_iter(0, 15)}，最後回傳 $15$。 堆疊上雖然仍
+有一層 frame，但概念上這一層已經不欠任何運算，這種執行過程叫做
+\textbf{線性迭代過程}（linear iterative process）。 空間在概念上是
+$\Theta(1)$；至於 C 的編譯器會不會真的把這層 frame 重用，要等到尾遞迴
+那一節才講，而且 C 標準並不保證。
+
+\begin{example}{c}{(sum-acc.c) 兩種過程算同一個和}
+#include <stdio.h>
+
+int sum(int n) {
+    if (n == 0) {
+        return 0;
+    }
+    return n + sum(n - 1);
+}
+
+int sum_iter(int n, int acc) {
+    if (n == 0) {
+        return acc;
+    }
+    return sum_iter(n - 1, acc + n);
+}
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+    printf("%d %d\n", sum(n), sum_iter(n, 0));
+}
+\end{example}
+
+\iosample{
+5 \\
+}{
+15 15 \\
+}
+
+兩個函式對同一個 $n$ 印出相同的 $15$，差別在過程。 之後若看到一個遞迴
+在 \texttt{return} 裡還有加法、乘法、或其它必須等子呼叫回來才能做的事，
+它跑的就是遞迴過程，深度為 $n$ 時堆疊也長到 $\Theta(n)$。 若遞迴呼叫本
+身就是 \texttt{return} 的全部內容，它跑的就是迭代過程，這正是稍後尾遞
+迴要利用的形狀。
+
+\keypoint{函式寫成遞迴，跑起來不一定是遞迴過程。 差別在回程上有沒有掛
+著還沒做的運算：有，就是線性遞迴過程；沒有、只靠累加器往下傳，就是線
+性迭代過程。}
+
+\begin{drills}[label=drills:rec-process]
+\item \texttt{sum} 與 \texttt{sum\_iter} 哪一個在回程上欠著加法？ 概念
+空間各是什麼？
+\item 寫出 \texttt{sum\_iter(3, 0)} 每一層的兩個參數。
+\item 把 \texttt{factorial} 改成帶累加器的版本（只寫函式，呼叫端傳
+\texttt{acc = 1}）。
+\end{drills}
+
+\section{在陣列上遞迴：區間表示法}
+\label{sec:rec-array}
+
+C 沒有辦法把陣列當成一個可以拆開的值來傳。 傳進函式的是起始位址，長度
+必須另外帶。 在陣列上寫遞迴，慣用的做法是把目前要處理的範圍表示成一個
+\textbf{半開區間} $[lo, hi)$：從索引 \texttt{lo} 開始、到 \texttt{hi}
+之前結束，長度是 \texttt{hi - lo}。 空區間就是 \texttt{lo >= hi}；整個
+陣列就是 \texttt{lo = 0}、\texttt{hi = n}。
+
+縮小問題的方式很固定：處理完 \texttt{a[lo]} 之後，剩下的是
+$[lo+1, hi)$。 三個問題變成：空區間的答案是什麼、假設子區間已經算對、
+怎麼把 \texttt{a[lo]} 組進去。
+
+\begin{code}{text}{陣列區間上的遞迴}
+回傳型別 f(int *a, int lo, int hi) {
+    if (lo >= hi) {                    // (1) 空區間
+        return 空區間的答案;
+    }
+    return 組合(a[lo], f(a, lo + 1, hi)); // (2)(3) 縮小成右半段
+}
+\end{code}
+
+圖~\ref{fig:rec-array-range} 是 \texttt{array\_sum(a, 0, 5)} 第一層看
+到的範圍：橘色那格是這一層要加進去的 \texttt{a[0]}，右邊 $[1, 5)$ 交給
+子呼叫。
+
+\begin{center}
+\begin{tikzpicture}
+    \node[hlcell] (c0) {1};
+    \node[cell, right=0pt of c0] (c1) {4};
+    \node[cell, right=0pt of c1] (c2) {8};
+    \node[cell, right=0pt of c2] (c3) {9};
+    \node[cell, right=0pt of c3] (c4) {10};
+    \node[idxlbl, below=2pt of c0] {0};
+    \node[idxlbl, below=2pt of c1] {1};
+    \node[idxlbl, below=2pt of c2] {2};
+    \node[idxlbl, below=2pt of c3] {3};
+    \node[idxlbl, below=2pt of c4] {4};
+    \node[idxlbl, above=3pt of c0] {\texttt{lo}};
+    \node[idxlbl, above=3pt] at ($(c4.east)+(0.15,0)$) {\texttt{hi}};
+    \draw[diagarrow] ($(c4.north east)+(0.15,0.35)$) -- ($(c4.north east)+(0.15,0.08)$);
+\end{tikzpicture}
+\diagcaption{半開區間 $[0, 5)$。 橘色是這一層的 \texttt{a[lo]}，右邊
+$[1, 5)$ 是子問題；\texttt{hi} 指向最後一格的右邊，本身不是一個元素。}
+\label{fig:rec-array-range}
+\end{center}
+
+\begin{example}{c}{(array-sum.c) 用區間遞迴求陣列元素和}
+#include <stdio.h>
+
+int array_sum(int *a, int lo, int hi) {
+    if (lo >= hi) {                    // (1) 空區間的和是 0
+        return 0;
+    }
+    return a[lo] + array_sum(a, lo + 1, hi);  // (2)(3)
+}
+
+int main(void) {
+    int n, a[100];
+    scanf("%d", &n);
+    if (n < 0 || n > 100) {
+        return 0;
+    }
+    for (int i = 0; i < n; i++) {
+        scanf("%d", &a[i]);
+    }
+    printf("%d\n", array_sum(a, 0, n));
+}
+\end{example}
+
+\iosample{
+5 \\
+1 4 8 9 10 \\
+}{
+32 \\
+}
+
+\texttt{array\_sum(a, 0, 5)} 依信仰之躍就是 $1 + \texttt{array\_sum(a, 1, 5)}$。
+子區間 $[1, 5)$ 的和是 $4+8+9+10 = 31$，加上 $1$ 得到 $32$。 空區間回傳
+$0$，與 \texttt{sum(0) = 0} 是同一件事，只是現在空的是一段索引範圍。
+
+求最大值時，空區間沒有最大值，基礎情況改成\textbf{單元素}區間：
+\texttt{lo + 1 == hi} 時答案就是 \texttt{a[lo]}。 這是基礎情況隨問題改
+寫的典型例子，不要死記 $0$。 這個寫法有一個硬前提：呼叫時必須
+\texttt{lo < hi}。 若傳進空區間（\texttt{lo == hi}），\texttt{lo + 1 == hi}
+永遠不成立，$\texttt{lo}$ 會一路加過去、跳過 \texttt{hi}，變成無窮遞迴。
+這正是後面陷阱那一節說的：基礎情況 off-by-one，重則堆疊溢位。
+
+\begin{code}{c}{區間上的最大值，基礎情況是單元素}
+int array_max(int *a, int lo, int hi) {
+    /* 前提：lo < hi（非空區間）。空區間會無窮遞迴。 */
+    if (lo + 1 == hi) {                // (1) 只有一格
+        return a[lo];
+    }
+    int rest = array_max(a, lo + 1, hi); // (2)
+    if (a[lo] > rest) {                // (3) 這一格跟其餘比
+        return a[lo];
+    }
+    return rest;
+}
+\end{code}
+
+陣列傳進函式時會退化成指標，\texttt{sizeof(a)} 在被呼叫的函式裡量到的
+是指標的大小，不是陣列長度。 所以 \texttt{lo}、\texttt{hi} 或 $n$ 一定
+要當參數傳，不能在 \texttt{array\_sum} 裡面用 \texttt{sizeof} 回頭推長
+度。
+
+區間也可以從兩頭往中間收。 判斷回文時，先比 \texttt{a[lo]} 與
+\texttt{a[hi]}（這裡改用封閉區間比較好寫），相同就把範圍縮小成
+$[lo+1, hi-1]$。 二分搜尋則每次把區間對半切，時間 $\Theta(\log n)$，堆
+疊深度也是 $\Theta(\log n)$。
+
+\begin{example}{c}{(binsearch.c) 在已排序陣列上遞迴二分搜尋}
+#include <stdio.h>
+
+int binsearch(int *a, int lo, int hi, int x) {
+    if (lo >= hi) {                    // (1) 空區間：找不到
+        return -1;
+    }
+    int mid = lo + (hi - lo) / 2;
+    if (a[mid] == x) {
+        return mid;
+    }
+    if (a[mid] > x) {
+        return binsearch(a, lo, mid, x);      // 左半 [lo, mid)
+    }
+    return binsearch(a, mid + 1, hi, x);      // 右半 [mid+1, hi)
+}
+
+int main(void) {
+    int n, x, a[100];
+    scanf("%d %d", &n, &x);
+    if (n < 0 || n > 100) {
+        return 0;
+    }
+    for (int i = 0; i < n; i++) {
+        scanf("%d", &a[i]);
+    }
+    printf("%d\n", binsearch(a, 0, n, x));
+}
+\end{example}
+
+\iosample{
+5 8 \\
+1 4 8 9 10 \\
+}{
+2 \\
+}
+
+$n = 5$、$x = 8$，區間是 $[0, 5)$。 $mid = 2$，$\texttt{a[2]} = 8$，第
+一次就找到，回傳索引 $2$。 若 $x = 7$：第一次 $mid = 2$、$8 > 7$，改搜
+$[0, 2)$；第二次 $mid = 1$、$4 < 7$，改搜 $[2, 2)$，空區間回傳 $-1$。
+\texttt{lo + (hi - lo) / 2} 寫成這樣是為了避免 \texttt{(lo + hi) / 2}
+在 \texttt{lo}、\texttt{hi} 都很大時溢位；觀念上就是取中點。
+
+\keypoint{C 在陣列上的遞迴，靠的是把範圍編碼成參數：$(a, lo, hi)$ 或
+$(a, n)$。 陣列退化成指標之後，長度不會自己跟著走，一定要另外傳。}
+
+\begin{drills}[label=drills:rec-array]
+\item 抓蟲：對 \texttt{array\_max} 呼叫 \texttt{array\_max(a, 0, 0)}。
+基礎情況會被碰到嗎？ 接下來會發生什麼事？
+\item 補組合步驟：線性搜尋 $x$ 是否在 $[lo, hi)$ 裡，基礎情況是空區間
+回傳 $0$。 \texttt{a[lo] == x} 時回傳 $1$，否則？
+\item 已排序陣列 $\{1,4,8,9,10\}$，\texttt{binsearch} 找 $7$，依序經過
+哪些 $[lo, hi)$？
+\item 在 \texttt{array\_sum} 裡寫 \texttt{int n = sizeof(a) / sizeof(a[0]);}
+得到的 $n$ 是陣列長度嗎？
+\end{drills}
+
+\section{在字串上遞迴}
+\label{sec:rec-string}
+
+C 的字串是以 \texttt{'\textbackslash 0'} 結尾的 \texttt{char} 陣列，所
+以上一節的區間寫法完全適用。 另外還有一種更短的寫法：把指標往前移一格，
+遞迴處理 \texttt{s + 1}，基礎情況就是看到結尾字元。 這等價於把區間的
+\texttt{lo} 加一，只是現在移動的是指標本身。
+
+\begin{code}{text}{以 s+1 推進的字串遞迴}
+回傳型別 f(char *s) {
+    if (*s == '\0') {          // (1) 空字串
+        return 空字串的答案;
+    }
+    return 組合(*s, f(s + 1)); // (2)(3) 剩下的從下一格開始
+}
+\end{code}
+
+\begin{example}{c}{(rec-strlen.c) 遞迴計算字串長度}
+#include <stdio.h>
+
+int rec_strlen(char *s) {
+    if (*s == '\0') {          // (1)
+        return 0;
+    }
+    return 1 + rec_strlen(s + 1);  // (2)(3)
+}
+
+int main(void) {
+    char s[100];
+    scanf("%99s", s);
+    printf("%d\n", rec_strlen(s));
+}
+\end{example}
+
+\iosample{
+hello \\
+}{
+5 \\
+}
+
+對字串 hello 呼叫 \texttt{rec\_strlen}，依信仰之躍就是 $1$ 加上對
+ello 的呼叫。
+子字串長度 $4$，加上這一格的 $1$ 得到 $5$。 空字串的長度是 $0$，與空區
+間的和是 $0$、空串列的長度是 $0$ 同一件事：最小情況貢獻單位元素。
+
+判斷回文則適合用索引版，因為要同時看頭尾。 下面的範例讀入一個不含空白
+的字串，是回文印 $1$，否則印 $0$。
+
+\begin{example}{c}{(rec-palindrome.c) 遞迴判斷字串是否為回文}
+#include <stdio.h>
+#include <string.h>
+
+int is_palindrome(char *s, int lo, int hi) {
+    if (lo >= hi) {                // (1) 空或單字元都是回文
+        return 1;
+    }
+    if (s[lo] != s[hi]) {
+        return 0;
+    }
+    return is_palindrome(s, lo + 1, hi - 1);  // (2)(3) 往中間收
+}
+
+int main(void) {
+    char s[100];
+    scanf("%99s", s);
+    int n = strlen(s);
+    printf("%d\n", is_palindrome(s, 0, n - 1));
+}
+\end{example}
+
+\iosample{
+level \\
+}{
+1 \\
+}
+
+\texttt{level} 的頭尾都是 \texttt{l}，縮小成 \texttt{eve}；再比
+\texttt{e} 與 \texttt{e}，縮小成 \texttt{v}；此時 \texttt{lo == hi}，
+單字元是回文，回傳 $1$。 若輸入是 \texttt{hello}，第一層 \texttt{h} 與
+\texttt{o} 就不同，立刻回傳 $0$，不必再往下走。
+
+\texttt{s + 1} 這種推進方式以後在鏈結串列上會再見到一次：那裡移動的是
+\texttt{p->next}。 兩者都是在資料自己的形狀上往前走一格，程式的形狀跟
+資料的形狀對齊。
+
+\begin{drills}[label=drills:rec-string]
+\item 預測：\texttt{rec\_strlen} 接到空字串（第一個字元就是
+\texttt{'\textbackslash 0'}）回傳多少？
+\item Parsons：把 \texttt{is\_palindrome} 的四件事排成正確順序——比頭尾、
+縮小成 $[lo+1,hi-1]$、\texttt{lo >= hi} 回傳 $1$、頭尾不同回傳 $0$。
+\item 把 \texttt{rec\_strlen} 改成尾遞迴：加一個累加器參數，回程上不再
+欠 $+1$。
+\end{drills}
+
+\section{多重遞迴與遞迴樹：費氏數列與河內塔}
+\label{sec:rec-fib-hanoi}
+
+到目前為止，每個函式在遞迴情況裡只呼叫自己一次。 若一次拆成兩個子問
+題，執行過程就從一條鏈變成一棵樹，叫做\textbf{樹狀遞迴}
+（tree recursion）或多重遞迴。 費氏數列是最常見的例子：
+\[
+F(0) = 0,\quad F(1) = 1,\quad F(n) = F(n-1) + F(n-2).
+\]
+兩個子問題都比 $n$ 小，基礎情況有兩個。 寫出來幾乎就是定義本身。
+
+\begin{code}{c}{費氏數列的樸素遞迴}
+long long fib(int n) {
+    if (n <= 1) {                    // (1) F(0)=0, F(1)=1
+        return n;
+    }
+    return fib(n - 1) + fib(n - 2);  // (2)(3) 兩個子問題
+}
+\end{code}
+
+圖~\ref{fig:rec-fib-tree} 把 \texttt{fib(4)} 的呼叫全部畫出來。 同一
+個 \texttt{fib(2)} 出現了兩次，\texttt{fib(1)} 出現了三次。 樹愈往下
+長，重複的子問題愈多。
+
+\begin{center}
+\begin{tikzpicture}[
+    recnode/.style={draw=black!55, rounded corners=2pt, inner sep=3pt,
+                    font=\ttfamily\scriptsize, align=center, minimum width=1.15cm},
+    recdup/.style={draw=memStroke, thick, fill=memFill, rounded corners=2pt,
+                   inner sep=3pt, font=\ttfamily\scriptsize, align=center,
+                   minimum width=1.15cm}
+]
+    \node[recnode] (f4) at (0,0) {fib(4)};
+    \node[recnode] (f3) at (-2.4,-1.35) {fib(3)};
+    \node[recdup]  (f2r) at (2.4,-1.35) {fib(2)};
+    \node[recdup]  (f2l) at (-3.6,-2.7) {fib(2)};
+    \node[recnode] (f1a) at (-1.2,-2.7) {fib(1)};
+    \node[recnode] (f1b) at (1.2,-2.7) {fib(1)};
+    \node[recnode] (f0a) at (3.6,-2.7) {fib(0)};
+    \node[recnode] (f1c) at (-4.5,-4.05) {fib(1)};
+    \node[recnode] (f0b) at (-2.7,-4.05) {fib(0)};
+    \draw[diagarrow] (f4) -- (f3);
+    \draw[diagarrow] (f4) -- (f2r);
+    \draw[diagarrow] (f3) -- (f2l);
+    \draw[diagarrow] (f3) -- (f1a);
+    \draw[diagarrow] (f2r) -- (f1b);
+    \draw[diagarrow] (f2r) -- (f0a);
+    \draw[diagarrow] (f2l) -- (f1c);
+    \draw[diagarrow] (f2l) -- (f0b);
+\end{tikzpicture}
+\diagcaption{\texttt{fib(4)} 的遞迴樹。 橘色的 \texttt{fib(2)} 被完整
+算了兩遍；樹的形狀說明時間隨 $n$ 指數成長，深度仍只有 $\Theta(n)$。}
+\label{fig:rec-fib-tree}
+\end{center}
+
+令 $T(n)$ 為 \texttt{fib(n)} 的呼叫次數，則 $T(0)=T(1)=1$，
+$T(n)=T(n-1)+T(n-2)+1$。 可以驗證 $T(n) = 2F(n+1)-1$，所以
+\texttt{fib(5)} 呼叫 $15$ 次，\texttt{fib(10)} 呼叫 $177$ 次，
+\texttt{fib(40)} 大約三億三千萬次。 時間是 $\Theta(\varphi^n)$，其中
+$\varphi = (1+\sqrt{5})/2 \approx 1.618$；空間則是去程最深的那一條鏈，
+$\Theta(n)$。 兩個子問題讓學生特別容易只模擬其中一邊（一步模型），畫
+遞迴樹就是為了把兩邊都攤開來看。
+
+網格走格是同一個形狀的另一個例子：在 $r$ 列 $c$ 行的格子上，從左下那
+一格走到右上那一格，每次只能向右或向上。 走法數等於
+\[
+\mathrm{paths}(r, c) =
+\begin{cases}
+1 & \text{若 } r=1 \text{ 或 } c=1,\\
+\mathrm{paths}(r-1,c)+\mathrm{paths}(r,c-1) & \text{否則。}
+\end{cases}
+\]
+第一列或第一行只剩一條直路，這就是基礎情況；一般格子拆成先走一步再解兩
+個較小的格子。
+
+\begin{example}{c}{(grid-paths.c) 網格走格的走法數}
+#include <stdio.h>
+
+int paths(int r, int c) {
+    if (r == 1 || c == 1) {     // (1) 只剩一列或一行
+        return 1;
+    }
+    return paths(r - 1, c) + paths(r, c - 1);  // (2)(3)
+}
+
+int main(void) {
+    int r, c;
+    scanf("%d %d", &r, &c);
+    printf("%d\n", paths(r, c));
+}
+\end{example}
+
+\iosample{
+3 3 \\
+}{
+6 \\
+}
+
+$3 \times 3$ 的走法有 $6$ 種，對應 $\binom{4}{2} = 6$。 跟費氏數列一
+樣，樸素寫法會把同一塊子網格算很多遍；格子稍大就該改用下一節的記憶化，
+或直接用組合公式。
+
+河內塔也是兩個遞迴呼叫，不過子問題是我們自己造出來的，不是輸入裡現成
+的左右兩半。 $n$ 個盤子從 A 柱移到 C 柱、B 當輔助，步驟是：
+
+\begin{enumerate}
+\item 把上面 $n-1$ 個從 A 移到 B（C 當輔助）；
+\item 把最底下面那個從 A 移到 C；
+\item 再把 $n-1$ 個從 B 移到 C（A 當輔助）。
+\end{enumerate}
+
+$n = 0$ 時沒有盤子，什麼都不用搬，這就是基礎情況。 $n = 1$ 時會先對
+$0$ 個盤子呼叫兩次（立刻回來），中間把那一個盤子印出來。 這樣寫的好處
+是輸入 $0$ 也會停，不必在基礎情況裡再放一次 \texttt{printf}。
+
+\begin{example}{c}{(hanoi.c) 河內塔}
+#include <stdio.h>
+
+void hanoi(int n, char from, char to, char aux) {
+    if (n == 0) {              // (1) 沒有盤子，什麼都不用搬
+        return;
+    }
+    hanoi(n - 1, from, aux, to);                         // 上面 n-1 移到輔助柱
+    printf("Move disk %d from %c to %c\n", n, from, to); // 最大盤移到目標
+    hanoi(n - 1, aux, to, from);                         // 上面 n-1 移到目標
+}
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+    hanoi(n, 'A', 'C', 'B');
+}
+\end{example}
+
+\iosample{
+3 \\
+}{
+Move disk 1 from A to C \\
+Move disk 2 from A to B \\
+Move disk 1 from C to B \\
+Move disk 3 from A to C \\
+Move disk 1 from B to A \\
+Move disk 2 from B to C \\
+Move disk 1 from A to C \\
+}
+
+令 $T(n)$ 為移動 $n$ 個盤子的步數。 $T(0) = 0$，
+$T(n) = 2T(n-1) + 1$。 展開得到
+\[
+T(n) = 2^{n-1} + 2^{n-2} + \cdots + 2 + 1 = 2^n - 1.
+\]
+$n = 3$ 時 $T(3) = 7$，與上面印出的七行相符；$n = 0$ 時 $2^0 - 1 = 0$，
+什麼都不印。 遞迴關係式就是程式的形狀；把 $T(n)$ 解出來，才知道河內塔
+為什麼不能靠多加幾行迴圈硬幹。
+
+\keypoint{函式裡出現兩次遞迴呼叫時，執行過程是一棵樹。 先畫出遞迴樹、
+再數重複的子問題，比只追其中一條鏈更能看出時間為什麼變成指數。}
+
+\begin{drills}[label=drills:rec-fib-hanoi]
+\item 畫出 \texttt{fib(3)} 的遞迴樹。 \texttt{fib(1)} 出現幾次？
+\item 抓蟲：若河內塔的基礎情況寫成 \texttt{n == 1} 並在那裡
+\texttt{printf}，輸入 $0$ 會怎樣？
+\item 用 $T(n) = 2T(n-1)+1$、$T(0)=0$ 算出 $T(4)$。 跟 $2^4-1$ 一樣嗎？
+\item $3 \times 3$ 格子從左下走到右上、只能向右或向上，走法數是多少？
+先用遞迴關係、再用 $\binom{4}{2}$ 核對。
+\end{drills}
+
+\section{記憶化：從指數到線性}
+\label{sec:rec-memo}
+
+\texttt{fib(4)} 的樹裡，\texttt{fib(2)} 被完整算了兩遍。 $n$ 再大一點，
+同一棵子樹會重複指數多次。 \textbf{記憶化}（memoization）就是開一個表
+把算過的 $F(k)$ 存下來：要算 $F(n)$ 時先查表，有就直接回傳，沒有才真
+的遞迴，算完再寫進表。 每個 $k$ 只會真正計算一次，時間從
+$\Theta(\varphi^n)$ 降到 $\Theta(n)$。
+
+表的初始值要能跟任何合法的費氏數區分開。 $F(n)$ 都是非負的，所以用
+$-1$ 表示還沒算過。 範例裡用迴圈把表填成 $-1$，用意清楚，也適用於任意
+哨兵值。
+
+\begin{example}{c}{(fib-memo.c) 記憶化後的費氏數列}
+#include <stdio.h>
+
+long long memo[100];
+
+long long fib(int n) {
+    if (n <= 1) {
+        return n;
+    }
+    if (memo[n] != -1) {       // 算過就直接用
+        return memo[n];
+    }
+    memo[n] = fib(n - 1) + fib(n - 2);
+    return memo[n];
+}
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+    if (n < 0 || n >= 100) {
+        return 0;
+    }
+    for (int i = 0; i < 100; i++) {
+        memo[i] = -1;
+    }
+    printf("%lld\n", fib(n));
+}
+\end{example}
+
+\iosample{
+40 \\
+}{
+102334155 \\
+}
+
+\texttt{fib(40)} 用樸素寫法要三億多次呼叫，記憶化之後每個 $k$ 最多進
+入函式本體一次，瞬間印出 $102334155$。 $\mathrm{fib}(47) = 2971215073$
+已經超過 \texttt{INT\_MAX}，所以這裡繼續用 \texttt{long long}。
+\texttt{long long} 自己也有頂：
+\[
+F(92) = 7540113804746346429 < \texttt{LLONG\_MAX},
+\]
+\[
+F(93) = 12200160415121876738 > \texttt{LLONG\_MAX}.
+\]
+表開到 $100$ 綽綽有餘，因為還沒用到第 $99$ 格，$\texttt{long long}$ 已經
+先到極限。 \texttt{main} 擋 $n < 0$ 或 $n \ge 100$，只是在防
+\texttt{memo[n]} 越界。 $n$ 在 $93$ 到 $99$ 之間不會越界，但會溢位：表
+的長度與型別上限是兩個獨立的界，擋越界擋不住未定義行為。
+
+這張表放在檔案範圍，由 \texttt{fib} 直接改寫。 它存的是 $F(k)$ 的值，
+對每一條呼叫路徑都一樣，寫進去就不再改，所以是快取，不是每一層各自的
+狀態。 後面回溯法那節的棋盤才是路徑狀態：值取決於目前走
+在哪一條分支，換一條分支就不同。 真要嚴謹，記憶表一樣可以由
+\texttt{main} 配置再傳指標進來；這裡放檔案範圍，只是少傳一個參數。
+
+有人會寫 \texttt{memset(memo, -1, sizeof(memo))}。 這招能用，是因為
+\texttt{long}／\texttt{long long} 在二補數裡，每個位元組都填 \texttt{0xFF}
+恰好等於 $-1$。 它只對全位元為 $1$ 的值（通常是 $-1$）以及全 $0$ 成立；
+若想把表初始化成 $1$ 或 $42$，\texttt{memset} 會把每個位元組都設成同一個
+數字，結果完全不是我們要的。 需要任意哨兵值時，用迴圈填最不容易誤導。
+
+\stylepoint{記憶化的表要跟遞迴一起想：表的維度對應遞迴的參數，表的初
+值對應還沒算過。 先寫對樸素遞迴，再加表，比較不容易把狀態漏掉。}
+
+\keypoint{樹狀遞迴的指數來自重複子問題。 記憶化讓每個子問題只算一次，
+時間降到子問題的個數；它沒有改遞迴的寫法，只是把信仰之躍的結果存下來
+重用。}
+
+\begin{drills}[label=drills:rec-memo]
+\item 若把 \texttt{memset(memo, 1, sizeof(memo))} 拿來初始化費氏表，表
+裡的每個 \texttt{long long} 會變成什麼？ 能不能當哨兵用？
+\item 用 \texttt{long long} 算 $F(93)$ 會碰到哪一種上限：表的長度，還是
+整數溢位？
+\item 樸素 \texttt{fib(5)} 呼叫 $15$ 次；加上記憶化之後，每個 $k$ 最多
+真正計算幾次？
+\end{drills}
+
+\section{在鏈狀結構上遞迴：串列與二元樹}
+\label{sec:rec-list}
+
+第~\ref{ch:structure}~章讓我們能把不同欄位捆成一個單位，第~\ref{ch:pointer}~章
+讓一個欄位可以指向另一個同型的節點。 兩者合在一起，資料的定義本身就是
+遞迴的：
+
+\begin{code}{c}{鏈結串列的節點：定義裡就有自己}
+struct Node {
+    int v;
+    struct Node *next;   // 要嘛是 NULL，要嘛指向另一個 Node
+};
+\end{code}
+
+一份串列要嘛是空的（\texttt{NULL}），要嘛是一個節點接上一份更短的串
+列。 這跟空區間、空字串是同一種形狀，所以程式也長得一樣：基礎情況處理
+\texttt{NULL}，遞迴情況處理 \texttt{p->v} 與 \texttt{p->next}。
+
+\begin{code}{c}{串列長度：形狀跟著資料走}
+int length(struct Node *p) {
+    if (p == NULL) {           // (1) 空串列長度 0
+        return 0;
+    }
+    return 1 + length(p->next);  // (2)(3) 這一格加尾巴的長度
+}
+\end{code}
+
+正序印與反序印只差 \texttt{printf} 放在遞迴呼叫的前面還是後面。 這是
+回程最好認的一對例子：兩份程式的去程完全相同，印出的順序卻相反，差別
+全在那一行輸出發生在去程還是回程。
+
+\begin{example}{c}{(list-print.c) 正序印與反序印}
+#include <stdio.h>
+
+struct Node {
+    int v;
+    struct Node *next;
+};
+
+int length(struct Node *p) {
+    if (p == NULL) {
+        return 0;
+    }
+    return 1 + length(p->next);
+}
+
+void print_forward(struct Node *p) {
+    if (p == NULL) {
+        return;
+    }
+    printf("%d ", p->v);       // 去程：先印自己
+    print_forward(p->next);
+}
+
+void print_reverse(struct Node *p) {
+    if (p == NULL) {
+        return;
+    }
+    print_reverse(p->next);    // 回程：先讓尾巴印完
+    printf("%d ", p->v);
+}
+
+int main(void) {
+    struct Node c = {3, NULL};
+    struct Node b = {2, &c};
+    struct Node a = {1, &b};
+
+    printf("%d\n", length(&a));
+    print_forward(&a);
+    printf("\n");
+    print_reverse(&a);
+    printf("\n");
+}
+\end{example}
+
+\iosample{}{
+3 \\
+1 2 3  \\
+3 2 1  \\
+}
+
+\texttt{main} 用三個區域變數串成 $1 \rightarrow 2 \rightarrow 3$，不必
+\texttt{malloc}。 \texttt{length} 回傳 $3$。 \texttt{print\_forward}
+在往下走的路上依序印 $1$、$2$、$3$；\texttt{print\_reverse} 先走到
+\texttt{NULL} 再一路回來印，所以是 $3$、$2$、$1$。 兩份函式只有
+\texttt{printf} 與遞迴呼叫的先後不同。
+
+二元樹的定義同樣是遞迴的：空樹，或一個節點加上左子樹與右子樹。 高度、
+節點數、中序走訪都直接對應這個形狀。 空樹高度 $0$、節點數 $0$；非空樹
+的高度是兩棵子樹高度的較大值再加 $1$，節點數是兩棵子樹的節點數再加
+$1$。
+
+\begin{example}{c}{(tree-height.c) 二元樹的高度、節點數與中序走訪}
+#include <stdio.h>
+
+struct TreeNode {
+    int v;
+    struct TreeNode *left;
+    struct TreeNode *right;
+};
+
+int height(struct TreeNode *t) {
+    if (t == NULL) {
+        return 0;
+    }
+    int hl = height(t->left);
+    int hr = height(t->right);
+    if (hl > hr) {
+        return 1 + hl;
+    }
+    return 1 + hr;
+}
+
+int count(struct TreeNode *t) {
+    if (t == NULL) {
+        return 0;
+    }
+    return 1 + count(t->left) + count(t->right);
+}
+
+void inorder(struct TreeNode *t) {
+    if (t == NULL) {
+        return;
+    }
+    inorder(t->left);
+    printf("%d ", t->v);
+    inorder(t->right);
+}
+
+int main(void) {
+    struct TreeNode n4 = {4, NULL, NULL};
+    struct TreeNode n5 = {5, NULL, NULL};
+    struct TreeNode n2 = {2, &n4, &n5};
+    struct TreeNode n3 = {3, NULL, NULL};
+    struct TreeNode n1 = {1, &n2, &n3};
+
+    printf("%d\n", height(&n1));
+    printf("%d\n", count(&n1));
+    inorder(&n1);
+    printf("\n");
+}
+\end{example}
+
+\iosample{}{
+3 \\
+5 \\
+4 2 5 1 3  \\
+}
+
+這棵樹的根是 $1$，左子樹是 $2$（底下還有 $4$、$5$），右子樹是 $3$。 最
+深的鏈有三層，高度 $3$；五個節點，\texttt{count} 印 $5$。 中序是左、根、
+右，所以先把左子樹 $4, 2, 5$ 走完，再印根 $1$，再走右子樹 $3$。
+
+\begin{center}
+\begin{tikzpicture}[
+    recnode/.style={draw=black!55, circle, inner sep=2pt,
+                    font=\ttfamily\small, minimum size=0.7cm}
+]
+    \node[recnode] (n1) at (0,0) {1};
+    \node[recnode] (n2) at (-1.6,-1.3) {2};
+    \node[recnode] (n3) at (1.6,-1.3) {3};
+    \node[recnode] (n4) at (-2.4,-2.6) {4};
+    \node[recnode] (n5) at (-0.8,-2.6) {5};
+    \draw[diagarrow] (n1) -- (n2);
+    \draw[diagarrow] (n1) -- (n3);
+    \draw[diagarrow] (n2) -- (n4);
+    \draw[diagarrow] (n2) -- (n5);
+\end{tikzpicture}
+\diagcaption{範例中那棵樹。 \texttt{height}、\texttt{count}、
+\texttt{inorder} 的程式碼形狀，就是這份資料定義的形狀。}
+\label{fig:rec-tree}
+\end{center}
+
+\keypoint{資料的定義若本身是遞迴的（空，或一個單位接上更小的同類資
+料），程式就照那個形狀寫：基礎情況對空，遞迴情況對這一個單位加上尾巴
+或子樹。 這是結構遞迴，也是最不容易寫錯的一種。}
+
+\begin{drills}[label=drills:rec-list]
+\item 預測：對 $1 \rightarrow 2 \rightarrow 3$ 呼叫 \texttt{print\_reverse}，
+印出的順序是什麼？ \texttt{printf} 發生在去程還是回程？
+\item 把 \texttt{print\_reverse} 的 \texttt{printf} 改到呼叫前面。
+印出順序變成什麼？ 和 \texttt{print\_forward} 還有沒有差別？
+\item 只有根、左右都是 \texttt{NULL} 的樹，\texttt{height} 與
+\texttt{count} 各回傳多少？
+\item 一棵只有三個節點的樹：根 $1$，左子 $2$，右子 $3$。 中序走訪印出
+什麼？
+\end{drills}
+
+\section{結構遞迴 vs 生成遞迴}
+\label{sec:rec-struct-vs-gen}
+
+上一節的 \texttt{length}、\texttt{height} 都在輸入裡已經存在的子結構
+上遞迴：串列的尾巴、樹的左子樹。 子問題是原資料的一部分，每走一步資料
+就嚴格變小，停機幾乎自動成立。 這種寫法叫做\textbf{結構遞迴}
+（structural recursion）。 整數上的 \texttt{sum(n-1)}、陣列區間的
+$[lo+1, hi)$、字串的 \texttt{s+1}，也都可以看成結構遞迴：我們走的是資
+料自己的結構。
+
+有些問題的子問題並不躺在輸入裡，而是我們另外造出來的。 河內塔要把
+$n-1$ 個盤子移到輔助柱，那 $n-1$ 個盤子在原問題裡並不是一份現成的子結
+構；輾轉相除的 \texttt{gcd(b, a \% b)} 更明顯，第二個引數是新算出來的
+餘數。 這種寫法叫做\textbf{生成遞迴}（generative recursion）。 因為子
+問題是生成的，停機必須另外論證：每次呼叫都要證明某個度量在下降，例如
+盤子數 $n$、或 \texttt{gcd} 的第二個引數（餘數嚴格小於 $b$）。
+
+\begin{example}{c}{(gcd.c) 輾轉相除：生成出來的子問題}
+#include <stdio.h>
+
+int gcd(int a, int b) {
+    /* 前提：a, b >= 0。負數時終止論證不成立。 */
+    if (b == 0) {              // (1) 餘數為 0，答案就是 a
+        return a;
+    }
+    return gcd(b, a % b);      // (2)(3) 新的一對 (b, a%b)
+}
+
+int main(void) {
+    int a, b;
+    scanf("%d %d", &a, &b);
+    printf("%d\n", gcd(a, b));
+}
+\end{example}
+
+\iosample{
+48 18 \\
+}{
+6 \\
+}
+
+\texttt{gcd(48, 18)} $\rightarrow$ \texttt{gcd(18, 12)} $\rightarrow$
+\texttt{gcd(12, 6)} $\rightarrow$ \texttt{gcd(6, 0)}，回傳 $6$。 前提是
+$a, b \ge 0$：在這個前提下，每一次的第二個引數都是非負整數且嚴格遞減，
+所以一定走到 $0$。 這份終止論證要自己寫，編譯器不會幫我們檢查。 前提
+一破，論證就失效。 C 的 $\%$ 對負運算元可能產生負餘數，
+\texttt{gcd(-48, 18)} 仍會停
+（$(-48, 18) \rightarrow (18, -12) \rightarrow (-12, 6) \rightarrow (6, 0)$），
+但真正下降的是 $|b|$，不是 $b$ 本身。 生成遞迴的停機必須自己論證，論證
+所依賴的前提被打破時，論證就不成立。
+
+合併排序把陣列切成左右兩半再合併，切出來的兩半是新的區間，屬於生成遞
+迴裡的分治。 區間長度每次減半，終止條件是長度 $0$ 或 $1$。 分治跟結構
+遞迴一樣都問那三個問題，只是縮小的方式改成自己切，不再沿著 \texttt{next}
+或 \texttt{n-1} 走。
+
+\stylepoint{能寫成結構遞迴就先寫結構遞迴，停機幾乎免費。 只有子問題必
+須另外構造時才用生成遞迴，那時把下降的度量明講出來，例如 $n$、非負的
+$b$、或區間長度。}
+
+\begin{drills}[label=drills:rec-struct-vs-gen]
+\item \texttt{length(p->next)} 是結構遞迴還是生成遞迴？ \texttt{gcd(b, a \% b)}
+呢？
+\item 寫出 \texttt{gcd(48, 18)} 的呼叫鏈，直到基礎情況。
+\item 河內塔每次呼叫的 $n$ 都比上一層小。 這份終止論證夠不夠？ 為什麼
+它仍算生成遞迴？
+\end{drills}
+
+\section{尾遞迴與 C 的現實}
+\label{sec:rec-tail}
+
+若遞迴呼叫本身就是 \texttt{return} 的全部內容，這個呼叫位在\textbf{尾
+位置}（tail position），這種函式叫做\textbf{尾遞迴}（tail recursion）。
+\texttt{sum\_iter} 與下面的 \texttt{factorial\_acc} 都是：回程上不欠乘
+法，累加器已經把帳結清。
+
+\begin{code}{c}{階乘的尾遞迴形式}
+long long factorial_acc(int n, long long acc) {
+    if (n <= 1) {
+        return acc;
+    }
+    return factorial_acc(n - 1, acc * n);  // 呼叫本身就是 return 的全部
+}
+\end{code}
+
+\begin{example}{c}{(fact-tail.c) 用累加器寫尾遞迴階乘}
+#include <stdio.h>
+
+long long factorial_acc(int n, long long acc) {
+    if (n <= 1) {
+        return acc;
+    }
+    return factorial_acc(n - 1, acc * n);
+}
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+    printf("%lld\n", factorial_acc(n, 1));
+}
+\end{example}
+
+\iosample{
+10 \\
+}{
+3628800 \\
+}
+
+有些語言保證把尾遞迴編譯成迴圈，frame 可以重用，深度多大都不佔堆疊。
+C 標準\textbf{不保證}尾呼叫最佳化（tail-call optimization, TCO）。
+gcc 通常要到 \texttt{-O2}／\texttt{-O3}（會打開
+\texttt{-foptimize-sibling-calls}）才做；clang 有時從 \texttt{-O1} 就
+開始做。 關掉最佳化（\texttt{-O0}）時，同一個尾遞迴函式一樣會把堆疊用
+完。 鏈上只要有一個呼叫不在尾位置，整條最佳化就失效。
+
+下面這個極短的例子可以自己編譯來看。 \texttt{foo} 是標準的尾遞迴，它
+什麼工作都不做、永遠呼叫自己：
+
+\begin{code}{c}{用來觀察 TCO 在不在的極短例子}
+int foo(void) {
+    return foo();
+}
+
+int main(void) {
+    return foo();
+}
+\end{code}
+
+在 Apple Clang 15（macOS, arm64）上實測：\texttt{-O0} 編譯後執行，程式
+因堆疊溢位收到 segmentation fault（結束碼 $139$）；\texttt{-O2} 編譯後，
+同一支程式變成一個不佔堆疊的無窮迴圈，不會爆掉，會一直跑到你把它停下。
+這份編譯器從 \texttt{-O1} 就已經會做 TCO；gcc 在 Linux x86-64 上通常要
+到 \texttt{-O2} 才打開 \texttt{-foptimize-sibling-calls}。 結果依編譯器
+與版本而異。 這個對照只說明編譯器\emph{可以}把尾遞迴變成迴圈，不表示你
+寫作業時可以依賴它。 可攜的做法是自己把尾遞迴改成 \texttt{while}，或像
+下一節那樣用陣列模擬堆疊。
+
+\keypoint{C 不保證尾呼叫最佳化。 就算函式寫成尾遞迴，\texttt{-O0} 或
+換一個編譯器仍可能以 $\Theta(n)$ 的堆疊跑。 深度可能很大時，可攜的修
+法是改成迴圈，或自己準備一個陣列當堆疊。}
+
+\begin{drills}[label=drills:rec-tail]
+\item \texttt{return n * factorial(n - 1);} 裡，哪一部分讓這個呼叫不在
+尾位置？
+\item 同一支 \texttt{foo}，\texttt{-O0} 與 \texttt{-O2} 各會看到什麼現
+象？ 寫作業時能依賴哪一種？
+\item 把 \texttt{rec\_strlen} 改成尾遞迴（累加器從 $0$ 加起），再改成
+一個 \texttt{while} 迴圈。
+\end{drills}
+
+\section{把遞迴轉成迴圈：用顯式堆疊模擬}
+\label{sec:rec-explicit-stack}
+
+\texttt{print\_reverse} 在回程上才印，去程經過的節點必須先記住。 這些
+節點本來住在一層層的 frame 裡；我們也可以自己開一個指標陣列當堆疊，去
+程把節點壓進去，回程彈出來再印。 這樣深度受我們宣告的陣列大小限制，跟
+系統給主執行緒的堆疊上限脫鉤。
+
+順序在這裡不能交換。 若在去程經過一個節點時就印，得到的是正序，連堆疊
+都不需要，那正是 \texttt{print\_forward}。 反序印出的恰好是壓入順序的
+顛倒，所以非壓不可。 對照階乘：乘法可交換，去程邊走邊乘就得到 $n!$，
+那種情況顯式堆疊是多餘的。
+
+\begin{example}{c}{(print-rev-stack.c) 用陣列模擬反向列印的呼叫堆疊}
+#include <stdio.h>
+
+struct Node {
+    int v;
+    struct Node *next;
+};
+
+void print_reverse_stack(struct Node *p) {
+    struct Node *pending[64];
+    int top = 0;
+    while (p != NULL) {            // 去程：把節點壓進去
+        if (top >= 64) {           // 陣列滿了：拒絕，不是印出一部分
+            return;
+        }
+        pending[top] = p;
+        top++;
+        p = p->next;
+    }
+    while (top > 0) {              // 回程：後進先出
+        top--;
+        printf("%d ", pending[top]->v);
+    }
+}
+
+int main(void) {
+    struct Node c = {3, NULL};
+    struct Node b = {2, &c};
+    struct Node a = {1, &b};
+    print_reverse_stack(&a);
+    printf("\n");
+}
+\end{example}
+
+\iosample{}{
+3 2 1  \\
+}
+
+以 $1 \rightarrow 2 \rightarrow 3$ 走一遍。 去程結束時 \texttt{pending}
+裡由底到頂是指向 $1$、$2$、$3$ 的指標；回程依序彈出，印 $3$、$2$、$1$。
+這跟圖~\ref{fig:rec-stack-up} 的回程是同一件事，只是堆疊從系統的
+frame 換成我們自己的陣列，掛著的從待乘的整數換成待印的節點。 樹狀遞迴
+（例如走訪二元樹）也能這樣轉：把節點指標壓進陣列，用迴圈模擬去程與回
+程，只是每個 frame 要記的狀態比一個指標多。
+
+\texttt{pending[64]} 限制了深度上限是 $64$。 串列若可能更長，陣列要開
+到問題的最大深度，或改用 \texttt{malloc} 做動態堆疊。 這是用空間換對
+系統堆疊的控制。 \texttt{top >= 64} 時直接 \texttt{return}，表示拒絕
+這次列印，不是印出前 $64$ 個就算完成。
+
+\begin{drills}[label=drills:rec-explicit-stack]
+\item 對 $1 \rightarrow 2 \rightarrow 3$，去程結束後 \texttt{pending}
+由底到頂對應哪些值？ 回程印出什麼？
+\item 若在第一個迴圈裡、壓進去的當下就 \texttt{printf}，印出順序是什麼？
+那還需要第二個迴圈嗎？
+\item 階乘去程直接 \texttt{result *= n} 就能算。 為什麼本節的反向列印
+不能同樣把陣列拿掉？
+\item 拿掉 \texttt{top >= 64} 的檢查，串列有 $70$ 個節點時會發生哪一種
+錯誤？
+\end{drills}
+
+\section{C 遞迴的陷阱}
+\label{sec:rec-pitfalls}
+
+這一節把前面散落的 C 細節收成一張清單。 Java 或 Python 的遞迴教材通常
+不會碰到這些，因為那些語言要嘛有垃圾收集與例外，要嘛禁止回傳區域變數
+的位址。
+
+\textbf{無窮遞迴的結局是 segmentation fault。} Python 會拋
+\texttt{RecursionError} 並印出一疊呼叫紀錄；C 把系統堆疊用完之後，下
+一次寫入就踩到不能寫的記憶體，作業系統送出 \texttt{SIGSEGV}。 看到
+\texttt{Segmentation fault} 時，若函式是遞迴的，第一個要查的就是基礎
+情況有沒有寫到、進度有沒有真的讓輸入變小。
+
+\textbf{堆疊大小是有限的、而且依平台而變。} 主執行緒的預設堆疊在 Linux
+上常見約 $8$ MB（\texttt{ulimit -s} 常顯示 $8192$，單位是 KB），
+Windows 常見 $1$ MB（連結時可用 \texttt{/STACK} 改）。 這些是典型預設
+值，不是保證。 自己的環境用 \texttt{ulimit -s} 查看。 淺的 frame（只
+有幾個 \texttt{int}）大約能到數十萬層；frame 裡若有大型區域陣列，深度
+一下子就只剩幾百層。
+
+\textbf{不要回傳指向區域變數的指標。} 區域陣列住在這一層 frame 裡，
+\texttt{return} 之後那塊記憶體已經不屬於這個函式。 呼叫者拿到的是懸空
+指標，再用它就是未定義行為。
+
+\begin{code}{c}{回傳區域陣列的位址：frame 一彈就懸空}
+char *label(void) {
+    char buf[16];
+    buf[0] = 'A';
+    buf[1] = '\0';
+    return buf;    // buf 隨這一層一起消失
+}
+\end{code}
+
+若確實需要把字串交出去，讓呼叫者提供緩衝區當參數，或用 \texttt{malloc}
+配置到堆積上並講清楚由誰 \texttt{free}。
+
+\textbf{不要在遞迴 frame 裡放大型區域陣列。} 下面這種寫法每一層都再要
+一塊 $10000$ 個 \texttt{int}（約 $40$ KB）。 以 $8$ MB 的堆疊來算，兩
+百層就滿了。
+
+\begin{code}{c}{每一層都帶一塊大陣列，深度很快就爆}
+int rec(int n) {
+    int buf[10000];    // 每一層約 40 KB
+    buf[0] = n;
+    if (n == 0) {
+        return 0;
+    }
+    return rec(n - 1);
+}
+\end{code}
+
+需要那塊陣列時，改成在 \texttt{main} 宣告一次再當指標傳進去，讓所有層
+共用同一塊，或改用堆積。
+
+\textbf{基礎情況的 off-by-one。} 空與單元素是兩種不同的最小情況。 求和、
+長度對空有自然答案 $0$；求最大值、二元搜尋找到的那個元素，空區間沒有
+意義，基礎情況要寫成單元素或找不到。 少寫一個基礎情況，輕則答案錯，重
+則無窮遞迴。
+
+\textbf{有號整數溢位。} $13!$ 與 $\mathrm{fib}(47)$ 都超出 32-bit
+\texttt{int}。 溢位在 C 是未定義行為，不能靠印出來的數字回頭推算它
+包了幾圈。
+
+\textbf{用全域變數當遞迴的工作記憶。} 把棋盤、解的個數放在檔案範圍，讓
+遞迴函式直接改寫，等於把每一層 frame 本來該各自擁有的狀態藏到同一個地
+方。 這樣的函式不能重入、不好測試，也讓副本模型從圖上消失：你看不到每
+一層各自拿著一份狀態。 下一節會把 N 皇后的全域寫法跟參數寫法並排放。
+第~\ref{sec:rec-memo}~節的表也在檔案範圍，但那是快取：$F(k)$ 對所有路
+徑都相同，寫進去就不再改。 這裡禁止的是路徑狀態，也就是棋盤這種每一條
+分支各自不同的東西。
+
+\keypoint{C 的遞迴錯誤通常以 segmentation fault、懸空指標或未定義行為
+出現，不會給一則友善的遞迴太深訊息。 寫完先問三件事：基礎情況、進度、
+這一層的區域變數會不會在 \texttt{return} 之後還被用到。}
+
+\begin{drills}[label=drills:rec-pitfalls]
+\item \texttt{label} 回傳 \texttt{buf} 之後，呼叫者立刻用那個指標印字串，
+是哪一種錯誤？
+\item 每一層放 \texttt{int buf[10000]}（約 $40$ KB），堆疊以 $8$ MB 計，
+大概幾層就滿？
+\item \texttt{array\_max} 傳空區間，對應本節哪一條陷阱？ 結果是答案錯，
+還是無窮遞迴？
+\end{drills}
+
+\section{回溯法：選擇、探索、撤銷}
+\label{sec:rec-backtrack}
+
+前面的遞迴都在一條或兩條固定的縮小路上走。 \textbf{回溯}
+（backtracking）多了一層：在每一層有若干個選擇，試一個、往下探索，若
+這條路走不通或走完了，就把選擇撤銷，改試下一個。 結構是
+
+\begin{code}{text}{回溯的三步：選擇、探索、撤銷}
+void search(目前的狀態) {
+    if (已經完成或無解) {         // (1)
+        記錄或回傳;
+        return;
+    }
+    for (每一個可以做的選擇) {
+        做選擇;                    // choose
+        search(新的狀態);          // explore
+        撤銷選擇;                  // unchoose
+    }
+}
+\end{code}
+
+若狀態是用值傳進去的（例如子集和裡的剩餘容量 $k$、還剩幾個元素 $n$），
+子呼叫結束後呼叫者手上的 $k$、$n$ 根本沒被改過，不必手動撤銷。 若狀態
+是同一塊陣列被就地改寫（排列裡交換字元、棋盤上放皇后），子呼叫結束後
+必須把改過的格子還原，否則下一條分支看到的是上一條分支留下的殘局。
+C 的陣列傳的是位址，所以就地修改是預設行為，撤銷一定要寫出來。
+
+先看不需要手動撤銷的那一種：子集和。 $n$ 個\textbf{正整數}，問有幾種
+子集的和剛好是 $k$。 對最後一個數字 $a[n-1]$ 只有兩個選擇：不拿它，或
+拿它。 兩個選擇都把 $n$ 減 $1$，拿的那條再把 $k$ 減去 $a[n-1]$。 參數
+都是整數、傳值，子呼叫結束後這一層的 $n$、$k$ 還是原值。
+
+\texttt{k == 0} 立刻回傳 $1$，以及 \texttt{k < 0} 剪枝，都只在元素為正
+時才對。 若陣列裡有 $0$，$\texttt{k == 0}$ 會在湊滿的瞬間停止列舉剩下
+的元素，於是只差幾個 $0$ 的子集被算成同一種，結果是少算。 例如
+$a = \{0, 2\}$、$k = 2$ 只會回傳 $1$，但 $\{2\}$ 與 $\{0, 2\}$ 都成立。
+若有負數，$\texttt{k < 0}$ 也不能當已經超過的停止條件。 下面的程式預設
+輸入都是正整數。
+
+\begin{example}{c}{(subset.c) 子集和的計數：拿或不拿}
+#include <stdio.h>
+
+int count_subset(int *a, int n, int k) {
+    /* 前提：a[0..n) 皆為正整數。 */
+    if (k == 0) {              // 剛好湊滿
+        return 1;
+    }
+    if (n == 0 || k < 0) {     // 沒數字了，或已經超過
+        return 0;
+    }
+    return count_subset(a, n - 1, k)                 // 不拿 a[n-1]
+         + count_subset(a, n - 1, k - a[n - 1]);     // 拿 a[n-1]
+}
+
+int main(void) {
+    int n, k, a[20];
+    scanf("%d %d", &n, &k);
+    if (n < 0 || n > 20) {
+        return 0;
+    }
+    for (int i = 0; i < n; i++) {
+        scanf("%d", &a[i]);
+    }
+    printf("%d\n", count_subset(a, n, k));
+}
+\end{example}
+
+\iosample{
+4 5 \\
+1 2 3 4 \\
+}{
+2 \\
+}
+
+$\{1,2,3,4\}$ 裡和為 $5$ 的子集有 $\{1,4\}$ 與 $\{2,3\}$ 兩種。 每一層
+把問題縮小成前 $n-1$ 個數字，兩條分支的 $k$ 不同。 $0$-$1$ 背包的拿或
+不拿也是同一棵樹，只是回傳值從計數改成最大價值。 $n$ 到 $20$ 附近，
+$2^n$ 次呼叫還勉強跑得完；$n$ 再大就要剪枝或改成之後會學的動態規劃。
+
+N 皇后則必須手動撤銷。 在 $n \times n$ 棋盤放 $n$ 個皇后，彼此不同列、
+不同行、不同對角線。 我們第 \texttt{row} 列決定放在哪一欄，\texttt{board[i]}
+記錄第 $i$ 列的皇后在哪一欄。 棋盤是同一塊陣列，傳的是指標，所以放上
+去之後一定要在子呼叫回來時拿掉。
+
+常見的偷懶寫法是把棋盤和解的個數放在檔案範圍，讓 \texttt{solve} 直接
+改：
+
+\begin{code}{c}{反例：棋盤放在檔案範圍，副本從圖上消失}
+int board[20];
+int solutions;
+
+int is_safe(int row, int col) {
+    for (int i = 0; i < row; i++) {
+        int dcol = board[i] - col;
+        int drow = i - row;
+        if (dcol == 0 || dcol == drow || dcol == -drow) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+void solve(int row, int n) {
+    if (row == n) {
+        solutions++;
+        return;
+    }
+    for (int col = 0; col < n; col++) {
+        if (is_safe(row, col)) {
+            board[row] = col;      // 所有層改同一塊
+            solve(row + 1, n);
+            board[row] = -1;
+        }
+    }
+}
+\end{code}
+
+\texttt{is\_safe} 沒有棋盤參數，因為它直接讀檔案範圍那一份
+\texttt{board}。 兩次搜尋不能重疊進行：裡面那一次會把外面那一次的棋盤
+覆寫掉。 堆疊圖上本來每一層該有自己的狀態，現在全部摺進兩個全域變數。
+下面的範例改成由 \texttt{main} 提供陣列、當參數往下傳。
+
+\begin{example}{c}{(nqueens.c) N 皇后：狀態當參數，撤銷寫出來}
+#include <stdio.h>
+
+int is_safe(int row, int col, int *board) {
+    for (int i = 0; i < row; i++) {
+        int dcol = board[i] - col;
+        int drow = i - row;
+        if (dcol == 0 || dcol == drow || dcol == -drow) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+void solve(int row, int n, int *board, int *solutions) {
+    if (row == n) {            // (1) n 列都放好了，找到一解
+        (*solutions)++;
+        return;
+    }
+    for (int col = 0; col < n; col++) {
+        if (is_safe(row, col, board)) {
+            board[row] = col;                       // choose
+            solve(row + 1, n, board, solutions);    // explore
+            board[row] = -1;                        // unchoose
+        }
+    }
+}
+
+int main(void) {
+    int n, board[20], solutions = 0;
+    scanf("%d", &n);
+    if (n < 0 || n > 20) {
+        return 0;
+    }
+    for (int i = 0; i < n; i++) {
+        board[i] = -1;
+    }
+    solve(0, n, board, &solutions);
+    printf("%d\n", solutions);
+}
+\end{example}
+
+\iosample{
+8 \\
+}{
+92 \\
+}
+
+$n = 8$ 有 $92$ 組解，這是經典數字。 $n = 4$ 只有 $2$ 組，棋盤小，適
+合自己把 \texttt{board} 的變化畫出來核對撤銷有沒有寫對。
+\texttt{board} 與 \texttt{solutions} 都由 \texttt{main} 提供、當參數
+往下傳，沒有檔案範圍的全域變數。 \texttt{board[row] = -1} 這一行在這
+個問題裡即使省略，下一次寫入同一個 \texttt{board[row]} 也會蓋掉舊值，
+答案碰巧仍對；那種寫法示範的是錯誤的心智模型。 換成要在走不通時印出棋
+盤、或同一列可能被跳過不寫，缺撤銷就會看到上一條分支留下的皇后。 回溯
+的紀律是：改了就還原，不要依賴下一次寫入剛好蓋到同一個位置。
+
+$n$ 到 $13$ 附近就要等上一陣子；$n = 20$ 在這支樸素程式上實務跑不完。
+緩衝區開 $20$ 是為了示範邊界檢查，不是因為 $n = 20$ 算得完。 這跟記
+憶化那節一樣：表的長度與型別上限是兩個獨立的界。
+
+排列生成用交換做出選擇，同樣要交換回來。 範例讀入一個字串，印出把字元
+重排之後的所有結果。
+
+\begin{example}{c}{(permute.c) 排列生成：交換、遞迴、交換回來}
+#include <stdio.h>
+#include <string.h>
+
+void swap(char *a, char *b) {
+    char t = *a;
+    *a = *b;
+    *b = t;
+}
+
+void permute(char *s, int l, int r) {
+    if (l == r) {              // (1) 後段已經固定，印出目前的 s
+        printf("%s\n", s);
+        return;
+    }
+    for (int i = l; i <= r; i++) {
+        swap(&s[l], &s[i]);          // choose：把 s[i] 換到位置 l
+        permute(s, l + 1, r);        // explore：排列剩下的
+        swap(&s[l], &s[i]);          // unchoose：換回來
+    }
+}
+
+int main(void) {
+    char s[20];
+    scanf("%19s", s);
+    permute(s, 0, (int)strlen(s) - 1);
+}
+\end{example}
+
+\iosample{
+ABC \\
+}{
+ABC \\
+ACB \\
+BAC \\
+BCA \\
+CBA \\
+CAB \\
+}
+
+位置 $l$ 依序試 $s[l], s[l+1], \ldots, s[r]$ 每一個字元，試完就換回去，
+所以下一輪 \texttt{for} 看到的仍是進入這一層時的字串。 輸入是
+\texttt{ABC} 這種每個字元都不同的字串時，印出 $3! = 6$ 種排列。 若輸入
+是 \texttt{AAB}，同一套程式會把 \texttt{AAB}、\texttt{ABA}、\texttt{BAA}
+各印兩次，因為兩個 \texttt{A} 被當成不同的選擇。 要去掉重複，需要在選
+擇前先跳過已經用過的相同字元，或改用計數表決定每個字元還能用幾次。 這
+支範例故意不處理重複，是為了讓交換與撤銷本身先看清楚。
+
+\keypoint{回溯 = 選擇 $\rightarrow$ 探索 $\rightarrow$ 撤銷。 狀態若以
+值傳遞，回傳時自動還原；狀態若是同一塊被就地修改的陣列，撤銷一定要寫
+出來。 C 的陣列屬於後者。}
+
+\begin{drills}[label=drills:rec-backtrack]
+\item 預測：把 \texttt{permute} 的第二次 \texttt{swap}（unchoose）拿掉，
+輸入 \texttt{ABC} 還會印出六個不同的排列嗎？
+\item 抓蟲：\texttt{count\_subset} 的陣列改成 $\{0, 2\}$、$k = 2$。
+程式回傳幾？ 正解是幾？ $\texttt{k == 0}$ 那條為什麼會少算？
+\item 缺 \texttt{board[row] = -1} 的 N 皇后，若在走不通時把棋盤印出來，
+會看到什麼？ 只計數解的個數時，為什麼答案可能碰巧仍對？
+\item 從零寫：對正整數陣列數有幾種子集的和為 $k$。 先填三個問題，再寫
+拿／不拿兩條分支。
+\end{drills}
+
+\section{何時用遞迴、何時用迴圈}
+\label{sec:rec-when}
+
+現在可以用過程模型來選工具，而不只是優雅或高效這種口號。
+
+線性掃描、只需要一份累加狀態的工作，遞迴過程會在堆疊上留下 $\Theta(n)$
+個 frame，迭代過程（迴圈，或尾遞迴再自己改成迴圈）只需 $\Theta(1)$ 的
+額外空間。 $1$ 加到 $n$、走訪一陣列求最高值，用 \texttt{for} 寫更直接，
+也不會在 $n$ 到 $10^6$ 時把 $8$ MB 的堆疊用完。
+
+資料本身是遞迴的（串列、樹、目錄、運算式），或問題的自然拆法是兩條以
+上的分支（費氏、走格、分治、回溯），遞迴讓程式的形狀跟問題的形狀對齊。
+這時候省下的是閱讀與除錯的成本。 若深度可能很大（鏈結串列有 $10^5$ 個
+節點、或生成遞迴在最壞情況走到 $\Theta(n)$），再改用顯式堆疊把同一份
+過程搬到堆積或自己的陣列上，遞迴這個想法仍然先保留。
+
+C 額外要算進去的有兩筆。 第一，沒有 TCO 保證，尾遞迴在 \texttt{-O0}
+或另一個編譯器上仍可能爆堆疊。 第二，frame 裡的大型區域陣列會把可用
+深度砍得很短。 這兩件事成立時，就算問題看起來適合遞迴，實務上仍應改
+成迴圈或顯式堆疊。
+
+一個可以用的判斷順序：先問資料或問題是不是自我相似的。 若是，先用三
+個問題把遞迴寫對，再看過程是線性遞迴、線性迭代還是樹狀。 線性迭代且
+深度可觀，就轉迴圈；樹狀且有重複子問題，就加記憶化；樹狀且分支是選擇，
+就用回溯並把撤銷寫清楚。 最後才用這台機器的堆疊上限、frame 大小，決
+定要不要把同一份過程改成顯式堆疊。
+
+\keypoint{遞迴適合自我相似的資料與多路拆分的問題；迴圈適合線性掃描。
+選哪一種，看的是過程佔多少堆疊、以及 C 又不保證 TCO；跟哪一種看起來
+比較短無關。}
+
+\begin{drills}[label=drills:rec-when]
+\item $1$ 加到 $10^7$，用 \texttt{sum} 還是 \texttt{for}？ 用本節的判
+斷順序走一遍。
+\item 二元樹高度呢？ 鏈結串列長度、而且節點可能有 $10^5$ 個呢？
+\item 有重複子問題的走格、與沒有重複但有選擇的 N 皇后，各該在寫對遞迴
+之後補上什麼？
+\end{drills}
+
+\phantomsection
+\addcontentsline{toc}{section}{練習解答}
+\section*{練習解答}
+
+各節練習的答案收在這裡。 從零寫與改寫只給能一句話核對的結果；完整程式
+見正文片語。
+
+\paragraph{第~\ref{sec:rec-self-sim}~節}
+\begin{enumerate}
+\item 四個人。 甲拿 \texttt{sum(3)}，乙 \texttt{sum(2)}，丙
+\texttt{sum(1)}，丁 \texttt{sum(0)}。
+\item 走廊上同時站著四個人，各自等後面的回覆。 把遞迴想成同一個人把
+$n$ 改小再算一次，解釋不了為什麼甲在等的時候乙也還在。
+\item 空資料夾貢獻 $0$；非空的等於自己這一層的檔案加上每個子資料夾；子
+資料夾的問題與原本相同、只是更小。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:rec-three-q}~節}
+\begin{enumerate}
+\item $4 + \texttt{sum(3)}$。 不要再把 \texttt{sum(3)} 展開。
+\item 不會停。 \texttt{n == 1} 這條永遠走不到，\texttt{sum(0)} 會呼叫
+\texttt{sum(-1)}、\texttt{sum(-2)}，直到堆疊溢位。
+\item $n = 0$ 時和為 $0$（若寫成 $n = 1$ 回傳 $1$，呼叫端就不得再傳
+$0$）。
+\item 基礎情況 $n = 0$ 回傳 $0$；遞迴情況是 $(2n-1) + f(n-1)$。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:rec-int}~節}
+\begin{enumerate}
+\item 有號整數溢位，在 C 是未定義行為。 不能靠印出來的數字判斷它包了
+幾圈。
+\item 不停。 $n$ 愈來愈小，走不到 $n == 0$，直到堆疊溢位。
+\item $20!$ 裝得進 \texttt{long long}；$21!$ 超過 \texttt{LLONG\_MAX}。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:rec-stack}~節}
+\begin{enumerate}
+\item 最深一層 $n = 1$，一共四層 \texttt{factorial}。
+\item $3$、$2$、$1$（先印個位）。
+\item 回程。 $n = 3$ 那一層等 \texttt{factorial(2)} 把 $2$ 帶回來，才
+做 $3 \times 2$。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:rec-process}~節}
+\begin{enumerate}
+\item \texttt{sum} 欠加法，概念空間 $\Theta(n)$；\texttt{sum\_iter} 不
+欠，概念空間 $\Theta(1)$。
+\item $(\texttt{3},\texttt{0}) \rightarrow (\texttt{2},\texttt{3})
+\rightarrow (\texttt{1},\texttt{5}) \rightarrow (\texttt{0},\texttt{6})$。
+\item \texttt{return factorial\_acc(n - 1, acc * n);}，呼叫端傳
+\texttt{acc = 1}。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:rec-array}~節}
+\begin{enumerate}
+\item 基礎情況 \texttt{lo + 1 == hi} 不會成立，$\texttt{lo}$ 一路加過
+去，無窮遞迴、堆疊溢位。
+\item 回傳對 $[lo+1, hi)$ 的搜尋結果。
+\item $[0, 5) \rightarrow [0, 2) \rightarrow [2, 2)$，空區間回傳 $-1$。
+\item 不是。 \texttt{sizeof(a)} 量到的是指標大小。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:rec-string}~節}
+\begin{enumerate}
+\item $0$。
+\item 先 \texttt{lo >= hi} 回傳 $1$，再比頭尾，不同就回傳 $0$，相同才
+縮小成 $[lo+1, hi-1]$。
+\item 累加器版：空字串回傳 \texttt{acc}，否則
+\texttt{rec\_strlen(s + 1, acc + 1)}。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:rec-fib-hanoi}~節}
+\begin{enumerate}
+\item \texttt{fib(1)} 出現兩次：一次是 \texttt{fib(3)} 的右子呼叫，一
+次在 \texttt{fib(2)} 底下。
+\item 輸入 $0$ 會無窮遞迴，直到堆疊溢位。
+\item $T(4) = 15$，與 $2^4 - 1$ 相同。
+\item $6$，與 $\binom{4}{2} = 6$ 相符。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:rec-memo}~節}
+\begin{enumerate}
+\item 每個 \texttt{long long} 的每個位元組都是 $1$，值是
+\texttt{0x0101010101010101}，不是 $1$。 技術上可以當哨兵（那個值不會
+跟任何要算的費氏數撞到），但比較式得寫成跟 \texttt{0x0101010101010101}
+比，而不是跟 $1$ 比：你以為填進去的和實際填進去的不是同一個東西。 這
+正是用迴圈填比較不容易誤導的原因。
+\item 整數溢位。 表長 $100$，索引 $93$ 不越界。
+\item 每個 $k$ 最多真正計算一次。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:rec-list}~節}
+\begin{enumerate}
+\item $3\ 2\ 1$。 \texttt{printf} 發生在回程。
+\item 變成 $1\ 2\ 3$，與 \texttt{print\_forward} 沒有差別。
+\item \texttt{height} 回傳 $1$，\texttt{count} 回傳 $1$。
+\item $2\ 1\ 3$。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:rec-struct-vs-gen}~節}
+\begin{enumerate}
+\item \texttt{length(p->next)} 是結構遞迴；\texttt{gcd(b, a \% b)} 是
+生成遞迴。
+\item \texttt{gcd(48, 18)} $\rightarrow$ \texttt{gcd(18, 12)}
+$\rightarrow$ \texttt{gcd(12, 6)} $\rightarrow$ \texttt{gcd(6, 0)}。
+\item $n$ 變小足以保證會停，但它仍是生成遞迴：搬 $n-1$ 盤到輔助柱這件
+事，並不是輸入裡現成的子結構。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:rec-tail}~節}
+\begin{enumerate}
+\item 前面的 \texttt{n *}。 乘法讓這個呼叫不在尾位置。
+\item \texttt{-O0} 堆疊溢位（segmentation fault）；\texttt{-O2} 變成
+不佔堆疊的無窮迴圈。 寫作業時哪一種都不能當保證。
+\item 空字串回傳 \texttt{acc}；否則 \texttt{f(s + 1, acc + 1)}。 迴圈
+版就是 \texttt{while (*s) \{ acc++; s++; \}}。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:rec-explicit-stack}~節}
+\begin{enumerate}
+\item 由底到頂對應 $1$、$2$、$3$；回程印 $3\ 2\ 1$。
+\item 印 $1\ 2\ 3$。 不需要第二個迴圈，那就是 \texttt{print\_forward}。
+\item 印出的順序不可交換。 拿掉陣列就只能在經過時立刻印，得到正序。
+\item \texttt{pending} 越界寫入，未定義行為，常見結局是 segmentation
+fault。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:rec-pitfalls}~節}
+\begin{enumerate}
+\item 懸空指標，再用它是未定義行為。
+\item 約 $200$ 層（$8$ MB $\div$ $40$ KB）。
+\item 基礎情況的 off-by-one。 結果是無窮遞迴，不是只把答案算錯。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:rec-backtrack}~節}
+\begin{enumerate}
+\item 不會。 仍印六行，但只有四種：\texttt{ABC}、\texttt{ACB}、
+\texttt{CAB}、\texttt{CBA}，缺 \texttt{BAC} 與 \texttt{BCA}。
+\item 程式回傳 $1$，正解是 $2$，也就是 $\{2\}$ 與 $\{0, 2\}$。
+\texttt{k == 0} 擺在 \texttt{n == 0} 前面，取走 $2$ 之後立刻回傳，剩下
+的 $0$ 沒被列舉，所以是少算。
+\item 會看到上一條分支留下的皇后。 只計數時，下一次寫入會蓋掉同一個
+\texttt{board[row]}，答案碰巧仍對。
+\item 正整數；基礎情況 $k = 0$ 回傳 $1$、$n = 0$ 或 $k < 0$ 回傳 $0$；
+兩條分支是不拿與拿。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:rec-when}~節}
+\begin{enumerate}
+\item 用 \texttt{for}。 這是線性掃描，深度 $10^7$ 會把堆疊用完。
+\item 樹的高度跟資料形狀走，用遞迴。 串列長度在 $10^5$ 個節點時改迴圈
+或顯式堆疊，系統堆疊裝不下。
+\item 走格加記憶化；N 皇后把撤銷寫清楚。
+\end{enumerate}

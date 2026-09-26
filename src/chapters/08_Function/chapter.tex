@@ -1,0 +1,1249 @@
+\chapter{函式}
+\label{ch:function}
+
+到目前為止，我們寫過的程式幾乎都只有一個 \texttt{main} 函式：所有變數、
+所有邏輯都擠在同一層裡。 當程式變長、或某段邏輯需要重複使用時，把它
+獨立寫成一個\textbf{函式}（function）會讓程式更容易閱讀、修改、測試。
+一個函式就像一個小工具：給它固定形式的輸入（\textbf{參數}，parameter），
+它做完一件明確的事，然後用 \texttt{return} 交回一個結果；中間怎麼實作，
+呼叫它的人完全不需要知道。
+
+這一章分四段推進：先學會寫有回傳值、無回傳值與多參數函式，並用純函式
+對上 \texttt{void} 的設計差異；再從呼叫堆疊解釋整數與陣列參數為什麼行
+為不同；接著談函式原型、標頭檔與多檔編譯；最後才看變參 \texttt{printf}
+／\texttt{scanf}，以及遞迴的進階用法。 函式指標會在指標那一章正式展開。
+堆疊與生命週期會在這一章建立直覺，到指標與遞迴章再串成完整圖像。
+
+\section{定義有回傳值的函式}
+\label{sec:func-return-value}
+
+一個有回傳值的函式由幾個部分組成：\textbf{回傳型別}、\textbf{函式名}、
+\textbf{參數列表}、\textbf{函式本體}。 本體內用 \texttt{return} 交回一個
+值給呼叫者。
+
+\begin{code}{c}{有回傳值的函式}
+回傳型別 函式名(參數型別 參數名) {
+    ...
+    return 型別匹配的值;
+}
+\end{code}
+
+範例 \thechapter.2 把「計算平方」獨立成 \texttt{square}；雖然
+\texttt{n * n} 直接寫在 \texttt{main} 裡也可以，但包成函式之後，只要
+看到 \texttt{square(x)} 這個名字，就不用重新想一遍它在做什麼。 呼叫
+\texttt{square(n)} 時，\texttt{n} 的值被複製一份給 \texttt{square} 的
+參數，計算完畢後回傳值再交給 \texttt{printf}。
+
+\begin{example}{c}{(square.c) 計算平方的函式}
+#include <stdio.h>
+
+int square(int n) {
+    return n * n;
+}
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+    printf("%d\n", square(n));
+}
+\end{example}
+
+\iosample{
+7 \\
+}{
+49 \\
+}
+
+\subsection{main 函式}
+
+\texttt{main} 也是一個函式，它的特殊之處是作為程式的\textbf{入口點}
+（entry point）——作業系統啟動程式時，會呼叫 \texttt{main}。 \texttt{main}
+回傳的整數值會交給作業系統，告知程式是否成功執行。 慣例上 \texttt{0}
+表示成功，非 \texttt{0} 表示失敗。
+
+\begin{code}{c}{main 的簽名}
+int main(void) {
+    // 程式邏輯
+    return 0;  // 告知作業系統程式成功
+}
+
+// 或者接受命令行引數（進階用法，這裡先不詳述）
+int main(int argc, char *argv[]) {
+    // ...
+}
+\end{code}
+
+\subsection{判斷閏年}
+
+實際應用中，我們常把「某個明確條件判斷」包成一個函式。 例如判斷是否
+為閏年：年份能被 4 整除但不能被 100 整除，或者能被 400 整除。
+
+\begin{example}{c}{(leap-year.c) 判斷閏年的函式}
+#include <stdio.h>
+
+// 回傳 1 表示閏年，0 表示平年
+int isLeapYear(int year) {
+    if (year % 400 == 0) {
+        return 1;  // 能被 400 整除，是閏年
+    }
+    if (year % 100 == 0) {
+        return 0;  // 能被 100 整除但不能被 400 整除，是平年
+    }
+    if (year % 4 == 0) {
+        return 1;  // 能被 4 整除但不能被 100 整除，是閏年
+    }
+    return 0;  // 其他都是平年
+}
+
+int main(void) {
+    int year;
+    scanf("%d", &year);
+    printf("%d\n", isLeapYear(year));
+}
+\end{example}
+
+\iosample{
+2024 \\
+}{
+1 \\
+}
+
+輸入 \texttt{2024}，按第三個條件 \texttt{2024 \% 4 == 0}（且不被 100
+整除），回傳 \texttt{1}。 輸入 \texttt{2000} 則按第一個條件回傳 \texttt{1}。
+
+\keypoint{\texttt{return} 一執行就立刻結束這次函式呼叫，後面的程式碼
+不會再跑。 用連續的 \texttt{if} 搭配提早 \texttt{return}，通常比複雜的
+\texttt{if-else} 鏈更平坦好讀。}
+
+\begin{drills}[label=drills:func-return-value]
+\item \texttt{square} 函式呼叫 \texttt{square(n)} 時，\texttt{n} 的值
+是直接傳進去，還是複製一份給參數？
+\item \texttt{isLeapYear(2000)} 會先命中哪一個 \texttt{if}？回傳值是
+多少？
+\item 把 \texttt{isLeapYear} 裡三個 \texttt{if} 的判斷順序打亂（先判斷
+\% 4，再判斷 \% 400），對 2000 這個輸入會不會算錯？為什麼？
+\end{drills}
+
+\section{定義無回傳值的函式}
+\label{sec:func-void}
+
+\texttt{void} 型別表示函式不回傳任何值。 這類函式通常用來執行某個動作
+或修改某些狀態——比如印出結果、修改陣列、更新全域變數。
+
+\begin{code}{c}{無回傳值的函式}
+void 函式名(參數型別 參數名) {
+    // 執行動作
+    // 沒有 return 值（或 return; 後面不跟值）
+}
+\end{code}
+
+範例~\ref{ex:print-digits} 寫一個 \texttt{void} 函式，把一個整數的各位數字
+分別印在不同行。 這個函式不回傳任何計算結果，只是有副作用（把值印出來）。
+
+\begin{example}[label=ex:print-digits]{c}{(print-digits.c) 將各位數印在不同行}
+#include <stdio.h>
+
+// 無回傳值的函式：只負責輸出，不計算結果
+void printDigits(int n) {
+    if (n < 0) n = -n;  // 處理負數
+
+    if (n == 0) {
+        printf("0\n");
+        return;
+    }
+
+    // 遞迴式地從最高位開始印
+    if (n >= 10) {
+        printDigits(n / 10);
+    }
+    printf("%d\n", n % 10);
+}
+
+int main(void) {
+    int num;
+    scanf("%d", &num);
+    printDigits(num);
+}
+\end{example}
+
+\iosample{
+12345 \\
+}{
+1 \\
+2 \\
+3 \\
+4 \\
+5 \\
+}
+
+\texttt{printDigits(12345)} 遞迴呼叫自己，依序把 \texttt{12345/10 = 1234}
+傳進去，最後回到 \texttt{1}；再回溯時逐一印出 \texttt{2, 3, 4, 5}。
+
+另一個 \texttt{void} 函式的例子是初始化或填充陣列：
+
+\begin{code}{c}{用 void 函式初始化陣列}
+void fillZeros(int arr[], int n) {
+    for (int i = 0; i < n; i++) {
+        arr[i] = 0;  // 副作用：修改陣列
+    }
+}
+\end{code}
+
+這類函式的副作用（修改陣列）是預期的，所以函式名往往暗示「會改東西」
+（如 \texttt{fillZeros}、\texttt{reverse}、\texttt{sort}）。
+
+\keypoint{\texttt{void} 函式沒有回傳值，呼叫它是為了它的副作用（印出
+結果、修改陣列、改變全域狀態等）。 在函式名上要講清楚是否會有副作用。}
+
+\begin{drills}[label=drills:func-void]
+\item \texttt{printDigits} 沒有 \texttt{return} 值，那它是靠什麼讓
+數字出現在螢幕上？
+\item \texttt{fillZeros(arr, n)} 呼叫結束後，\texttt{main} 裡原本的
+陣列內容會不會被改變？
+\item 一個函式如果同時「有副作用」又「有回傳值」，合理嗎？舉一個你覺
+得可以接受的例子。
+\end{drills}
+
+\section{多個參數的函式}
+\label{sec:func-params}
+
+函式可以接多個參數。 呼叫時，每個引數各複製一份值給對應的參數，彼此
+獨立。
+
+\begin{code}{c}{多參數函式}
+回傳型別 函式名(型別1 參數1, 型別2 參數2, ...) {
+    return 根據參數計算的結果;
+}
+\end{code}
+
+\subsection{計算天數}
+
+一個常見的例子是把「年、月、日」轉換成該年的第幾天。
+
+\begin{example}{c}{(day-of-year.c) 計算日期是一年中的第幾天}
+#include <stdio.h>
+
+// 給定年月日，回傳該年第幾天
+int dayOfYear(int year, int month, int day) {
+    // 各月的天數
+    int daysInMonth[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+
+    // 處理閏年
+    if (year % 400 == 0 || (year % 4 == 0 && year % 100 != 0)) {
+        daysInMonth[1] = 29;
+    }
+
+    // 加總前面各月的天數
+    int result = 0;
+    for (int m = 0; m < month - 1; m++) {
+        result += daysInMonth[m];
+    }
+
+    // 加上這個月的日期
+    result += day;
+    return result;
+}
+
+int main(void) {
+    int y, m, d;
+    scanf("%d %d %d", &y, &m, &d);
+    printf("%d\n", dayOfYear(y, m, d));
+}
+\end{example}
+
+\iosample{
+2024 3 1 \\
+}{
+61 \\
+}
+
+\subsection{印出連續整數序列}
+
+另一個例子是印出從 \texttt{start} 到 \texttt{end} 的連續整數。
+
+\begin{code}{c}{印出一個數字範圍}
+void printRange(int start, int end) {
+    for (int i = start; i <= end; i++) {
+        if (i > start) printf(" ");
+        printf("%d", i);
+    }
+    printf("\n");
+}
+\end{code}
+
+呼叫 \texttt{printRange(3, 7)} 會印出 \texttt{3 4 5 6 7}。
+
+\subsection{算式判斷}
+
+一些題目要求判斷一個算式是否成立。 例如判斷三個邊長是否能組成直角三角形。
+
+\begin{example}{c}{(right-triangle.c) 判斷是否為直角三角形}
+#include <stdio.h>
+
+// 判斷三邊能否組成直角三角形
+int isRightTriangle(int a, int b, int c) {
+    // 找最長邊
+    int max = a;
+    if (b > max) max = b;
+    if (c > max) max = c;
+
+    // 檢查勾股定理：最長邊的平方 = 其他兩邊平方和
+    if (a == max) {
+        return a * a == b * b + c * c;
+    }
+    if (b == max) {
+        return b * b == a * a + c * c;
+    }
+    return c * c == a * a + b * b;
+}
+
+int main(void) {
+    int a, b, c;
+    scanf("%d %d %d", &a, &b, &c);
+    printf("%d\n", isRightTriangle(a, b, c));
+}
+\end{example}
+
+\iosample{
+3 4 5 \\
+}{
+1 \\
+}
+
+\subsection{比較判斷}
+
+判斷兩個值的大小或相等關係也很常見。
+
+\begin{code}{c}{比較函式}
+int compare(int a, int b) {
+    if (a < b) return -1;
+    if (a > b) return 1;
+    return 0;
+}
+
+// 或者直接回傳布林結果
+int isGreater(int a, int b) {
+    return a > b;
+}
+\end{code}
+
+\keypoint{多參數函式的每個參數在呼叫時各拿到一份獨立的複本；參
+數間互不干擾。}
+
+\begin{drills}[label=drills:func-params]
+\item \texttt{dayOfYear(2024, 3, 1)} 為什麼要先處理閏年，才能算出正確
+的答案？
+\item \texttt{printRange(3, 7)} 印出的最後一個數字是幾？
+\item \texttt{isRightTriangle} 為什麼要先找出最長邊，才能檢查勾股定理？
+\end{drills}
+
+\section{函式的優點}
+\label{sec:func-benefits}
+
+到目前為止，我們已經寫過有回傳值的 \texttt{square}、\texttt{dayOfYear}，
+也有只負責輸出的 \texttt{printDigits}。 這一節整理函式為什麼值得寫，以及
+\texttt{void} 與有回傳值函式在設計上該怎麼分工。
+
+\subsection{純函式}
+
+一個\textbf{純函式}（pure function）給定相同的輸入，\textbf{永遠會回傳相同
+的結果}，而且不會改變程式中其他地方的狀態（如全域變數、輸入輸出等）。
+例如 \texttt{square(5)} 在哪裡呼叫、呼叫幾次，都一定回傳 \texttt{25}。
+
+相反地，一個\textbf{有副作用的函式}（function with side effects）不只回傳
+結果，還會「順便」改變其他東西——修改陣列、改寫全域變數、印出畫面等。 例如
+\texttt{printDigits} 只用於印出；本節後面的 \texttt{incrementAndReturn} 還會改全域變數。
+
+\begin{example}{c}{(pure-vs-impure.c) 純函式 vs 有副作用的函式}
+#include <stdio.h>
+
+// 純函式：給定 n，永遠回傳同一個值
+int square(int n) {
+    return n * n;
+}
+
+// 純函式：判斷是否偶數，不改變任何狀態
+int isEven(int n) {
+    return n % 2 == 0;
+}
+
+// 有副作用：修改全域變數
+int count = 0;
+int incrementAndReturn(int n) {
+    count++;  // 副作用：修改全域變數
+    return n + 1;
+}
+
+int main(void) {
+    printf("%d\n", square(5));    // 純函式，多次結果同
+    printf("%d\n", square(5));    // 輸出：25, 25
+
+    printf("%d %d\n", incrementAndReturn(5), count);  // 輸出：6 1
+    printf("%d %d\n", incrementAndReturn(5), count);  // 輸出：6 2
+}
+\end{example}
+
+\iosample{
+}{
+25 \\
+25 \\
+6 1 \\
+6 2 \\
+}
+
+同樣呼叫 \texttt{incrementAndReturn(5)} 兩次，第二次執行時全域變數
+\texttt{count} 已經從 \texttt{1} 變成 \texttt{2}，結果不再「純粹」。
+
+\subsection{純函式的優點}
+
+\textbf{易於測試}：純函式不依賴外部狀態，測試時只需檢查輸入和輸出是否
+對應。 有副作用的函式往往需要檢查「執行前後，哪些全域變數改了」，測試
+更複雜。
+
+\textbf{易於組合}：寫 \texttt{minOfThree(a, b, c)} 時，可以安心呼叫
+\texttt{minOfTwo} 兩次，因為知道它不會改變 \texttt{a}、\texttt{b}、
+\texttt{c} 的值。
+
+\textbf{易於並行執行}：純函式的呼叫之間沒有隱藏的依賴，多個呼叫可以
+同時進行而不會衝突。
+
+\begin{example}{c}{(compose-functions.c) 組合純函式}
+#include <stdio.h>
+
+int min(int a, int b) {
+    return a < b ? a : b;
+}
+
+int minOfThree(int a, int b, int c) {
+    return min(min(a, b), c);
+}
+
+int main(void) {
+    printf("%d\n", minOfThree(5, 2, 9));  // 輸出 2
+}
+\end{example}
+
+\iosample{
+}{
+2 \\
+}
+
+\subsection{模組化與重用}
+
+把邏輯獨立成函式的另一個好處是\textbf{重用}。 一旦寫好 \texttt{gcd}（最大
+公因數），就能在求最小公倍數、約分、題目檢查等多個地方使用，不用重複寫。
+
+\begin{example}{c}{(lcm.c) 用輔助函式組合邏輯}
+#include <stdio.h>
+
+// 歐幾里得演算法
+int gcd(int a, int b) {
+    while (b != 0) {
+        int t = b;
+        b = a % b;
+        a = t;
+    }
+    return a;
+}
+
+// 用 gcd 組合出最小公倍數
+int lcm(int a, int b) {
+    return a / gcd(a, b) * b;
+}
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+
+    int result;
+    scanf("%d", &result);
+    for (int i = 1; i < n; i++) {
+        int x;
+        scanf("%d", &x);
+        result = lcm(result, x);
+    }
+
+    printf("%d\n", result);
+}
+\end{example}
+
+\iosample{
+3 \\
+4 6 8 \\
+}{
+24 \\
+}
+
+\texttt{main} 自己完全沒有寫任何輾轉相除的邏輯，只是把資料交給
+\texttt{lcm}；\texttt{lcm} 也不需要知道歐幾里得演算法的細節，只要相信
+\texttt{gcd} 正確即可。
+
+\subsection{控制複雜度}
+
+當函式複雜時，可以再把它拆成更小的輔助函式。 這樣每層都只負責一個明確
+的任務，整個程式讀起來就像在讀高階的敘述，而非深陷細節。
+
+\subsection{修改與除錯}
+
+有 bug 時，如果邏輯集中在一個函式裡，修改一個地方就能解決所有問題；如果
+邏輯散落在 \texttt{main} 的各個角落，bug 修改起來就容易遺漏。
+
+\keypoint{純函式好測試、好組合；有副作用的函式要在名字和註解裡講清楚。
+優先寫純函式，只在必要時才接受副作用。}
+
+\begin{drills}[label=drills:func-benefits]
+\item \texttt{incrementAndReturn} 是純函式嗎？為什麼？
+\item 為什麼「純函式易於組合」？用 \texttt{minOfThree} 呼叫
+\texttt{min} 兩次來說明。
+\item \texttt{lcm} 函式裡完全沒寫輾轉相除的邏輯，這是靠什麼原則做到的？
+\end{drills}
+
+\section{呼叫堆疊與區域變數的生命週期}
+\label{sec:func-callstack}
+
+上一節區分純函式與有副作用的函式時，我們強調好的設計盡量不改呼叫者
+的狀態。 但就算函式看起來想改參數，在 C 裡通常也改不到 \texttt{main}
+裡原本的整數變數。 原因在\textbf{呼叫堆疊}（call stack）：函式裡宣告
+的變數（包含參數）都是\textbf{區域變數}（local variable），只存在於這
+一次函式呼叫所佔用的 stack frame 裡；函式 \texttt{return} 後，這些變
+數占用的記憶體就釋放，名字也隨之失效。 \texttt{main} 裡的 \texttt{int x}
+跟某個函式裡的 \texttt{int x} 即使名字相同，也是兩塊完全不相干的記憶體。
+
+\begin{center}
+\begin{tikzpicture}
+    \node[cell, minimum width=2.8cm, minimum height=0.75cm] (squareTop) {返回位址};
+    \node[hlcell, minimum width=2.8cm, minimum height=0.75cm, below=0pt of squareTop] (squareLocals) {區域變數 \texttt{n}};
+    \node[cell, minimum width=2.8cm, minimum height=0.75cm, below=0.75cm of squareLocals] (mainTop) {返回位址};
+    \node[hlcell, minimum width=2.8cm, minimum height=0.75cm, below=0pt of mainTop] (mainLocals) {區域變數 \texttt{x}, \texttt{y}};
+
+    \node[idxlbl, anchor=east, xshift=-0.15cm] at ($(squareTop.west)!0.5!(squareLocals.west)$) {\texttt{square}};
+    \node[idxlbl, anchor=east, xshift=-0.15cm] at ($(mainTop.west)!0.5!(mainLocals.west)$) {\texttt{main}};
+
+    \coordinate (squareArrowStart) at ($(squareLocals.east)+(0.4,0)$);
+    \coordinate (squareArrowEnd) at ($(squareLocals.east)+(1.2,0)$);
+    \draw[diagarrow] (squareArrowStart) -- (squareArrowEnd);
+    \node[idxlbl, anchor=west, align=left, right=0.05cm of squareArrowEnd] {目前執行\\這一層};
+
+    \node[idxlbl, anchor=west, align=left] at ($(mainTop.east)+(1.25,0)$) {暫停，等上面\\做完再回來};
+\end{tikzpicture}
+\diagcaption{呼叫 \texttt{square(n)} 時，堆疊頂端多一層 \texttt{square}
+的 frame（淺灰是這次呼叫專屬的區域變數）；\texttt{square} 返回後，這一
+層被整個彈出，\texttt{main} 的 \texttt{x}、\texttt{y} 仍在下面那一層
+等待繼續執行。}
+\label{fig:ch08-call-stack-square}
+\end{center}
+
+片語 \thechapter.16 用佔位符概括「一次函式呼叫」在堆疊上發生的事：編譯
+器為這次呼叫準備一層 frame，把引數的值複製進參數，跳去執行函式本體，最
+後把回傳值交給呼叫者，並銷毀這一層 frame。
+
+\begin{code}{c}{一次函式呼叫在堆疊上的生命週期（概念）}
+// 呼叫者這一層的 frame 仍在堆疊上，只是暫停
+結果 = 被呼叫函式(引數的值);   // 引數「值」被複製一份給參數
+
+// 被呼叫函式本體執行期間：
+//   1. 在堆疊頂端建立新的 frame
+//   2. 參數與函式內宣告的區域變數都活在這層 frame 裡
+//   3. return 時銷毀這層 frame，把回傳值留給呼叫者
+\end{code}
+
+這個「參數是複製一份值進去」的規則，在 C 裡叫做\textbf{傳值呼叫}
+（call by value）。 範例 \thechapter.17 寫了一個看起來像要交換兩個整數
+的 \texttt{swap} 函式，但執行後 \texttt{main} 裡的 \texttt{x}、
+\texttt{y} 完全沒變。 因為 \texttt{swap} 交換的是它自己 frame 裡那兩
+份複本，跟 \texttt{main} 的 \texttt{x}、\texttt{y} 無關。
+
+\begin{example}{c}{(swap-params.c) 在函式裡改參數，改不到呼叫者的變數}
+#include <stdio.h>
+
+void swap(int a, int b) {
+    int t = a;
+    a = b;
+    b = t;
+}
+
+int main(void) {
+    int x = 3, y = 7;
+    swap(x, y);
+    printf("%d %d\n", x, y);
+}
+\end{example}
+
+\iosample{}{
+3 7 \\
+}
+
+用 \texttt{x = 3}、\texttt{y = 7} 走一遍：\texttt{swap(x, y)} 把
+\texttt{3} 複製給參數 \texttt{a}、\texttt{7} 複製給 \texttt{b}，在
+\texttt{swap} 的 frame 裡 \texttt{a} 與 \texttt{b} 確實互換了，但
+\texttt{main} 的 \texttt{x}、\texttt{y} 從頭到尾都在另一層 frame，值
+分別仍是 \texttt{3} 和 \texttt{7}。 如果題目真的要在函式裡改到呼叫者
+的變數，需要指標（下一章才會正式教）；現階段只要記住：一般整數參
+數傳進去的是「值的複本」。
+
+\begin{center}
+\begin{tikzpicture}
+    \node[hlcell2, minimum width=1.1cm] (mx) {3};
+    \node[hlcell2, minimum width=1.1cm, right=0.2cm of mx] (my) {7};
+    \node[idxlbl, left=0.3cm of mx] {\texttt{main}};
+    \node[hlcell, minimum width=1.1cm, right=1.1cm of my] (pa) {3};
+    \node[hlcell, minimum width=1.1cm, right=0.2cm of pa] (pb) {7};
+    \node[idxlbl, left=0.3cm of pa] {\texttt{swap}};
+    \draw[diagarrow, black!45] (mx.east) -- (pa.west);
+    \draw[diagarrow, black!45] (my.east) -- (pb.west);
+    \node[idxlbl, align=left, right=0.6cm of pb] {呼叫當下\\各複製一份};
+\end{tikzpicture}
+\diagcaption{\texttt{main} 的 \texttt{x}、\texttt{y}（深灰）與
+\texttt{swap} 的參數 \texttt{a}、\texttt{b}（淺灰）是四個獨立位置；
+在 \texttt{swap} 裡改 \texttt{a}、\texttt{b} 不會回寫到 \texttt{x}、
+\texttt{y}。}
+\label{fig:ch08-stack-frame-scope}
+\end{center}
+
+\keypoint{區域變數（含參數）只活在這次函式呼叫的 stack frame 裡；
+函式 \texttt{return} 後，這些變數占用的記憶體就釋放，名字也隨之失效。
+不同函式裡同名變數互不影響。}
+
+\begin{drills}[label=drills:func-callstack]
+\item \texttt{swap(x, y)} 執行完後，\texttt{main} 裡的 \texttt{x}、
+\texttt{y} 為什麼沒有互換？
+\item 函式裡宣告的區域變數，什麼時候會被釋放？
+\item \texttt{main} 裡有一個 \texttt{int x}，某個函式裡也宣告了
+\texttt{int x}，這是同一塊記憶體嗎？
+\end{drills}
+
+\section{參數傳遞}
+\label{sec:func-passing}
+
+上一節的 \texttt{swap} 已經示範：整數參數傳進去的是複本。 這一節把
+整數、陣列、二維陣列分開講清楚：整數型別傳的是值的複本；陣列和結構體
+有特殊的處理方式。
+
+\subsection{整數參數傳遞}
+
+整數參數遵循\textbf{傳值呼叫}（call by value）：引數的值被複製一份進
+stack frame，函式內對參數的修改改不到呼叫者的變數。
+
+\begin{code}{c}{整數傳值示例}
+void increment(int n) {
+    n++;  // 只改這個 frame 裡的副本
+}
+
+int main(void) {
+    int x = 5;
+    increment(x);
+    printf("%d\n", x);  // 仍是 5，不是 6
+}
+\end{code}
+
+這是一種\textbf{保護}：寫函式的人不用擔心參數會洩漏回去。 但如果題目要
+求在函式內真的改到呼叫者的整數，就得用指標（下一章的內容）。
+
+\subsection{一維陣列參數傳遞}
+
+陣列是例外：傳給函式的\textbf{不是整份陣列的複本}，而是陣列的起始位址
+（即第一個元素的指標）。 函式對陣列元素做的修改會直接反映到呼叫者的
+原陣列上。
+
+\begin{example}{c}{(modify-array.c) 陣列參數會被修改}
+#include <stdio.h>
+
+// 計算陣列裡偶數的個數，並把偶數改成 0
+int countEvensAndNullify(int arr[], int n) {
+    int count = 0;
+    for (int i = 0; i < n; i++) {
+        if (arr[i] % 2 == 0) {
+            count++;
+            arr[i] = 0;  // 副作用：直接改陣列
+        }
+    }
+    return count;
+}
+
+int main(void) {
+    int nums[] = {1, 2, 3, 4, 5, 6};
+    int n = 6;
+
+    int evenCount = countEvensAndNullify(nums, n);
+
+    printf("偶數個數：%d\n", evenCount);
+    printf("修改後的陣列：");
+    for (int i = 0; i < n; i++) {
+        if (i) printf(" ");
+        printf("%d", nums[i]);
+    }
+    printf("\n");
+}
+\end{example}
+
+\iosample{
+}{
+偶數個數：3 \\
+修改後的陣列：1 0 3 0 5 0 \\
+}
+
+陣列參數的注意事項：
+\begin{itemize}
+\item 函式簽名中 \texttt{int arr[]} 看起來像陣列，但實際上只是一個指標。
+\item 函式無法直接知道陣列大小，所以通常需要另外傳一個 \texttt{int n}。
+\item 函式對陣列的修改是真實的、會反映到呼叫者的原陣列。
+\end{itemize}
+
+\subsection{多維陣列參數傳遞}
+
+多維陣列傳進函式時，第一維可以省略，但之後的維度必須明確指定。
+
+\begin{example}{c}{(matrix-operation.c) 二維陣列參數}
+#include <stdio.h>
+
+// 把 src 順時針旋轉 90 度，寫進另一塊記憶體 dst
+void rotate90(int n, int src[n][n], int dst[n][n]) {
+    for (int i = 0; i < n; i++) {
+        for (int j = 0; j < n; j++) {
+            dst[j][n - 1 - i] = src[i][j];
+        }
+    }
+}
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+
+    int a[n][n], b[n][n];
+    for (int i = 0; i < n; i++) {
+        for (int j = 0; j < n; j++) {
+            scanf("%d", &a[i][j]);
+        }
+    }
+
+    rotate90(n, a, b);
+
+    for (int i = 0; i < n; i++) {
+        for (int j = 0; j < n; j++) {
+            if (j) printf(" ");
+            printf("%d", b[i][j]);
+        }
+        printf("\n");
+    }
+}
+\end{example}
+
+\iosample{
+2 \\
+1 2 \\
+3 4 \\
+}{
+3 1 \\
+4 2 \\
+}
+
+在 \texttt{rotate90(n, a, b)} 中，\texttt{a} 和 \texttt{b} 傳的是位址，
+函式裡對 \texttt{dst[i][j]} 的寫入會直接改到 \texttt{main} 的 \texttt{b}
+陣列。 這是多維陣列參數和一維陣列參數一樣的行為。
+
+\keypoint{陣列參數傳的是位址而非複本；函式對陣列的修改會直接影響原陣列。
+傳入多維陣列時，第一維可省略，但後續維度必須明確。}
+
+\begin{drills}[label=drills:func-passing]
+\item 整數參數與陣列參數傳給函式的分別是什麼？
+\item \texttt{countEvensAndNullify(nums, n)} 執行完後，\texttt{main}
+裡的 \texttt{nums} 陣列內容會不會改變？
+\item 為什麼陣列參數通常還要另外傳一個 \texttt{int n}？
+\end{drills}
+
+\section{常見陷阱與最佳實踐}
+\label{sec:func-pitfalls}
+
+前兩節講過整數參數改不到原變數、陣列參數卻能改到元素、以及函式本身不知道
+陣列有多大。 這一節把新手最常踩的三個坑集中列出，方便對照。
+
+\subsection{陷阱 1：整數參數傳值，改不到原變數}
+
+\begin{code}{c}{傳值的限制}
+void tryToIncrement(int n) {
+    n++;  // 只改副本
+}
+
+int main(void) {
+    int x = 5;
+    tryToIncrement(x);
+    printf("%d\n", x);  // 仍是 5
+}
+\end{code}
+
+這是設計特性，不是 bug。 要改呼叫者的變數，得用指標。
+
+\subsection{陷阱 2：陣列參數與整數參數行為不同}
+
+\begin{code}{c}{對比：整數 vs 陣列}
+void modifyInt(int n) {
+    n = 999;  // 改不到
+}
+
+void modifyArray(int arr[], int n) {
+    arr[0] = 999;  // 能改到
+}
+\end{code}
+
+新手往往忽略這個區別。 同一個道理——陣列傳的是位址——但機制與整數完全不同。
+
+\subsection{陷阱 3：忘記陣列參數需要傳大小}
+
+\begin{code}{c}{陷阱：函式不知道陣列有多大}
+void sum(int arr[]) {
+    // 無法知道 arr 有多少個元素！
+    // int size = sizeof(arr);  // 這會給出指標的大小，不是陣列大小
+}
+\end{code}
+
+總是一起傳陣列和它的大小：
+
+\begin{code}{c}{正確做法}
+int sum(int arr[], int n) {
+    int total = 0;
+    for (int i = 0; i < n; i++) {
+        total += arr[i];
+    }
+    return total;
+}
+\end{code}
+
+\subsection{最佳實踐}
+
+\begin{itemize}
+\item \textbf{優先寫純函式}：如果不需要副作用，就回傳結果；不要修改參數或
+改全域變數。
+
+\item \textbf{講清楚副作用}：若函式必須修改陣列，函式名要暗示這一點
+（\texttt{reverse}、\texttt{fillWithZeros}），在註解裡也要說明。
+
+\item \textbf{檢查回傳值}：\texttt{scanf}、\texttt{fopen} 等函式回傳狀態碼，
+呼叫時要檢查。
+
+\item \textbf{用函式原型}：大檔案裡，在前面集中寫原型；小檔案可以把定義
+寫在前面。
+
+\item \textbf{避免全域變數}：如果可以用參數和回傳值，就不用全域變數；
+全域狀態容易導致副作用難預測。
+
+\item \textbf{陣列總是要傳大小}：沒有例外。
+\end{itemize}
+
+\begin{drills}[label=drills:func-pitfalls]
+\item 為什麼 \texttt{void modifyInt(int n) \{ n = 999; \}} 改不到呼叫者
+的變數？
+\item \texttt{sizeof(arr)} 在函式參數 \texttt{int arr[]} 裡量到的是什
+麼？為什麼不能拿它當陣列長度？
+\item 陣列參數需要修改時，函式名該不該暗示這件事？舉一個好名字和一個
+壞名字。
+\end{drills}
+
+\section{呼叫函式}
+\label{sec:func-declare}
+
+到目前為止，函式定義都寫在同一個 \texttt{.c} 檔裡，而且多半放在
+\texttt{main} 前面或後面。 程式變大、拆成多個檔案時，編譯器仍然必須在
+每一次呼叫前知道函式「長什麼樣子」：它叫什麼名字、接什麼參數、回傳什麼
+型別。 這就是 C 語言\textbf{宣告}與\textbf{定義}分離的由來。 有三種常見
+方式告訴編譯器這些資訊。
+
+\subsection{定義在前}
+
+最簡單的方式是把函式定義寫在 \texttt{main} 之前。 這樣編譯器掃描到
+\texttt{main} 時，已經看過函式的完整定義，知道 \texttt{square(n)} 存在
+且回傳 \texttt{int}。
+
+\begin{code}{c}{函式定義在 main 前面}
+#include <stdio.h>
+
+// 定義在前
+int square(int n) {
+    return n * n;
+}
+
+// 呼叫在後
+int main(void) {
+    int x;
+    scanf("%d", &x);
+    printf("%d\n", square(x));
+}
+\end{code}
+
+\subsection{函式原型}
+
+當檔案很大、或想把主要邏輯寫在 \texttt{main} 時，可以在前面先寫一個
+\textbf{函式原型}（function prototype）——只告訴編譯器函式的簽名，不寫本體。
+
+\begin{code}{c}{用函式原型告訴編譯器函式簽名}
+#include <stdio.h>
+
+// 函式原型（只有簽名，沒有本體）
+int square(int n);
+
+int main(void) {
+    int x;
+    scanf("%d", &x);
+    printf("%d\n", square(x));
+}
+
+// 函式定義放在後面
+int square(int n) {
+    return n * n;
+}
+\end{code}
+
+函式原型必須放在函式被呼叫之前，通常在檔案頂部集中寫。 編譯器見到
+\texttt{square(x)} 時，會查詢前面宣告的原型，確認簽名正確。
+
+\subsection{標頭檔}
+
+當程式擴展到多個檔案時，用\textbf{標頭檔}（header file）是標準做法。
+標頭檔（\texttt{.h}）裡放的是函式原型和常用的型別定義，源檔（\texttt{.c}）
+裡放的是實作。 例如標準庫的 \texttt{stdio.h} 就是一個標頭檔，裡面宣告了
+\texttt{printf}、\texttt{scanf} 等函式的原型；實際的實作在系統的標準庫
+文件裡。
+
+\begin{code}{c}{標頭檔的結構}
+// math.h - 公開介面
+int square(int n);
+int add(int a, int b);
+
+// math.c - 實作
+#include "math.h"
+int square(int n) {
+    return n * n;
+}
+int add(int a, int b) {
+    return a + b;
+}
+
+// main.c - 呼叫
+#include "math.h"
+int main(void) {
+    printf("%d\n", square(5));
+    printf("%d\n", add(3, 4));
+}
+\end{code}
+
+編譯時用 \texttt{gcc main.c math.c -o prog} 把兩個源檔一起編譯。
+
+\subsection{檢查函式回傳值}
+
+當函式回傳一個值時，呼叫者常需要檢查這個值是否代表成功或失敗。 很多
+標準庫函式約定用 \texttt{0} 代表成功、非 \texttt{0} 代表各種失敗情況。
+
+\begin{example}{c}{(check-return.c) 檢查 scanf 的回傳值}
+#include <stdio.h>
+
+int main(void) {
+    int x, y;
+
+    // scanf 回傳成功讀入的項目數
+    // 成功讀入兩個整數時回傳 2
+    if (scanf("%d %d", &x, &y) != 2) {
+        printf("輸入錯誤\n");
+        return 1;  // 表示程式失敗
+    }
+
+    printf("讀到 %d 和 %d\n", x, y);
+    return 0;  // 表示程式成功
+}
+\end{example}
+
+\iosample{
+3 5 \\
+}{
+讀到 3 和 5 \\
+}
+
+\texttt{scanf} 回傳它成功讀入的值的個數。 上例中，若輸入 \texttt{3 5}
+就回傳 \texttt{2}（兩個都讀到）；若只輸入 \texttt{3}（或輸入非整數的
+字串），就回傳較小的數字或 \texttt{0}。 檢查回傳值是寫穩健程式的習慣。
+
+\begin{drills}[label=drills:func-declare]
+\item 函式原型跟函式定義差在哪裡？
+\item 標頭檔（\texttt{.h}）裡通常放什麼？源檔（\texttt{.c}）裡放什麼？
+\item \texttt{scanf("\%d \%d", \&x, \&y)} 若只成功讀到一個整數，回傳
+值會是多少？
+\end{drills}
+
+\section{不定個數參數：printf 與 scanf}
+\label{sec:func-variadic}
+
+上一節的 \texttt{stdio.h} 只宣告了 \texttt{printf}、\texttt{scanf}
+等函式的原型；這一節來看其中一個特殊之處：它們的參數個數在編譯時不固定
+——程式設計者寫多少個 \texttt{\%d} 就對應多少個值。 這稱為\textbf{變
+參函式}（variadic function），C 標準庫通過格式字串（format string）來支
+持這個特性。
+
+\subsection{\texttt{printf} 用法}
+
+\begin{code}{c}{printf 的簽名（簡化版）}
+int printf(const char *format, ...);
+\end{code}
+
+\texttt{const char *format} 是格式字串，\texttt{...} 代表任意多個參數。
+\texttt{printf} 解析格式字串，遇到 \texttt{\%} 轉義序列就從剩餘參數裡
+取一個值。
+
+\begin{example}{c}{(printf-demo.c) printf 的不同用法}
+#include <stdio.h>
+
+int main(void) {
+    // 無參數，只印字面量
+    printf("Hello\n");
+
+    // 一個參數
+    printf("整數：%d\n", 42);
+
+    // 多個參數
+    printf("名字：%s，年齡：%d，分數：%.2f\n", "Alice", 25, 95.7);
+
+    // 常見格式指定
+    printf("十進制：%d，十六進制：%x，八進制：%o\n", 255, 255, 255);
+
+    // 字元和字串
+    printf("字元：%c，字串：%s\n", 'A', "world");
+
+    return 0;
+}
+\end{example}
+
+\iosample{
+}{
+Hello \\
+整數：42 \\
+名字：Alice，年齡：25，分數：95.70 \\
+十進制：255，十六進制：ff，八進制：377 \\
+字元：A，字串：world \\
+}
+
+常見的格式指定符：
+\begin{itemize}
+\item \texttt{\%d}：十進制整數
+\item \texttt{\%x}、\texttt{\%X}：十六進制（小寫/大寫）
+\item \texttt{\%o}：八進制
+\item \texttt{\%f}、\texttt{\%.2f}：浮點數（\.2f 表示兩位小數）
+\item \texttt{\%s}：字串
+\item \texttt{\%c}：單個字元
+\item \texttt{\%\%}：印出一個 \texttt{\%}
+\end{itemize}
+
+\subsection{\texttt{scanf} 用法}
+
+\begin{code}{c}{scanf 的簽名（簡化版）}
+int scanf(const char *format, ...);
+\end{code}
+
+\texttt{scanf} 的工作類似 \texttt{printf}，但方向相反：它按格式字串
+解析\textbf{輸入}，把讀到的值填進後面參數指向的位置（所以參數要用
+\texttt{\&} 取位址）。
+
+\begin{example}{c}{(scanf-demo.c) scanf 的基本用法}
+#include <stdio.h>
+
+int main(void) {
+    int x;
+    float f;
+    char c;
+    char str[100];
+
+    // 讀一個整數
+    printf("輸入整數：");
+    scanf("%d", &x);
+    printf("讀到 %d\n", x);
+
+    // 讀一個浮點數
+    printf("輸入浮點數：");
+    scanf("%f", &f);
+    printf("讀到 %f\n", f);
+
+    // 讀一個字元（跳過空白）
+    printf("輸入字元：");
+    scanf(" %c", &c);  // 注意前面的空白
+    printf("讀到 %c\n", c);
+
+    // 讀一個字串（不含空白）
+    printf("輸入字串：");
+    scanf("%s", str);
+    printf("讀到 %s\n", str);
+
+    return 0;
+}
+\end{example}
+
+\iosample{
+輸入整數：42 \\
+}{
+讀到 42 \\
+}
+
+\texttt{scanf} 的陷阱：
+\begin{itemize}
+\item \texttt{\%s} 不檢查長度，容易緩衝區溢出。 用 \texttt{\%99s} 限制長
+度比較安全。
+\item 在格式字串前加空白（如 \texttt{" \%c"}）能跳過前面的換行符；否則讀
+字元時容易誤讀輸入的尾端 \texttt{\textbackslash n}。
+\item \texttt{scanf} 的回傳值是成功讀入的項目數，可用來檢查輸入是否正確。
+\end{itemize}
+
+\keypoint{\texttt{printf} 和 \texttt{scanf} 是變參函式，通過格式字串決定
+參數個數；掌握常見格式指定符對正確處理輸入輸出至關重要。}
+
+\begin{drills}[label=drills:func-variadic]
+\item \texttt{printf} 怎麼知道 \texttt{...} 裡實際傳了幾個參數？
+\item 讀一個字元前，格式字串為什麼常寫成 \texttt{" \%c"} 而不是
+\texttt{"\%c"}？
+\item \texttt{scanf("\%s", str)} 有什麼安全疑慮？該怎麼改比較安全？
+\end{drills}
+
+\section{高級應用與設計模式}
+\label{sec:func-advanced}
+
+\subsection{函式指標回調}
+
+函式本身也有位址，所以我們可以宣告指向函式的指標，在執行期才決定要呼
+叫哪一個。 這種寫法常用來做回調（callback），或動態切換演算法。 宣告
+語法、跟 \texttt{int *f(int)} 的差異、以及用函式指標陣列切換策略，都
+會在指標那一章完整展開；這裡先知道這件事存在即可。
+
+\subsection{遞迴最佳實踐}
+
+遞迴優雅但需謹慎。 底線案例和終止條件很關鍵。
+
+\begin{code}{c}{安全的遞迴寫法}
+// 好：有明確的終止情況，且每次呼叫都在逼近它
+int factorial(int n) {
+    if (n <= 1) return 1;  // 終止情況
+    return n * factorial(n - 1);
+}
+
+// 差：可能無窮遞迴
+// int bad_recursion(int n) {
+//     return bad_recursion(n + 1);  // 永遠不會停
+// }
+
+// 更好：用記憶化避免重複計算
+int fib_memo(int n, int memo[]) {
+    if (n <= 1) return n;
+    if (memo[n] != -1) return memo[n];
+    memo[n] = fib_memo(n-1, memo) + fib_memo(n-2, memo);
+    return memo[n];
+}
+\end{code}
+
+\keypoint{遞迴需明確終止。 複雜遞迴用記憶化最佳化。}
+
+\begin{drills}[label=drills:func-advanced]
+\item 函式指標跟一般變數指標，指向的東西有什麼不一樣？
+\item \texttt{bad\_recursion} 為什麼永遠不會停？
+\item \texttt{fib\_memo} 比沒有記憶化的費氏遞迴版本快在哪裡？
+\end{drills}
+
+\addcontentsline{toc}{section}{練習解答}
+\section*{練習解答}
+
+各節練習的答案收在這裡。 短題只給能一句話核對的結果。
+
+\paragraph{第~\ref{sec:func-return-value}~節}
+\begin{enumerate}
+\item 複製一份給參數；\texttt{square} 裡的 \texttt{n} 是呼叫端那個值
+的複本，跟呼叫端的變數無關。
+\item 先命中 \texttt{year \% 400 == 0}（2000 能被 400 整除），回傳
+\texttt{1}。
+\item 不會算錯。 2000 能被 4 整除也能被 400 整除，不管先判斷哪一個，
+最後都會落在「是閏年」的分支；但若判斷順序寫反、又忘記排除「被 100
+整除但不被 400 整除」的情況，其他年份（如 1900）就會算錯。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:func-void}~節}
+\begin{enumerate}
+\item 靠函式內部呼叫 \texttt{printf} 的副作用；它沒有 \texttt{return}
+任何值。
+\item 會。 陣列參數傳的是位址，\texttt{fillZeros} 對 \texttt{arr[i]}
+的寫入會直接反映到呼叫者的原陣列。
+\item 合理，例如 \texttt{scanf} 本身：它把值寫進參數指到的位址（副作
+用），也回傳成功讀入的個數（回傳值）。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:func-params}~節}
+\begin{enumerate}
+\item 因為閏年的 2 月有 29 天，會影響 3 月以後每個月累加的天數基準。
+\item 7。
+\item 因為勾股定理要用「最長邊的平方」對「另外兩邊平方和」比較，先找
+出哪一邊最長，才知道該把哪個變數放在等號左邊。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:func-benefits}~節}
+\begin{enumerate}
+\item 不是。 它會修改全域變數 \texttt{count}，同樣的參數 \texttt{n}
+在不同次呼叫會讓程式的其他狀態（\texttt{count}）改變。
+\item 因為 \texttt{min} 不會偷改 \texttt{a}、\texttt{b}，所以
+\texttt{minOfThree} 可以放心呼叫兩次 \texttt{min} 而不用擔心中途結果
+被污染。
+\item 抽象／重用原則：\texttt{lcm} 只負責呼叫 \texttt{gcd} 並組合結
+果，相信 \texttt{gcd} 已經正確實作，不需要重新展開它的邏輯。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:func-callstack}~節}
+\begin{enumerate}
+\item 因為整數參數是傳值呼叫：\texttt{swap} 交換的是它自己 stack
+frame 裡的複本 \texttt{a}、\texttt{b}，跟 \texttt{main} 的 \texttt{x}、
+\texttt{y} 是不同的記憶體。
+\item 函式 \texttt{return} 的時候，它的 stack frame 被整個銷毀。
+\item 不是。 兩個 \texttt{x} 分別在各自函式的 stack frame 裡，是兩塊
+互不相干的記憶體，只是剛好同名。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:func-passing}~節}
+\begin{enumerate}
+\item 整數參數傳的是值的複本；陣列參數傳的是陣列起始位址（第一個元素
+的指標）。
+\item 會改變；因為函式拿到的是原陣列的位址，對 \texttt{arr[i]} 的寫入
+就是在寫原陣列。
+\item 因為陣列參數退化成指標後，函式內部無法從 \texttt{arr} 本身得知
+陣列有幾個元素，必須額外告知。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:func-pitfalls}~節}
+\begin{enumerate}
+\item 因為 \texttt{n} 是整數參數，只拿到呼叫端那個值的複本；改
+\texttt{n} 只改到這份複本，不會回寫到呼叫端的變數。
+\item 量到的是指標的大小（通常是 4 或 8 個位元組），不是陣列實際的元
+素個數，因為陣列參數在函式簽名裡已經退化成指標。
+\item 該。 例如 \texttt{fillWithZeros}／\texttt{reverse} 是好名字，
+清楚暗示會修改參數；\texttt{getMax} 這種名字如果偷偷改了陣列，就會誤
+導呼叫者。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:func-declare}~節}
+\begin{enumerate}
+\item 函式原型只宣告簽名（名字、參數型別、回傳型別），沒有本體；函式
+定義則包含完整的程式邏輯本體。
+\item 標頭檔通常放函式原型和型別定義；源檔放實際的函式實作。
+\item 1（只成功讀到 \texttt{x} 那一個整數）。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:func-variadic}~節}
+\begin{enumerate}
+\item 靠格式字串：\texttt{printf} 解析格式字串裡每個 \texttt{\%} 轉義
+序列，依序從 \texttt{...} 裡取一個對應的參數，並不會另外檢查參數個數
+是否吻合。
+\item 因為前面的輸入（例如上一個 \texttt{scanf("\%d", ...)}）常留下一
+個換行符在輸入緩衝區裡；格式字串開頭的空白會先跳過所有空白字元，避免
+直接讀到那個殘留的換行。
+\item \texttt{\%s} 不檢查目的地緩衝區的長度，輸入太長會造成緩衝區溢
+出；應改用 \texttt{\%99s} 這種帶寬度限制的寫法。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:func-advanced}~節}
+\begin{enumerate}
+\item 函式指標指向一段可執行的程式碼（某個函式），一般變數指標指向資
+料（例如一個整數或陣列元素）。
+\item 因為它沒有終止情況：每次呼叫都把 \texttt{n} 加大再繼續呼叫自
+己，沒有任何一步會停下來回傳。
+\item 快在避免重複計算：一般遞迴費氏數列會重複展開同樣的子問題很多
+次，記憶化把算過的結果存進 \texttt{memo}，之後遇到同樣的 \texttt{n}
+直接查表回傳。
+\end{enumerate}
+

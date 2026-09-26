@@ -1,0 +1,949 @@
+% 變更摘要
+% - 修訂：'\textbackslash 0' 斷行、\{0\} 取代空初始化列、結構陣列
+%   兌現開場伏筆、末尾 padding 理由、巢狀 Date、複合字面值改保守寫法
+% - 螺旋法則／巢狀 const 陷阱不在本章（回第 13 章）
+% TODO(future-chapter): union / enum / bit-field 細節
+% TODO(future-chapter): 標頭檔保護、makefile
+
+\chapter{結構}
+\label{ch:structure}
+
+一筆學生資料同時有學號、姓名、GPA，三種型別。 前面學過的陣列一次只能
+裝同一種型別，沒辦法把這三樣自然地綁在同一筆紀錄裡。 結構（struct）
+就是為這件事準備的：把不同型別的欄位捆成一個單位，之後傳遞、複製、
+取址都針對這一整包。
+
+這一章從為什麼需要它講起，再到定義、初始化、欄位、指標、參數傳遞。 寫
+結構時若碰到 \texttt{*}、\texttt{[]}、\texttt{()} 疊在一起，讀法見第
+13 章後段的螺旋法則。
+
+\section{為什麼需要 struct}
+\label{sec:struct-motivation}
+
+假設班上有 $100$ 個學生，每個學生要記學號、姓名、GPA。 沒有結構的時
+候，常見寫法是開三個平行陣列：
+
+\begin{code}{c}{三個平行陣列硬湊一筆紀錄}
+char ids[100][10];
+char names[100][50];
+double gpas[100];
+
+strcpy(ids[0], "R123");
+strcpy(names[0], "Ada");
+gpas[0] = 3.8;
+\end{code}
+
+\texttt{ids[i]}、\texttt{names[i]}、\texttt{gpas[i]} 必須永遠對準同一
+個人。 編譯器不會幫你核對第 $i$ 格對應同一個人：排序時若只動了
+\texttt{gpas}、忘了跟著交換姓名，成績就會貼到別人身上。 想把一筆學生
+當成函式的一個引數傳進去，也得一次傳三個陣列加一個索引，很容易漏。
+
+結構把這三樣寫進同一個型別，一筆學生就是一個變數：
+
+\begin{code}{c}{一筆學生綁成一個單位}
+struct Student {
+    char id[10];
+    char name[50];
+    double gpa;
+};
+
+struct Student s;
+strcpy(s.id, "R123");
+strcpy(s.name, "Ada");
+s.gpa = 3.8;
+\end{code}
+
+之後排序、傳遞、放進陣列，動的都是這一整包。 核心就是：不同型別的資
+料綁在一起、當成一個單位。
+
+\begin{drills}[label=drills:struct-motivation]
+\item 用三個平行陣列存學生資料時，排序或交換資料為什麼容易出錯？
+\item \texttt{struct Student} 把哪三種型別的欄位綁成一個單位？
+\item 把一筆學生資料當函式引數傳遞，平行陣列版要傳幾個東西？struct
+版呢？
+\end{drills}
+
+\section{定義與宣告}
+\label{sec:struct-declare}
+
+\subsection{結構語法}
+
+\texttt{struct} 後面先寫一個名字，叫做 \textbf{tag}，接著用大括號列出
+成員。 tag 讓這份佈局有一個型別名字，之後宣告變數都寫
+\texttt{struct} 加 tag。
+
+\begin{code}{c}{帶 tag 的結構}
+struct Point {
+    int x;
+    int y;
+};
+
+struct Student {
+    char id[10];
+    char name[50];
+    double gpa;
+};
+
+struct Point p = {10, 20};
+struct Student s = {"R123", "Ada", 3.8};
+\end{code}
+
+\texttt{struct Point} 有兩個 \texttt{int}；\texttt{struct Student} 有
+字元陣列和一個 \texttt{double}。 宣告變數時，\texttt{struct Point p}
+跟 \texttt{int n} 同一類事情：左邊是型別，右邊是變數名字。 大括號那
+份是初值，成員依宣告順序對進去；下一節再把初始化的細節拆開。
+
+\subsection{tag 與匿名結構}
+
+tag 的作用是：這份佈局從此有一個可以反覆使用的型別名字。 省掉 tag、
+直接在大括號後面宣告變數，叫做匿名結構。 兩個匿名結構即使成員列出來
+完全一樣，仍是兩種型別，不能互相賦值。
+
+\begin{code}{c}{長得一樣的匿名結構仍是兩種型別}
+struct { int x; int y; } a = {1, 2};
+struct { int x; int y; } b;
+// b = a;   // compiler error: incompatible types
+\end{code}
+
+直覺以為版面相同就可以互相抄，C 比的是型別名字，不是成員長得像不像。
+要讓兩個變數能互相賦值，兩邊都得寫同一個 tag，例如都是
+\texttt{struct Point}。
+
+\subsection{用 typedef 省略 struct}
+
+每次都寫 \texttt{struct Point} 有點長。 \texttt{typedef} 可以替這個型
+別取一個較短的名字，之後當普通型別用：
+
+\begin{code}{c}{typedef 讓 tag 跟簡寫同一件事}
+typedef struct Point Point;
+typedef struct Student Student;
+
+Point p = {10, 20};
+Student s = {"R123", "Ada", 3.8};
+\end{code}
+
+\texttt{struct Point} 與 \texttt{Point} 指同一種型別，只是書寫長短不
+同。 也可以在定義時一次寫完，大括號後面直接接別名：
+
+\begin{code}{c}{定義時順便 typedef}
+typedef struct {
+    int x, y;
+} Point;
+\end{code}
+
+這種寫法沒有對外的 tag，別名 \texttt{Point} 就是這個型別的名字。 後
+文為了跟前面的 tag 討論對上，多數例子仍寫 \texttt{struct Point}；真
+正寫程式時，\texttt{typedef} 過的短名比較常見。
+
+\subsection{大小、對齊與填補}
+
+\texttt{sizeof(struct Point)} 在常見平臺上是 $8$，剛好兩個
+\texttt{int}。 成員型別一混，量出來的大小往往比各成員相加還大：編譯
+器會在中間或末尾插入填補（padding）位元組，讓每個成員的起始位址符合
+對齊（alignment）。 許多 CPU 讀 \texttt{int} 時希望位址是 $4$ 的倍
+數，讀指標時希望是 $8$ 的倍數；對不齊就得額外填空。
+
+下面這個結構混了指標、\texttt{short}、\texttt{int}。 在 $64$ 位元這
+台機器上跑出來的位移如下。
+
+\begin{example}{c}{(slot-layout.c) 用 offsetof 量位移}
+#include <stdio.h>
+#include <stddef.h>
+
+struct Compact {
+    char *name;
+    short kind;
+    int uses;
+};
+
+struct Spread {
+    short kind;
+    char *name;
+    int uses;
+};
+
+int main(void) {
+    printf("Compact sizeof=%zu\n", sizeof(struct Compact));
+    printf("  name offset=%zu size=%zu\n",
+           offsetof(struct Compact, name), sizeof(char *));
+    printf("  kind offset=%zu size=%zu\n",
+           offsetof(struct Compact, kind), sizeof(short));
+    printf("  uses offset=%zu size=%zu\n",
+           offsetof(struct Compact, uses), sizeof(int));
+
+    printf("Spread sizeof=%zu\n", sizeof(struct Spread));
+    printf("  kind offset=%zu size=%zu\n",
+           offsetof(struct Spread, kind), sizeof(short));
+    printf("  name offset=%zu size=%zu\n",
+           offsetof(struct Spread, name), sizeof(char *));
+    printf("  uses offset=%zu size=%zu\n",
+           offsetof(struct Spread, uses), sizeof(int));
+}
+\end{example}
+
+\iosample{
+}{
+Compact sizeof=16 \\
+\ \ name offset=0 size=8 \\
+\ \ kind offset=8 size=2 \\
+\ \ uses offset=12 size=4 \\
+Spread sizeof=24 \\
+\ \ kind offset=0 size=2 \\
+\ \ name offset=8 size=8 \\
+\ \ uses offset=16 size=4 \\
+}
+
+\texttt{struct Compact} 的成員大小加起來是 $8 + 2 + 4 = 14$，整份卻
+是 $16$。 中間空掉的 $2$ 位元組，是為了讓 \texttt{int uses} 從位移
+$12$ 開始（$4$ 的倍數）：
+
+\begin{center}
+\begin{tabular}{|l|r|r|}
+\hline
+\textbf{成員} & \textbf{位移} & \textbf{大小} \\
+\hline
+\texttt{name} & $0$ & $8$ \\
+\texttt{kind} & $8$ & $2$ \\
+填補 & $10$ & $2$ \\
+\texttt{uses} & $12$ & $4$ \\
+\hline
+合計 &  & $16$ \\
+\hline
+\end{tabular}
+\end{center}
+
+\texttt{struct Spread} 三個成員邏輯上存的資料量相同，只是把
+\texttt{short} 搬到最前面。 指標要對齊到 $8$，\texttt{kind} 後面就得
+先空 $6$ 格。 \texttt{uses} 到位移 $20$ 就結束了，但整份仍補到 $24$：
+結構若放進陣列，下一個元素的起始位址必須同樣對齊到 $8$ 的倍數。 末尾
+那 $4$ 格填補，就是為了這件事。
+
+\begin{center}
+\begin{tabular}{|l|r|r|}
+\hline
+\textbf{成員} & \textbf{位移} & \textbf{大小} \\
+\hline
+\texttt{kind} & $0$ & $2$ \\
+填補 & $2$ & $6$ \\
+\texttt{name} & $8$ & $8$ \\
+\texttt{uses} & $16$ & $4$ \\
+填補 & $20$ & $4$ \\
+\hline
+合計 &  & $24$ \\
+\hline
+\end{tabular}
+\end{center}
+
+\keypoint{換成員的型別或順序，整個 struct 的大小可能跟著變，即使邏輯
+上存的資料量沒變。}
+
+這些數字依架構而異；寫進課文的是這台 $64$ 位元機器的結果。 更細的對
+齊規則，後面高等技術那一章會再講一次。
+
+\begin{drills}[label=drills:struct-declare]
+\item 兩個匿名結構即使成員列的型別、順序完全一樣，能不能互相賦值？
+為什麼？
+\item \texttt{typedef struct Point Point;} 之後，\texttt{struct Point}
+跟 \texttt{Point} 是不是同一種型別？
+\item \texttt{struct Compact} 三個成員的大小加起來是 $14$ 位元組，但
+\texttt{sizeof(struct Compact)} 卻是 $16$，多出來的 $2$ 位元組在做
+什麼？
+\item 把 \texttt{short} 搬到結構最前面（\texttt{Spread} 版），為什麼
+整個結構反而變大？
+\end{drills}
+
+\section{初始化}
+\label{sec:struct-init}
+
+\subsection{完整與部分初始化}
+
+大括號依成員宣告的順序填值。 全部都給，叫做完整初始化。 只給前面幾
+個，叫做部分初始化：大括號裡至少要有一個值，沒寫到的成員補 $0$。 想
+讓每個成員都是 $0$，寫 \texttt{\{0\}} 即可，第一個成員得到 $0$，其餘
+也補 $0$。 空的 \texttt{\{\}} 要到 C23 才是標準寫法，本書用
+\texttt{\{0\}}。
+
+\begin{code}{c}{完整與部分初始化}
+struct Point p1 = {5, 10};   // x = 5, y = 10
+struct Point p2 = {5};       // x = 5, y = 0
+struct Point p3 = {0};       // x = 0, y = 0
+
+struct Student s = {"R123"};
+// id is "R123"; name every byte is 0, hence empty string
+// gpa is 0.0
+\end{code}
+
+\texttt{char} 陣列補 $0$ 的意思要講清楚：每個元素都是字元
+\texttt{'\textbackslash 0'}，所以 \texttt{s.name} 是空字串，
+\texttt{printf("\%s", s.name)} 什麼都不會印。 這跟整數成員補 $0$ 是同
+一條規則，只是套在字元陣列上剛好變成空字串。
+
+\subsection{標籤化初始化}
+
+C99 可以用 \texttt{.成員 = 值} 依名字對應，不必背宣告順序，也允許跳
+過中間的成員。 這種寫法叫標籤化初始化（designated initializer）。
+
+\begin{example}{c}{(designated-init.c) 用名字對應初值}
+#include <stdio.h>
+
+struct Student {
+    char id[10];
+    char name[50];
+    double gpa;
+};
+
+int main(void) {
+    struct Student s = {.gpa = 3.8, .id = "R123"};
+    printf("id = %s\n", s.id);
+    if (s.name[0] == '\0') {
+        printf("name is empty\n");
+    }
+    printf("gpa = %.1f\n", s.gpa);
+}
+\end{example}
+
+\iosample{
+}{
+id = R123 \\
+name is empty \\
+gpa = 3.8 \\
+}
+
+大括號裡先寫 GPA 再寫學號，照樣對得上；沒提到的 \texttt{name} 仍補
+$0$，所以第一個字元是 \texttt{'\textbackslash 0'}，條件成立。 之後若
+有人把 \texttt{gpa} 搬到結構的第一個成員，這份初值不用改；依位置寫的
+\texttt{\{"R123", "Ada", 3.8\}} 就會全部錯位。
+
+\stylepoint{成員一多、或以後可能調順序，優先用 \texttt{.成員 = 值}。}
+
+\begin{drills}[label=drills:struct-init]
+\item \texttt{struct Point p2 = \{5\};} 之後，\texttt{p2.y} 的值是多
+少？
+\item \texttt{struct Student s = \{"R123"\};} 之後，\texttt{s.name} 是
+什麼樣的字串？ 為什麼不是垃圾值？
+\item 用 \texttt{.gpa = 3.8, .id = "R123"} 這種標籤化初始化，跟依宣告
+順序寫的 \texttt{\{"R123", "Ada", 3.8\}} 比，好處是什麼？
+\end{drills}
+
+\section{欄位存取}
+\label{sec:struct-access}
+
+\subsection{點運算子}
+
+對結構變數用 \texttt{.} 取出或指定成員：
+
+\begin{code}{c}{用點運算子讀寫欄位}
+struct Point p;
+p.x = 10;
+p.y = 20;
+printf("%d %d\n", p.x, p.y);
+\end{code}
+
+\texttt{p.x} 就是 \texttt{p} 裡面那格叫做 \texttt{x} 的 \texttt{int}，
+可以出現在指定的左邊，也可以當普通整數拿去印。
+
+\subsection{取址與優先權}
+
+成員也佔記憶體，所以可以對它取址。 \texttt{\&p.y} 這種寫法要看運算子
+優先權：\texttt{.} 比 \texttt{\&} 高，所以是先取出成員 \texttt{y}，再
+對那一格取址。 整個結構的位址是 \texttt{\&p}。
+
+\begin{example}{c}{(member-addr.c) 成員 y 相對整包的位移}
+#include <stdio.h>
+
+struct Point {
+    int x, y;
+};
+
+int main(void) {
+    struct Point p = {10, 20};
+    printf("offset of y = %td\n", (char *)&p.y - (char *)&p);
+}
+\end{example}
+
+\iosample{
+}{
+offset of y = 4 \\
+}
+
+\texttt{x} 在最前面，佔 $4$ 位元組，所以 \texttt{y} 從位移 $4$ 開始，
+\texttt{\&p.y} 跟 \texttt{\&p} 差 $4$。 若把 \texttt{y} 寫成第一個成
+員，兩個位址就會相同，對照就看不出差別，所以這裡用第二個成員。
+
+把括號加錯邊，語意就斷了：
+
+\begin{code}{c}{括號加在 p 外面編不過}
+struct Point p = {10, 20};
+printf("%d\n", p.y);       // 20
+// printf("%d\n", (&p).y); // compiler error: (&p) is a pointer
+\end{code}
+
+\texttt{(\&p)} 的型別是 \texttt{struct Point *}，指標沒有點運算子可
+用，要寫 \texttt{(\&p)->y} 或乾脆 \texttt{p.y}。
+
+\subsection{整包賦值與不能比較}
+
+結構可以用 \texttt{=} 一次複製所有成員：
+
+\begin{example}{c}{(assign-copy.c) 整包賦值}
+#include <stdio.h>
+
+struct Point {
+    int x, y;
+};
+
+int main(void) {
+    struct Point a = {3, 4};
+    struct Point b;
+    b = a;
+    printf("%d %d\n", b.x, b.y);
+}
+\end{example}
+
+\iosample{
+}{
+3 4 \\
+}
+
+\texttt{b = a} 之後，\texttt{b.x}、\texttt{b.y} 各自等於 \texttt{a}
+對應的成員。 這是逐成員複製，兩個變數仍是兩塊獨立的記憶體；改
+\texttt{b.x} 不會動到 \texttt{a.x}。
+
+相等比較沒有同樣的語法。 下面這行會被編譯器拒絕：
+
+\begin{code}{c}{結構沒有 ==}
+struct Point a = {1, 2};
+struct Point b = {1, 2};
+// if (a == b) {        // compiler error
+//     printf("same\n");
+// }
+if (a.x == b.x && a.y == b.y) {
+    printf("same\n");
+}
+\end{code}
+
+直覺以為結構跟 \texttt{int} 一樣能用 \texttt{==}，C 沒有為結構定義這
+個運算子，要自己比成員。 \texttt{!=} 同樣沒有。 成員裡若有陣列，還得
+逐格比。 \texttt{memcmp} 比的是整塊位元組，含填補；填補裡的內容未經
+定義，兩個成員完全相同的結構用 \texttt{memcmp} 比，仍可能得到不相等。
+
+\subsection{記憶體佈局}
+
+前面 \texttt{slot-layout.c} 已經用位移說明填補落在哪。 寫註解時，位移
+要跟對齊規則對得上，不要只抄一個看起來合理的數字：
+
+\begin{code}{c}{位移註解要對齊規則}
+struct Compact {
+    char *name;   // offset 0, 8 bytes
+    short kind;   // offset 8, 2 bytes
+    /* 2 bytes padding: next int wants a multiple of 4 */
+    int uses;     // offset 12, 4 bytes
+};
+/* sizeof == 16 on this 64-bit machine */
+\end{code}
+
+\texttt{name} 是指標，對齊 $8$，所以結構整體也按 $8$ 對齊；
+\texttt{kind} 後面那 $2$ 格空著，是為了 \texttt{uses}。 理由與上一節
+的表相同。
+
+\subsection{結構陣列}
+
+開場那個班上 $100$ 個學生，現在可以真的放進陣列。 每個元素都是一整包
+\texttt{struct Student}，交換兩個元素時，學號、姓名、GPA 一起走：
+
+\begin{example}{c}{(class-swap.c) 整包交換，成績跟姓名對在一起}
+#include <stdio.h>
+#include <string.h>
+
+struct Student {
+    char id[10];
+    char name[50];
+    double gpa;
+};
+
+int main(void) {
+    struct Student class[100];
+    strcpy(class[0].id, "R123");
+    strcpy(class[0].name, "Ada");
+    class[0].gpa = 3.8;
+    strcpy(class[1].id, "R200");
+    strcpy(class[1].name, "Bob");
+    class[1].gpa = 2.1;
+
+    struct Student tmp = class[0];
+    class[0] = class[1];
+    class[1] = tmp;
+
+    printf("%s %.1f\n", class[0].name, class[0].gpa);
+    printf("%s %.1f\n", class[1].name, class[1].gpa);
+}
+\end{example}
+
+\iosample{
+}{
+Bob 2.1 \\
+Ada 3.8 \\
+}
+
+\texttt{class[0].gpa} 是第 $0$ 個學生的 GPA；\texttt{strcpy} 寫進
+\texttt{class[1].name}。 用臨時變數把 \texttt{class[0]} 與
+\texttt{class[1]} 對調之後，Bob 的 $2.1$ 仍貼在 Bob 身上，Ada 的
+$3.8$ 仍貼在 Ada 身上。 開場那種只換 \texttt{gpas[i]}、忘了換
+\texttt{names[i]} 的錯法，在這裡寫不出來。
+
+\begin{drills}[label=drills:struct-access]
+\item \texttt{(\&p).y} 這樣寫為什麼編譯不過？ 正確寫法該怎麼寫？
+\item 兩個結構能不能直接用 \texttt{==} 比較？ 該怎麼做才對？
+\item \texttt{struct Student class[100];} 整包交換 \texttt{class[0]}
+和 \texttt{class[1]}，跟只交換 \texttt{gpa} 一個欄位比，為什麼前者
+才不會讓姓名和成績錯位？
+\end{drills}
+
+上一節 \texttt{Spread} 末尾那 $4$ 格填補，就是為了 \texttt{class[1]}
+的起始位址仍是 $8$ 的倍數。 下一節的指標會再碰到：\texttt{\&class[0]}
+是第一包的位址，\texttt{ptr + 1} 一次跨過一整個結構，落到
+\texttt{class[1]}。
+
+\section{結構指標}
+\label{sec:struct-pointer}
+
+\subsection{宣告與箭頭}
+
+結構變數在 stack 上時，可以取其位址；也可以用 \texttt{malloc} 在
+heap 上要一塊同樣大小的空間，得到指向結構的指標。 第 9 章已經用過
+\texttt{malloc}／\texttt{free}，這裡只是把型別換成結構。
+
+\begin{code}{c}{指到既有變數，或自己配置}
+struct Point p = {10, 20};
+struct Point *q = &p;     // points at stack object
+
+struct Point *r = malloc(sizeof(struct Point));
+r->x = 10;
+r->y = 20;
+free(r);
+r = NULL;
+\end{code}
+
+透過指標讀寫成員，有三種看起來不一樣、意思相同的寫法：
+
+\begin{code}{c}{三種讀法並排}
+struct Point p = {10, 20};
+struct Point *ptr = &p;
+
+printf("%d\n", p.x);        // the variable itself
+printf("%d\n", (*ptr).x);   // dereference, then dot
+printf("%d\n", ptr->x);     // arrow: same as (*ptr).x
+\end{code}
+
+\texttt{(*ptr).x} 的括號不能省：\texttt{.} 優先權高於 \texttt{*}，寫
+成 \texttt{*ptr.x} 會先當成 \texttt{ptr.x} 再解參考，而 \texttt{ptr}
+是指標、沒有成員 \texttt{x}。 \texttt{ptr->x} 就是為了少寫那對括號。
+
+\keypoint{\texttt{ptr->field} 等同 \texttt{(*ptr).field}。 變數本身用
+點，指標用箭頭。}
+
+\subsection{指標成員的配置與釋放}
+
+結構裡若有指標成員，外層那一次 \texttt{malloc} 只配置結構本身。 內部
+的 \texttt{char *} 此時仍是垃圾，還沒有指向任何字串；要再為那串字另
+外配置，結束時也要先放掉內層、再放掉外層。 只放外層，heap 上的字串會
+留著，而指向它的唯一位址已經沒了。
+
+下面用一筆短片紀錄當例子：標題是動態字串，時長是整數。 三個函式分別
+負責配置、印出、釋放。
+
+\begin{example}{c}{(clip-heap.c) 內層字串要自己配置與釋放}
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+typedef struct {
+    char *title;
+    int seconds;
+} Clip;
+
+Clip *clip_create(const char *title, int seconds) {
+    Clip *c = malloc(sizeof(Clip));
+    if (c == NULL) {
+        return NULL;
+    }
+    c->title = malloc(strlen(title) + 1);
+    if (c->title == NULL) {
+        free(c);
+        return NULL;
+    }
+    strcpy(c->title, title);
+    c->seconds = seconds;
+    return c;
+}
+
+void clip_print(const Clip *c) {
+    printf("%s (%d s)\n", c->title, c->seconds);
+}
+
+void clip_destroy(Clip *c) {
+    if (c == NULL) {
+        return;
+    }
+    free(c->title);
+    free(c);
+}
+
+int main(void) {
+    Clip *c = clip_create("sunrise", 12);
+    clip_print(c);
+    clip_destroy(c);
+}
+\end{example}
+
+\iosample{
+}{
+sunrise (12 s) \\
+}
+
+\texttt{clip\_create} 先要一塊 \texttt{Clip}，再要
+\texttt{strlen(title) + 1} 個字元（多那一格放
+\texttt{'\textbackslash 0'}），最後才 \texttt{strcpy}。 若第二次
+\texttt{malloc} 失敗，已經要來的外層要先 \texttt{free}，否則那塊結構
+自己也會漏。 \texttt{clip\_destroy} 的順序相反：先放
+\texttt{c->title}，再放 \texttt{c}；反過來的話，\texttt{c} 沒了就拿不
+到內層位址。
+
+關係可以想成兩層：\texttt{c} 這顆指標在 stack 上，指向 heap 上的
+\texttt{Clip}；\texttt{Clip} 裡的 \texttt{title} 再指向 heap 上另一段
+字元。 放掉外層等於拆掉中間那座橋，內層那串字還在 heap，只是程式再也
+走不到。
+
+兩種常見的錯法：
+
+\begin{code}{c}{內層沒配置就解參考，或只放外層}
+Clip *c = malloc(sizeof(Clip));
+// printf("%s\n", c->title);  // title is garbage: undefined
+// free(c);                   // leaks the string if title was malloc'd
+\end{code}
+
+第一行之後 \texttt{c->title} 沒有指向合法物件，拿去印是未定義行為。
+第二種是標題其實有配置，卻只 \texttt{free(c)}，字串那塊從此消失在帳
+本裡。 配置與釋放成對寫在 \texttt{clip\_create}／
+\texttt{clip\_destroy} 裡，比較不容易漏。
+
+若 \texttt{Clip} 本身在 stack 上、只有 \texttt{title} 在 heap，仍然要
+\texttt{free(c.title)}，只是不用再 \texttt{free} 那份結構。
+
+\begin{drills}[label=drills:struct-pointer]
+\item \texttt{ptr->x} 等同於哪一個用 \texttt{(*ptr)} 寫的寫法？
+\item \texttt{*ptr.x}（沒加括號）這樣寫會出什麼問題？
+\item \texttt{clip\_destroy} 為什麼要先 \texttt{free(c->title)}、再
+\texttt{free(c)}？ 順序反過來會發生什麼事？
+\end{drills}
+
+\section{參數傳遞}
+\label{sec:struct-params}
+
+結構當函式引數時，預設是傳值：呼叫的當下複製一整包進去。 函式也可以
+改收指標，只複製一個位址。 這兩種寫法都能用，取捨要看要不要改到呼叫
+端、以及複製成本接不接受。
+
+\subsection{傳值：複數運算}
+
+複數有實部、虛部，加法和乘法都是輸入兩個複數、算出一個新的再送回
+來，很適合看傳值與回傳同時發生。
+
+\begin{example}{c}{(cpx-arith.c) 傳兩個複數，回傳一個新的}
+#include <stdio.h>
+
+typedef struct {
+    double re, im;
+} Cpx;
+
+Cpx add(Cpx a, Cpx b) {
+    Cpx r;
+    r.re = a.re + b.re;
+    r.im = a.im + b.im;
+    return r;
+}
+
+Cpx mul(Cpx a, Cpx b) {
+    Cpx r;
+    r.re = a.re * b.re - a.im * b.im;
+    r.im = a.re * b.im + a.im * b.re;
+    return r;
+}
+
+int main(void) {
+    Cpx a = {1, 2};
+    Cpx b = {3, 4};
+    Cpx s = add(a, b);
+    Cpx p = mul(a, b);
+    printf("%.1f + %.1fi\n", s.re, s.im);
+    printf("%.1f + %.1fi\n", p.re, p.im);
+}
+\end{example}
+
+\iosample{
+}{
+4.0 + 6.0i \\
+-5.0 + 10.0i \\
+}
+
+呼叫 \texttt{add(a, b)} 時，\texttt{a}、\texttt{b} 各複製一份進函式，
+函式裡的 \texttt{a.re = 100} 就算真的寫了，也動不到 \texttt{main} 裡
+的那份。 \texttt{return} 再複製一份出去，存進 \texttt{s}。 代入
+$1 + 2i$ 與 $3 + 4i$：和是 $4 + 6i$，積是 $(1 \cdot 3 - 2 \cdot 4) +
+(1 \cdot 4 + 2 \cdot 3)i = -5 + 10i$，跟印出來的兩行相符。
+\texttt{main} 裡的 \texttt{a}、\texttt{b} 從頭到尾都還是 $1 + 2i$、
+$3 + 4i$。
+
+兩個 \texttt{double} 的結構很小，複製的成本可以忽略。 成員一多，每一
+次呼叫都整包搬運就會開始有感。
+
+\subsection{傳位址}
+
+傳指標有兩個常見理由。 第一是效能：複製一個位址，比起複製整個結構便
+宜，結構越大差越多。 第二是可修改性：函式要改到呼叫端的那一份，只能
+拿到它的位址。
+
+下面這個對照把兩種寫法放在同一個程式裡。 \texttt{move\_copy} 收結構
+本身，\texttt{move} 收指標：
+
+\begin{example}{c}{(move-point.c) 傳值改不到正本，傳位址可以}
+#include <stdio.h>
+
+struct Point {
+    int x, y;
+};
+
+void move_copy(struct Point p, int x, int y) {
+    p.x = x;
+    p.y = y;
+}
+
+void move(struct Point *p, int x, int y) {
+    p->x = x;
+    p->y = y;
+}
+
+int main(void) {
+    struct Point p = {0, 0};
+    move_copy(p, 5, 5);
+    printf("after copy: %d %d\n", p.x, p.y);
+    move(&p, 5, 5);
+    printf("after pointer: %d %d\n", p.x, p.y);
+}
+\end{example}
+
+\iosample{
+}{
+after copy: 0 0 \\
+after pointer: 5 5 \\
+}
+
+\texttt{move\_copy(p, 5, 5)} 把 $\{0, 0\}$ 複製進參數 \texttt{p}，函
+式裡改的是複本，所以第一行仍是 $0\ 0$。 這就是傳值版改了
+\texttt{p.x}、\texttt{p.y} 卻動不到 \texttt{main} 裡那份的原因。
+\texttt{move(\&p, 5, 5)} 只傳位址，\texttt{p->x} 寫的是正本，第二行才
+變成 $5\ 5$。
+
+\subsection{怎麼選}
+
+\begin{center}
+\begin{tabular}{|l|l|l|}
+\hline
+ & \textbf{傳值} & \textbf{傳指標} \\
+\hline
+函式內能否改到正本 & 不能，改的是複本 & 能 \\
+是否複製整個 struct & 是，成本隨大小增加 & 只複製一個位址 \\
+\hline
+\end{tabular}
+\end{center}
+
+只要讀、結構又小，傳值清楚，像上面的複數。 要改呼叫端的資料，或結構
+已經大到不想每次搬運，傳指標。 只讀的指標參數可以標 \texttt{const}，
+向呼叫者保證函式不會透過這個指標寫入，第 13 章的 \texttt{const} 參數
+就是這種用法。
+
+\begin{drills}[label=drills:struct-params]
+\item \texttt{move\_copy(p, 5, 5)} 呼叫後，\texttt{main} 裡的
+\texttt{p.x} 有沒有改變？ 為什麼？
+\item 想讓函式真的改到呼叫端的結構內容，參數該傳值還是傳指標？
+\item 結構很大、函式只需要讀取不需要修改時，指標參數該怎麼宣告比較
+好？
+\end{drills}
+
+\section{結構應用}
+\label{sec:struct-nested}
+
+成員也可以是另一個結構。 學生除了學號、姓名、GPA，還有入學日期，就把
+\texttt{Date} 嵌進 \texttt{Student}。 取用時從外往內走：
+\texttt{s.enrolled.year}。
+
+\begin{example}{c}{(enrolled.c) 學生裡嵌一筆日期}
+#include <stdio.h>
+
+struct Date {
+    int year, month, day;
+};
+
+struct Student {
+    char id[10];
+    char name[50];
+    double gpa;
+    struct Date enrolled;
+};
+
+int main(void) {
+    struct Student s = {
+        .id = "R123",
+        .name = "Ada",
+        .gpa = 3.8,
+        .enrolled = {.year = 2026, .month = 8, .day = 31}
+    };
+    printf("%s enrolled %d-%02d-%02d\n",
+           s.name, s.enrolled.year,
+           s.enrolled.month, s.enrolled.day);
+    s.enrolled.day = 1;
+    printf("day now %d\n", s.enrolled.day);
+}
+\end{example}
+
+\iosample{
+}{
+Ada enrolled 2026-08-31 \\
+day now 1 \\
+}
+
+\texttt{.enrolled = \{.year = 2026, \ldots\}} 是標籤化初始化套在內層
+結構上。 印出來的第一行用 \texttt{s.enrolled.year} 這串點運算子往下
+走；接著只改 \texttt{s.enrolled.day}，外層的姓名與 GPA 不受影響。 開
+場那筆學生資料，到這裡學號、成績、入學日都在同一包裡。
+
+\begin{drills}[label=drills:struct-nested]
+\item 要存取內層 \texttt{Date} 結構的 \texttt{year} 成員，該怎麼寫？
+\item 只改 \texttt{s.enrolled.day}，會不會影響到 \texttt{s.name} 或
+\texttt{s.gpa}？
+\end{drills}
+
+\section{多檔案程式設計}
+\label{sec:struct-multifile}
+
+複數那種型別若會在好幾個 \texttt{.c} 裡用到，把定義和函式原型放進標
+頭，實作放另一個檔，主程式只 \texttt{\#include} 標頭：
+
+\begin{code}{c}{標頭與實作分開}
+/* cpx.h */
+typedef struct {
+    double re, im;
+} Cpx;
+
+Cpx add(Cpx a, Cpx b);
+Cpx mul(Cpx a, Cpx b);
+
+/* cpx.c */
+#include "cpx.h"
+Cpx add(Cpx a, Cpx b) {
+    Cpx r;
+    r.re = a.re + b.re;
+    r.im = a.im + b.im;
+    return r;
+}
+/* ... mul ... */
+
+/* main.c */
+#include "cpx.h"
+/* call add and mul */
+\end{code}
+
+標頭讓每個翻譯單元看見同一份型別與原型；函式本體只出現一次，避免重複
+定義。 標頭檔保護、makefile 怎麼把這幾個檔編成一支程式，留給之後的
+章節。
+
+\keypoint{型別與函式原型放標頭，本體放 \texttt{.c}，主程式只透過標頭
+使用它們。}
+
+\begin{drills}[label=drills:struct-multifile]
+\item 型別定義和函式原型該放在 \texttt{.h} 還是 \texttt{.c}？ 函式本
+體呢？
+\item 如果好幾個 \texttt{.c} 檔都要用同一個結構型別，為什麼要共用同
+一份標頭，而不是各自定義一次？
+\end{drills}
+
+\addcontentsline{toc}{section}{練習解答}
+\section*{練習解答}
+
+各節練習的答案收在這裡。 短題只給能一句話核對的結果。
+
+\paragraph{第~\ref{sec:struct-motivation}~節}
+\begin{enumerate}
+\item 因為索引 \texttt{i} 必須永遠對準同一個人，編譯器不會幫忙核對；
+排序或交換時只要漏動其中一個陣列，資料就會錯位。
+\item 學號（\texttt{char id[10]}）、姓名（\texttt{char name[50]}）、
+GPA（\texttt{double gpa}）。
+\item 平行陣列版要傳三個陣列加一個索引；struct 版只要傳一個
+\texttt{struct Student} 或它的位址。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:struct-declare}~節}
+\begin{enumerate}
+\item 不能。 C 比的是型別名字，不是成員長得像不像；兩個匿名結構即使
+成員完全一樣，仍是兩種不相容的型別。
+\item 是同一種型別，只是書寫長短不同。
+\item 是填補（padding）位元組，用來讓 \texttt{int uses} 從位移 $12$
+（$4$ 的倍數）開始，滿足對齊要求。
+\item 因為 \texttt{char *name} 對齊到 $8$，把 \texttt{short} 放最前
+面會讓後面的指標成員錯位，編譯器得在 \texttt{short} 後面多插入 $6$
+位元組填補才能讓指標對齊，整體反而比把指標放最前面還大。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:struct-init}~節}
+\begin{enumerate}
+\item $0$。 部分初始化時沒寫到的成員一律補 $0$。
+\item 空字串。 \texttt{name} 沒被提到，整個字元陣列每個位元組都補
+$0$，第一個字元就是 \texttt{'\textbackslash 0'}。
+\item 依名字對應，不必背宣告順序、也不怕以後成員順序調整時初值全部
+錯位。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:struct-access}~節}
+\begin{enumerate}
+\item 因為 \texttt{(\&p)} 的型別是 \texttt{struct Point *}，是指標，
+指標沒有 \texttt{.} 可用；要寫成 \texttt{(\&p)->y}，或乾脆用
+\texttt{p.y}。
+\item 不能，C 沒有為結構定義 \texttt{==}；要自己逐一比較每個成員
+（例如 \texttt{a.x == b.x \&\& a.y == b.y}）。
+\item 整包交換一次把學號、姓名、GPA 一起搬動，三個欄位永遠對齊同一
+個人；只換 \texttt{gpa} 會讓成績跟錯的姓名配對在一起。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:struct-pointer}~節}
+\begin{enumerate}
+\item \texttt{(*ptr).x}。
+\item \texttt{.} 的優先權比 \texttt{*} 高，會先算成 \texttt{ptr.x}
+再解參考；但 \texttt{ptr} 是指標，沒有成員 \texttt{x}，編譯不過。
+\item 因為 \texttt{c} 一旦被 \texttt{free}，就再也拿不到
+\texttt{c->title} 那個位址；順序反過來會漏放內層字串，造成記憶體洩
+漏。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:struct-params}~節}
+\begin{enumerate}
+\item 沒有改變，仍是 \texttt{0 0}。 \texttt{move\_copy} 收到的是
+\texttt{p} 的複本，函式裡改的是複本，動不到 \texttt{main} 裡的正
+本。
+\item 要傳指標，讓函式透過位址寫回正本。
+\item 宣告成 \texttt{const struct T *}，只複製一個位址、成本低，又
+向呼叫者保證不會透過這個指標寫入。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:struct-nested}~節}
+\begin{enumerate}
+\item \texttt{s.enrolled.year}，從外層結構的成員一路往內層走。
+\item 不會，只改 \texttt{s.enrolled.day} 這一個欄位，其餘欄位不受
+影響。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:struct-multifile}~節}
+\begin{enumerate}
+\item 型別定義和函式原型放 \texttt{.h}；函式本體放 \texttt{.c}。
+\item 這樣每個用到這個型別的翻譯單元看到的都是同一份定義，不必各自
+重複定義，也避免不同檔案裡型別定義不一致。
+\end{enumerate}

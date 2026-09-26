@@ -1,0 +1,710 @@
+\chapter{字元}
+\label{ch:character}
+
+C 語言用 \texttt{char} 型別表示一個字元。 \texttt{char} 其實是一個位元
+組（byte）大小的整數型別，字元只是我們選擇賦予它的意義。 在電腦裡，
+\texttt{'A'} 就是某個固定的整數（$65$），\texttt{'7'} 也是另一個固定的整
+數（$55$），只是我們平常用 \texttt{\%c} 把它們印成看得見的符號而已。
+
+很多看起來像「文字處理」的技巧，本質上都只是整數的讀取、比較、累加；這
+一章會從這個角度出發，逐步看到字元怎麼跟標準函式庫配合、怎麼夾在數字
+中間被讀取、以及怎麼用來處理長到裝不進任何整數型別的數字字串。
+
+\section{字元的本質：一個位元組的整數}
+\label{sec:char-nature}
+
+每個字元對應一個固定的整數編碼。 英文環境最常用的是 ASCII：例如
+\texttt{'A'} 是 $65$、\texttt{'a'} 是 $97$、\texttt{'0'} 是 $48$。
+這份對照表是硬體、作業系統、程式語言共同遵守的標準。
+
+從記憶體的角度看，\texttt{char} 佔一個 byte（通常是 $8$ 個 bit），所
+以它的值域是 $0$ 到 $255$（若視為 \texttt{unsigned char}）或 $-128$
+到 $127$（若視為 \texttt{signed char}）。 我們可以隨時在兩種角度切換：
+一種是「這是哪個符號」，一種是「這是哪個數字」。
+
+\begin{center}
+\begin{tikzpicture}[node distance=0.2cm]
+    \node[cell] (c0) {\texttt{0}};
+    \node[cell, right=of c0] (c1) {\texttt{A}};
+    \node[cell, right=of c1] (c2) {\texttt{a}};
+    \node[idxlbl, below=0.15cm of c0] {$48$};
+    \node[idxlbl, below=0.15cm of c1] {$65$};
+    \node[idxlbl, below=0.15cm of c2] {$97$};
+\end{tikzpicture}
+\diagcaption{三個字元與它們常見的 ASCII 整數值；同一個 \texttt{char}
+變數，用 \texttt{\%c} 印是符號，用 \texttt{\%d} 印是整數。}
+\label{fig:ch10-char-ascii}
+\end{center}
+
+\keypoint{同一個變數用 \texttt{\%c} 印出來是字元本身，用 \texttt{\%d}
+印出來是整數編碼；資料本身沒有改變，只是解讀方式不同。}
+
+\begin{drills}[label=drills:char-nature]
+\item \texttt{'A'} 的 ASCII 值是多少？ \texttt{'a'} 呢？
+\item 同一個 \texttt{char} 變數，用 \texttt{\%c} 印跟用 \texttt{\%d}
+印，資料本身有沒有改變？ 改變的是什麼？
+\item 若 \texttt{char} 被視為 \texttt{unsigned char}，值域是多少？ 視
+為 \texttt{signed char} 呢？
+\end{drills}
+
+\section{讀寫字元}
+\label{sec:char-io}
+
+最基本的操作是用 \texttt{\%c} 讀進一個字元，再用不同的格式化字串印出
+來。 \texttt{scanf} 的 \texttt{\%c} 不會跳過前面的空白，它會讀下緊接著
+的下一個字元。
+
+\begin{example}{c}{(char-to-ascii.c) 印出字元的 ASCII 碼}
+#include <stdio.h>
+
+int main(void) {
+    char c;
+    scanf("%c", &c);
+    printf("%c\n", c);     // 印成字元
+    printf("%d\n", c);     // 印成整數
+}
+\end{example}
+
+\iosample{
+A \\
+}{
+A \\
+65 \\
+}
+
+許多題目會逐字元讀取一整段輸入直到 EOF。 用 \texttt{getchar()} 比
+\texttt{scanf("\%c")} 更直觀：
+
+\begin{code}{c}{逐字元讀直到 EOF}
+int ch;
+while ((ch = getchar()) != EOF) {
+    // 處理 ch
+}
+\end{code}
+
+\texttt{getchar()} 在檔案結束時回傳 \texttt{EOF}（通常是 $-1$），適合
+串流處理。
+
+\texttt{getchar()} 的回傳型別是 \texttt{int}。 \texttt{EOF} 這個額外的
+訊號值通常是 $-1$，超出 \texttt{unsigned char} 能表示的 $0$ 到 $255$，
+有號 \texttt{char} 的 $-128$ 到 $127$ 也裝不穩。 若把回傳值存進
+\texttt{char}，某些系統上迴圈比不到真正的 \texttt{EOF}，就不會正常結束。
+
+\begin{code}{c}{危險：用 char 接 getchar 的回傳值}
+char ch;
+while ((ch = getchar()) != EOF) {
+    // 某些系統上比不到真正的 EOF
+}
+\end{code}
+
+\begin{code}{c}{正確：用 int 接 getchar 的回傳值}
+int ch;
+while ((ch = getchar()) != EOF) {
+    // int 裝得下 EOF
+}
+\end{code}
+
+\keypoint{迴圈終止條件若跟 \texttt{EOF} 比較，接收變數就該宣告成
+\texttt{int}。 這條規則對 \texttt{getchar()} 和後面章節會看到的
+\texttt{getc()}／\texttt{fgetc()} 都成立。}
+
+\begin{drills}[label=drills:char-io]
+\item \texttt{scanf("\%c")} 會不會跳過輸入前面的空白字元？
+\item 用 \texttt{char} 而不是 \texttt{int} 接 \texttt{getchar()} 的回
+傳值，可能導致什麼問題？
+\item \texttt{while ((ch = getchar()) != EOF)} 這段迴圈，什麼時候會終
+止？
+\end{drills}
+
+\section{轉義序列}
+\label{sec:char-escape}
+
+有些字元無法直接寫在程式碼裡。 例如換行符本身會斷行、雙引號會結束字
+串、反斜線會啟動特殊意義。 C 用\textbf{轉義序列}在反斜線後接字母或符號
+來表示這些字元。
+
+\begin{center}
+\begin{tabular}{|c|c|c|}
+\hline
+\textbf{轉義序列} & \textbf{名稱} & \textbf{效果} \\
+\hline
+\texttt{\textbackslash n} & 換行 & 光標移到下一行開頭 \\
+\texttt{\textbackslash t} & 製表符 & 向右跳到下個製表位 \\
+\texttt{\textbackslash\textbackslash} & 反斜線 & 印出一個 \texttt{\textbackslash} \\
+\texttt{\"} & 雙引號 & 印出一個 \texttt{"} \\
+\texttt{\'} & 單引號 & 印出一個 \texttt{'} \\
+\texttt{\textbackslash 0} & 空字元 & 字串終止符 \\
+\hline
+\end{tabular}
+\end{center}
+
+\begin{example}{c}{(escape-demo.c) 常見的轉義序列}
+#include <stdio.h>
+
+int main(void) {
+    printf("第一行\n");
+    printf("Name\tAge\n");
+    printf("路徑: C:\\\\Program Files\n");
+    printf("他說\"你好\"\n");
+}
+\end{example}
+
+\iosample{
+}{
+第一行 \\
+Name\quad Age \\
+路徑: C:\textbackslash Program Files \\
+他說"你好" \\
+}
+
+\begin{drills}[label=drills:char-escape]
+\item \texttt{\textbackslash t} 和 \texttt{\textbackslash n} 分別代表
+什麼效果？
+\item 要在字串裡印出一個雙引號字元，該怎麼寫？
+\item 要印出一個反斜線字元，轉義序列該怎麼寫？
+\end{drills}
+
+\section{字元分類}
+\label{sec:char-classify}
+
+判斷字元的性質是很常見的需求。 C 的標準庫在 \texttt{ctype.h} 裡提供了
+分類函式。
+
+\subsection{內建分類函式}
+
+\begin{code}{c}{ctype.h 的常用函式}
+#include <ctype.h>
+
+isdigit(c)     // '0'..'9' ？
+isalpha(c)     // a..z, A..Z ？
+isalnum(c)     // 字母或數字 ？
+isspace(c)     // 空白（空格、tab、換行等）？
+islower(c)     // 小寫字母 ？
+isupper(c)     // 大寫字母 ？
+\end{code}
+
+上面六個最常用。 \texttt{ctype.h} 還有幾個同樣好用、容易漏掉的分類函式。
+
+\begin{center}
+\begin{tabular}{|c|c|c|}
+\hline
+\textbf{函式} & \textbf{判斷內容} & \textbf{範例} \\
+\hline
+\texttt{isxdigit} & 十六進位數字 & \texttt{isxdigit('f')} 真，\texttt{isxdigit('g')} 假 \\
+\texttt{ispunct} & 標點符號 & \texttt{ispunct('!')} 真，\texttt{ispunct('a')} 假 \\
+\texttt{isgraph} & 可看見、不含空格 & \texttt{isgraph('A')} 真，\texttt{isgraph(' ')} 假 \\
+\texttt{isprint} & 可看見、含空格 & \texttt{isprint('A')} 真，\texttt{isprint(' ')} 真 \\
+\texttt{iscntrl} & 控制字元 & \texttt{iscntrl('\textbackslash n')} 真，\texttt{iscntrl('A')} 假 \\
+\texttt{isblank} & C99：只認空格與 tab & \texttt{isblank(' ')} 真，\texttt{isblank('\textbackslash n')} 假 \\
+\hline
+\end{tabular}
+\end{center}
+
+最容易搞混的是 \texttt{isgraph} 與 \texttt{isprint}：\texttt{isprint}
+把空格算進去，\texttt{isgraph} 不算。 \texttt{isblank} 比
+\texttt{isspace} 窄，換行不算空白。
+
+\begin{example}{c}{(classify-stream.c) 統計文字中各類字元的個數}
+#include <stdio.h>
+#include <ctype.h>
+
+int main(void) {
+    char c;
+    int digits = 0, letters = 0, others = 0;
+
+    while (scanf("%c", &c) != EOF) {
+        if (isdigit(c)) {
+            digits++;
+        } else if (isalpha(c)) {
+            letters++;
+        } else {
+            others++;
+        }
+    }
+
+    printf("%d %d %d\n", digits, letters, others);
+}
+\end{example}
+
+\iosample{
+abc123 XYZ! \\
+}{
+3 6 2 \\
+}
+
+\subsection{自訂判斷式}
+
+\texttt{ctype.h} 沒有「母音」、「子音」之類的分類，需要自己寫條件。
+
+\begin{example}{c}{(is-vowel.c) 判斷字元是否為母音}
+#include <stdio.h>
+
+int isVowel(char c) {
+    return c == 'A' || c == 'E' || c == 'I' || c == 'O' || c == 'U' ||
+           c == 'a' || c == 'e' || c == 'i' || c == 'o' || c == 'u';
+}
+
+int main(void) {
+    char c;
+    scanf("%c", &c);
+    printf("%d\n", isVowel(c));
+}
+\end{example}
+
+\iosample{
+a \\
+}{
+1 \\
+}
+
+\begin{drills}[label=drills:char-classify]
+\item \texttt{isdigit('7')} 的結果是真還是假？ \texttt{isalpha('7')}
+呢？
+\item \texttt{isprint(' ')} 和 \texttt{isgraph(' ')} 的結果一樣嗎？
+差在哪裡？
+\item \texttt{ctype.h} 裡有沒有現成的函式可以判斷一個字元是不是母
+音？ 要怎麼自己寫這個判斷式？
+\end{drills}
+
+\section{字元轉換}
+\label{sec:char-convert}
+
+\texttt{ctype.h} 提供轉換函式：\texttt{toupper} 轉大寫、\texttt{tolower}
+轉小寫。 若輸入不是字母，這兩個函式會原樣回傳。
+
+\begin{example}{c}{(to-case.c) 轉換字元大小寫}
+#include <stdio.h>
+#include <ctype.h>
+
+int main(void) {
+    char c;
+    scanf("%c", &c);
+    printf("%c %c\n", toupper(c), tolower(c));
+}
+\end{example}
+
+\iosample{
+A \\
+}{
+A a \\
+}
+
+\begin{drills}[label=drills:char-convert]
+\item \texttt{toupper('a')} 的結果是什麼？ \texttt{toupper('5')} 呢
+（輸入不是字母的情況）？
+\item \texttt{to-case.c} 範例讀入字元 \texttt{A}，輸出是什麼？
+\end{drills}
+
+\section{字元在運算中的應用}
+\label{sec:char-arithmetic}
+
+\subsection{數字字元與整數的轉換}
+
+因為 \texttt{'0'} 到 \texttt{'9'} 的 ASCII 碼連續遞增（48 到 57），
+一個數字字元減去 \texttt{'0'} 就得到它的整數值。
+
+\begin{example}{c}{(digit-convert.c) 把數字字元轉成整數}
+#include <stdio.h>
+
+int main(void) {
+    char c;
+    scanf("%c", &c);
+    printf("%d\n", c - '0');
+}
+\end{example}
+
+\iosample{
+7 \\
+}{
+7 \\
+}
+
+反過來，整數加上 \texttt{'0'} 就成了字元：\texttt{(7 + '0')} 是
+\texttt{'7'}。
+
+\subsection{混合讀入字元與數字}
+
+\texttt{scanf} 可以在同一次呼叫裡混合讀入數字和字元。 注意 \texttt{\%d}
+會跳過前面空白，但 \texttt{\%c} 不會。
+
+\begin{example}{c}{(operator-calc.c) 讀運算式並計算}
+#include <stdio.h>
+
+int main(void) {
+    int a, b;
+    char op;
+
+    scanf("%d%c%d", &a, &op, &b);
+
+    switch (op) {
+        case '+':
+            printf("%d\n", a + b);
+            break;
+        case '-':
+            printf("%d\n", a - b);
+            break;
+        case '*':
+            printf("%d\n", a * b);
+            break;
+    }
+}
+\end{example}
+
+\iosample{
+3+5 \\
+}{
+8 \\
+}
+
+輸入中間不能有空白，因為 \texttt{\%c} 會讀到空格而不是運算子。
+
+\subsection{逐字元處理超大整數}
+
+超大整數無法存進任何變數，但整除性只需要逐字元累加。 例如判斷能否被 3
+整除只需看各位數字之和。
+
+\begin{example}{c}{(divisibility.c) 判斷超大整數的整除性}
+#include <stdio.h>
+#include <ctype.h>
+
+int main(void) {
+    int sum = 0, alt = 0, sign = 1, lastDigit = 0;
+    int ch;
+
+    while ((ch = getchar()) != EOF && ch != '\n') {
+        if (!isdigit(ch)) continue;
+
+        int d = ch - '0';
+        lastDigit = d;
+        sum += d;
+        alt += sign * d;
+        sign = -sign;
+    }
+
+    // 檢查整除性
+    printf("%s ", (lastDigit % 2 == 0) ? "yes" : "no");    // 被 2 整除
+    printf("%s\n", (sum % 3 == 0) ? "yes" : "no");         // 被 3 整除
+}
+\end{example}
+
+\iosample{
+190949 \\
+}{
+no yes \\
+}
+
+\keypoint{流式處理讓我們處理任意長度的數字，只用固定的幾個小變數。}
+
+\begin{drills}[label=drills:char-arithmetic]
+\item \texttt{'7' - '0'} 的結果是什麼？ 這背後靠的是 ASCII 碼的什麼性
+質？
+\item \texttt{scanf("\%d\%c\%d", \&a, \&op, \&b)} 讀入 \texttt{3+5}
+時，\texttt{op} 會存到什麼字元？
+\item 判斷一個超大整數能不能被 \texttt{3} 整除，為什麼不需要把整個數
+字存進一個 \texttt{int} 變數？
+\end{drills}
+
+\section{進階應用}
+\label{sec:char-advanced}
+
+\subsection{從字元流組出單字}
+
+單個字符之外，常需要將連續的字母累積成一個單詞。 遇到空白或標點就把目
+前的單詞結案、開始下一個。
+
+\begin{code}{c}{逐字元累積單字}
+char word[100];
+int len = 0;
+
+if (isalpha(c)) {
+    word[len++] = c;
+} else if (len > 0) {
+    word[len] = '\0';
+    // 處理這個單詞
+    len = 0;
+}
+\end{code}
+
+\subsection{前瞻一格：句號與句子邊界}
+
+某些問題需要查看「下一個字元」才能決定如何處理目前字元。 例如判斷句號是
+否結束句子，需要看句號後面是什麼。
+
+\begin{code}{c}{前瞻一格的做法}
+for (int i = 0; i < n; i++) {
+    if (text[i] == '.') {
+        char next = (i + 1 < n) ? text[i + 1] : '\0';
+        if (next == ' ' || next == '\n' || next == '\0') {
+            // 這個句號算數
+        }
+    }
+}
+\end{code}
+
+\subsection{滑動視窗：三字模式}
+
+固定大小的窗口逐個字符滑動，可以提取連續的模式。 重點是窗口遇到邊界
+時要重設。
+
+\begin{code}{c}{長度為 3 的滑動窗口}
+char window[3];
+int wlen = 0;
+
+if (isalpha(c)) {
+    if (wlen < 3) {
+        window[wlen++] = c;
+    } else {
+        window[0] = window[1];
+        window[1] = window[2];
+        window[2] = c;
+    }
+} else {
+    wlen = 0;  // 重設窗口
+}
+\end{code}
+
+\subsection{驗證使用者輸入的單一字元}
+
+使用者常常會多打空白或整行輸入。 如果只想要第一個字元，需要把剩下的
+字元丟掉，不然下一次讀取會讀到殘留的內容。
+
+範例 \thechapter.16 問要不要繼續，只接受 \texttt{y} 或 \texttt{n}；其他
+輸入就印提示、再讀一次。 讀到第一個字元之後，把該行讀到換行符為止，
+殘留就清掉了。
+
+\begin{example}{c}{(get-yes-no.c) 只接受 y 或 n 的驗證迴圈}
+#include <stdio.h>
+
+char getYesNo() {
+    int ch;
+    while (1) {
+        ch = getchar();
+        while (getchar() != '\n') {
+            continue;              // 丟掉這一行剩下的字元
+        }
+        if (ch == 'y' || ch == 'n') {
+            return ch;
+        }
+        printf("請輸入 y 或 n：\n");
+    }
+}
+
+int main(void) {
+    printf("要繼續嗎？(y/n)\n");
+    char ans = getYesNo();
+    printf("%c\n", ans);
+}
+\end{example}
+
+\iosample{
+hello \\
+y \\
+}{
+要繼續嗎？(y/n) \\
+請輸入 y 或 n： \\
+y \\
+}
+
+\keypoint{讀取單一字元時，把該行剩下的字元清掉（讀到 \texttt{'\textbackslash n'}
+為止），才不會讓下一次讀取吃到殘留輸入。 這跟陷阱 1 裡 \texttt{\%c}
+讀到換行符是同一個原因。}
+
+\begin{drills}[label=drills:char-advanced]
+\item 逐字元累積單字時，遇到什麼樣的字元代表一個單字結束了？
+\item \texttt{get-yes-no.c} 範例裡，為什麼讀到第一個字元後，還要用一
+個內層 \texttt{while} 迴圈把該行剩下的字元讀掉？
+\item 滑動視窗的大小固定為 \texttt{3}，當視窗已經滿了、又進來一個新
+字元時，程式怎麼處理？
+\end{drills}
+
+\section{常見陷阱與最佳實踐}
+\label{sec:char-pitfalls}
+
+\subsection{陷阱 1：\texttt{\%c} 讀到換行符}
+
+\texttt{scanf("\%d")} 讀完後，換行符留在緩衝區。 下一個 \texttt{\%c}
+會誤讀這個換行。
+
+\begin{example}{c}{(newline-trap.c) \%c 吞掉換行的陷阱}
+#include <stdio.h>
+
+int main(void) {
+    int x;
+    char c;
+
+    scanf("%d", &x);           // 讀完 x，\n 留在緩衝區
+    scanf("%c", &c);           // \%c 讀到 \n 而不是下一個字元
+    printf("x=%d, c=%c\n", x, c);
+}
+\end{example}
+
+\iosample{
+42 \\
+A \\
+}{
+x=42, c= \\
+}
+
+修正：在第二個 \texttt{scanf} 前用 \texttt{scanf("\%c", \&dummy)} 消
+耗換行，或改用 \texttt{getchar()}。
+
+\subsection{陷阱 2：假設字元在某範圍}
+
+\texttt{c - '0'} 只在 \texttt{c} 確實是數字時有意義。
+
+\begin{code}{c}{不安全的假設}
+char c;
+scanf("%c", &c);
+int digit = c - '0';  // 若 c 是 'a'，結果無意義
+\end{code}
+
+安全的做法：先檢查
+\begin{code}{c}{先驗證再使用}
+if (isdigit(c)) {
+    int digit = c - '0';
+} else {
+    // 處理非數字
+}
+\end{code}
+
+\subsection{陷阱 3：\texttt{isspace} vs 只檢查空格}
+
+\texttt{isspace} 涵蓋空格、tab、換行等。 若題目說「空白」，用
+\texttt{isspace} 才對。
+
+\begin{code}{c}{不夠全面}
+if (c == ' ')  // 只檢查空格，漏掉 tab 和換行
+\end{code}
+
+\begin{code}{c}{正確做法}
+if (isspace(c))  // 涵蓋所有空白
+\end{code}
+
+\subsection{陷阱 4：大小寫轉換不用手寫公式}
+
+\texttt{toupper}/\texttt{tolower} 已經封裝好，不要手寫 \texttt{c - 32}
+之類的黑魔法。
+
+\subsection[陷阱 5：ctype.h 參數要轉 unsigned char]{陷阱 5：\texttt{ctype.h} 的參數先轉成 unsigned char}
+
+\texttt{ctype.h} 的函式都吃 \texttt{int} 參數。 若系統上 \texttt{char}
+是有號的，處理中文或其他非 ASCII 位元組時，某個 \texttt{char} 的值會
+超過 $127$，自動轉成 \texttt{int} 就變成負數。 把負數丟進
+\texttt{isalpha} 這類函式，行為沒有保證，不同編譯器可能不一樣。
+
+保險的做法是先轉成 \texttt{unsigned char} 再傳進去。
+
+\begin{code}{c}{有風險：有號 char 直接丟進 ctype}
+char c;
+isalpha(c);   // c 超過 127 時可能變成負數
+\end{code}
+
+\begin{code}{c}{安全：先轉成 unsigned char}
+char c;
+isalpha((unsigned char)c);
+\end{code}
+
+\subsection{最佳實踐}
+
+\begin{itemize}
+\item \textbf{用 \texttt{getchar()} 處理串流}：逐字元讀到 EOF 時比
+\texttt{scanf} 更直觀
+\item \textbf{字元判斷用 \texttt{ctype.h}}：\texttt{isdigit} 比手寫比較式
+更清楚、更不易出錯
+\item \textbf{先驗證後使用}：在 \texttt{c - '0'} 前先檢查 \texttt{isdigit(c)}
+\item \textbf{混合讀取要小心空白}：\texttt{\%d} 跳過空白，\texttt{\%c} 不跳
+\item \textbf{轉換用標準函式}：\texttt{toupper}/\texttt{tolower} 優於手寫
+公式
+\end{itemize}
+
+\keypoint{字元處理的核心是理解「字元是整數」以及「逐字元流式處理」的思
+想；掌握這兩點，從簡單的分類判斷到複雜的狀態機就都能應對。}
+
+\begin{drills}[label=drills:char-pitfalls]
+\item \texttt{scanf("\%d", \&x)} 之後緊接著 \texttt{scanf("\%c", \&c)}，
+\texttt{c} 常常會讀到什麼字元？ 該怎麼修正？
+\item 為什麼把 \texttt{char c} 直接丟進 \texttt{isalpha(c)} 有風險？
+正確做法是什麼？
+\item \texttt{toupper}/\texttt{tolower} 已經處理好大小寫轉換，為什麼
+不建議自己手寫 \texttt{c - 32} 這類算式？
+\end{drills}
+
+\addcontentsline{toc}{section}{練習解答}
+\section*{練習解答}
+
+各節練習的答案收在這裡。 短題只給能一句話核對的結果。
+
+\paragraph{第~\ref{sec:char-nature}~節}
+\begin{enumerate}
+\item \texttt{'A'} 是 $65$；\texttt{'a'} 是 $97$。
+\item 資料本身沒有改變，改變的只是\emph{解讀方式}：同一組位元，
+\texttt{\%c} 當成符號印，\texttt{\%d} 當成整數印。
+\item 視為 \texttt{unsigned char} 時是 $0$ 到 $255$；視為
+\texttt{signed char} 時是 $-128$ 到 $127$。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:char-io}~節}
+\begin{enumerate}
+\item 不會。 \texttt{\%c} 會直接讀下一個字元，包括空白字元。
+\item 某些系統上 \texttt{char} 裝不下 \texttt{EOF}（通常是 $-1$），迴
+圈可能永遠比不到真正的 \texttt{EOF}，變成無窮迴圈。
+\item 讀到 \texttt{getchar()} 回傳 \texttt{EOF} 時終止，也就是輸入串
+流結束的時候。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:char-escape}~節}
+\begin{enumerate}
+\item \texttt{\textbackslash t} 讓游標跳到下一個定位點；
+\texttt{\textbackslash n} 讓游標換到下一行開頭。
+\item \texttt{\textbackslash"}。
+\item \texttt{\textbackslash\textbackslash}。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:char-classify}~節}
+\begin{enumerate}
+\item \texttt{isdigit('7')} 是真；\texttt{isalpha('7')} 是假（\texttt{'7'}
+是數字不是字母）。
+\item 不一樣。 \texttt{isprint(' ')} 是真（空格算可印字元），
+\texttt{isgraph(' ')} 是假（\texttt{isgraph} 不把空格算進去）。
+\item 沒有現成函式；要自己寫條件式，例如逐一比對
+\texttt{'a'/'e'/'i'/'o'/'u'} 及其大寫。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:char-convert}~節}
+\begin{enumerate}
+\item \texttt{toupper('a')} 是 \texttt{'A'}；\texttt{toupper('5')} 原
+樣回傳 \texttt{'5'}（不是字母就不轉換）。
+\item 輸出 \texttt{A a}：先印大寫版本，再印小寫版本。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:char-arithmetic}~節}
+\begin{enumerate}
+\item 結果是 $7$；靠的是 \texttt{'0'} 到 \texttt{'9'} 的 ASCII 碼連續
+遞增這個性質。
+\item \texttt{op} 會存到 \texttt{'+'}。
+\item 因為超大整數裝不進任何整數型別；只需要逐字元累加各位數字之
+和，就能判斷整除性，不需要把整個數字存起來。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:char-advanced}~節}
+\begin{enumerate}
+\item 遇到非字母字元（例如空白或標點）時，代表目前累積的單字結束
+了。
+\item 因為使用者可能多打了字元或整行輸入；不清掉的話，這些殘留字元
+會被下一次讀取誤讀，讓程式跳過應有的提示或輸入。
+\item 把視窗最前面的字元丟掉，其餘往前移一位，新字元補進最後一個位
+置（\texttt{window[0]=window[1]; window[1]=window[2]; window[2]=c;}）。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:char-pitfalls}~節}
+\begin{enumerate}
+\item 常常讀到上一次 \texttt{scanf("\%d")} 留在緩衝區裡的換行符
+\texttt{'\textbackslash n'}；修正方式是在第二個 \texttt{scanf} 前先用
+\texttt{scanf("\%c", \&dummy)} 或 \texttt{getchar()} 把換行消耗掉。
+\item 若系統上 \texttt{char} 是有號的，超過 $127$ 的位元組值轉成
+\texttt{int} 後會變成負數，丟進 \texttt{isalpha} 這類函式行為沒有保
+證；正確做法是先轉型成 \texttt{(unsigned char)} 再傳入。
+\item 因為 \texttt{c - 32} 這類算式只對特定編碼（如 ASCII）成立，且
+沒有處理輸入不是字母的情況；標準函式已經封裝好這些細節，比手寫公式
+更可靠。
+\end{enumerate}

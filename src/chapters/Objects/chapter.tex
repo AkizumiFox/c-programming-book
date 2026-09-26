@@ -1,0 +1,369 @@
+\chapter{堆疊與物件}
+
+堆疊（Stack）是最重要的資料結構之一。 LIFO（後進先出）原則在括號匹配、函式呼叫、表達式求值等場景中無所不在。 這章從堆疊的基本概念開始，介紹兩種實現方式（陣列和鏈結序列），然後展示如何用堆疊解決實際問題。 最後強調用 struct 和函式封裝資料的物件導向優勢。
+
+\section{堆疊概念與操作}
+
+堆疊是後進先出（LIFO）的資料結構。 只能從頂端插入和刪除元素。
+
+\subsection*{堆疊的定義}
+
+\begin{code}{c}{stack basics}
+// push: insert at top
+// pop: remove from top
+// peek: view top without removing
+// isEmpty: check if empty
+// isFull: check if full
+
+Stack: [1, 2, 3, 4, 5]
+              ^
+              top
+\end{code}
+
+\subsection*{堆疊的應用}
+
+\begin{itemize}
+\item 函式呼叫堆疊：自動管理函式的本地變數
+\item 括號匹配：檢查括號是否平衡
+\item 撤銷功能：存儲編輯歷史
+\item 表達式求值：計算 1 + 2 * 3
+\item 深度優先搜尋（DFS）：手工模擬遞迴呼叫
+\end{itemize}
+
+\keypoint{LIFO 特性使堆疊適合追蹤狀態與回溯問題。}
+
+\section{堆疊的陣列實作}
+
+\subsection*{堆疊結構與標頭檔}
+
+用陣列實現堆疊。 用 \texttt{top} 紀錄頂端位置。
+
+\begin{code}{c}{stack structure}
+#define MAX_SIZE 100
+
+typedef struct {
+    int data[MAX_SIZE];
+    int top;
+} Stack;
+
+// stack.h: function declarations
+void stack_init(Stack *s);
+void push(Stack *s, int value);
+int pop(Stack *s);
+int peek(Stack *s);
+int isEmpty(Stack *s);
+int isFull(Stack *s);
+\end{code}
+
+\subsection*{堆疊函式實作}
+
+\begin{code}{c}{stack operations}
+void stack_init(Stack *s) {
+    s->top = -1;
+}
+
+void push(Stack *s, int value) {
+    assert(s->top < MAX_SIZE - 1);
+    s->data[++s->top] = value;
+}
+
+int pop(Stack *s) {
+    assert(s->top >= 0);
+    return s->data[s->top--];
+}
+
+int peek(Stack *s) {
+    assert(s->top >= 0);
+    return s->data[s->top];
+}
+
+int isEmpty(Stack *s) {
+    return s->top < 0;
+}
+
+int isFull(Stack *s) {
+    return s->top >= MAX_SIZE - 1;
+}
+\end{code}
+
+\subsection*{分別編譯方法}
+
+\begin{code}{c}{separate compilation}
+// Compile stack.c
+gcc -c stack.c -o stack.o
+
+// Compile main.c
+gcc -c main.c -o main.o
+
+// Link object files
+gcc stack.o main.o -o stack_demo
+
+// Or one-step compilation
+gcc stack.c main.c -o stack_demo
+\end{code}
+
+\keypoint{分別編譯提高開發效率，支援大型專案。 標頭檔隱藏實現細節。}
+
+\section{括號平衡判別}
+
+\subsection*{問題描述}
+
+判定一個字符串中的括號是否平衡。
+
+\begin{code}{c}{parenthesis examples}
+"(())"      // balanced
+"(()(("     // not balanced
+")("        // not balanced
+"()()"      // balanced
+\end{code}
+
+\subsection*{演算法}
+
+遇到左括號入堆疊，遇到右括號檢查堆疊頂。
+
+\begin{example}{c}{(balance.c) Parenthesis matching}
+#include <stdio.h>
+#include <string.h>
+#include <assert.h>
+
+#define MAX_SIZE 100
+
+typedef struct {
+    char data[MAX_SIZE];
+    int top;
+} Stack;
+
+void stack_init(Stack *s) {
+    s->top = -1;
+}
+
+void push(Stack *s, char c) {
+    assert(s->top < MAX_SIZE - 1);
+    s->data[++s->top] = c;
+}
+
+char pop(Stack *s) {
+    assert(s->top >= 0);
+    return s->data[s->top--];
+}
+
+int isEmpty(Stack *s) {
+    return s->top < 0;
+}
+
+int isBalanced(const char *str) {
+    Stack s;
+    stack_init(&s);
+
+    for (int i = 0; str[i]; i++) {
+        if (str[i] == '(') {
+            push(&s, '(');
+        } else if (str[i] == ')') {
+            if (isEmpty(&s)) return 0;
+            pop(&s);
+        }
+    }
+    return isEmpty(&s);
+}
+
+int main() {
+    printf("%d\n", isBalanced("(())"));
+    printf("%d\n", isBalanced("(()"));
+    printf("%d\n", isBalanced("()()"));
+}
+\end{example}
+
+\iosample{
+}{
+1 \\
+0 \\
+1 \\
+}
+
+\subsection*{多種括號}
+
+擴展支援多種括號類型。
+
+\begin{code}{c}{multiple bracket types}
+int isBalancedMulti(const char *str) {
+    Stack s;
+    stack_init(&s);
+
+    for (int i = 0; str[i]; i++) {
+        char c = str[i];
+        if (c == '(' || c == '[' || c == '{') {
+            push(&s, c);
+        } else if (c == ')' || c == ']' || c == '}') {
+            if (isEmpty(&s)) return 0;
+            char top = pop(&s);
+            if ((c == ')' && top != '(') ||
+                (c == ']' && top != '[') ||
+                (c == '}' && top != '{')) {
+                return 0;
+            }
+        }
+    }
+    return isEmpty(&s);
+}
+\end{code}
+
+\keypoint{堆疊自然適合括號匹配問題。}
+
+\section{對稱字符串}
+
+\subsection*{Palindrome 判別}
+
+字符串正讀和倒讀相同。
+
+\begin{example}{c}{(palindrome.c) Check palindrome}
+#include <stdio.h>
+#include <string.h>
+#include <assert.h>
+
+#define MAX_SIZE 100
+
+typedef struct {
+    char data[MAX_SIZE];
+    int top;
+} Stack;
+
+void stack_init(Stack *s) {
+    s->top = -1;
+}
+
+void push(Stack *s, char c) {
+    assert(s->top < MAX_SIZE - 1);
+    s->data[++s->top] = c;
+}
+
+char pop(Stack *s) {
+    assert(s->top >= 0);
+    return s->data[s->top--];
+}
+
+int isEmpty(Stack *s) {
+    return s->top < 0;
+}
+
+int isPalindrome(const char *str) {
+    int len = strlen(str);
+    Stack s;
+    stack_init(&s);
+
+    for (int i = 0; i < len / 2; i++) {
+        push(&s, str[i]);
+    }
+
+    int start = (len % 2 == 0) ? len / 2 : len / 2 + 1;
+
+    for (int i = start; i < len; i++) {
+        if (pop(&s) != str[i]) return 0;
+    }
+    return isEmpty(&s);
+}
+
+int main() {
+    printf("%d\n", isPalindrome("racecar"));
+    printf("%d\n", isPalindrome("madam"));
+    printf("%d\n", isPalindrome("hello"));
+}
+\end{example}
+
+\iosample{
+}{
+1 \\
+1 \\
+0 \\
+}
+
+\section{堆疊的鏈結序列實作}
+
+\subsection*{動態堆疊}
+
+用鏈結序列實現堆疊，無大小限制。
+
+\begin{code}{c}{stack with linked list}
+typedef struct Node {
+    int data;
+    struct Node *next;
+} Node;
+
+typedef struct {
+    Node *top;
+} Stack;
+
+void stack_init(Stack *s) {
+    s->top = NULL;
+}
+
+void push(Stack *s, int value) {
+    Node *new_node = (Node *)malloc(sizeof(Node));
+    assert(new_node != NULL);
+    new_node->data = value;
+    new_node->next = s->top;
+    s->top = new_node;
+}
+
+int pop(Stack *s) {
+    assert(s->top != NULL);
+    Node *temp = s->top;
+    int value = temp->data;
+    s->top = s->top->next;
+    free(temp);
+    return value;
+}
+
+int isEmpty(Stack *s) {
+    return s->top == NULL;
+}
+\end{code}
+
+\subsection*{介面統一}
+
+陣列版和鏈表版的標頭檔相同。
+
+\begin{code}{c}{same interface}
+// Both implementations have same interface:
+Stack *stack_create();
+void push(Stack *s, int value);
+int pop(Stack *s);
+int isEmpty(Stack *s);
+void stack_destroy(Stack *s);
+\end{code}
+
+\keypoint{介面統一是多態的基礎。}
+
+\section{物件導向的優勢}
+
+\subsection*{堆疊作為物件}
+
+用結構和函式封裝資料，形成完整的「物件」。
+
+\begin{code}{c}{stack as object}
+// stack.h defines the interface
+typedef struct Stack Stack;
+
+Stack *stack_create(int max_size);
+void push(Stack *s, int value);
+int pop(Stack *s);
+void stack_destroy(Stack *s);
+
+// main.c uses the object
+Stack *s = stack_create(100);
+push(s, 10);
+push(s, 20);
+printf("%d\n", pop(s));
+stack_destroy(s);
+\end{code}
+
+\subsection*{OOP 優勢}
+
+\begin{itemize}
+\item 模組化：堆疊獨立於主程式
+\item 可重用性：同一堆疊可用於多個專案
+\item 易於維護：修改實作不影響使用者
+\item 易於測試：獨立測試堆疊功能
+\item 易於擴展：新增操作只需修改實作檔
+\end{itemize}
+
+\keypoint{即使 C 也能實現物件的核心思想。}

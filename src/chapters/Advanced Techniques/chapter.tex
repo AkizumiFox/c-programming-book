@@ -1,0 +1,303 @@
+\chapter{高等技術}
+
+本章探討更進階的 C 語言特性。 從命令列參數到函式指標，這些技術讓程式與操作系統和外部世界更好地互動。
+
+\section{命令列參數解析}
+
+程式可接收命令列參數。 \texttt{argc} 是參數個數，\texttt{argv} 是參數陣列。
+
+\begin{code}{c}{command line args}
+#include <stdio.h>
+
+int main(int argc, char *argv[]) {
+    printf("Program name: %s\n", argv[0]);
+    printf("Number of arguments: %d\n", argc - 1);
+
+    for (int i = 1; i < argc; i++) {
+        printf("Argument %d: %s\n", i, argv[i]);
+    }
+    return 0;
+}
+\end{code}
+
+執行：
+
+\begin{code}{bash}{running with args}
+$ ./program arg1 arg2 arg3
+Program name: ./program
+Number of arguments: 3
+Argument 1: arg1
+Argument 2: arg2
+Argument 3: arg3
+\end{code}
+
+\keypoint{\texttt{argv[0]} 是程式名，\texttt{argv[1]} 到 \texttt{argv[argc-1]} 是引數。}
+
+\section{命令列應用實例}
+
+\subsection*{讀取並處理檔案}
+
+\begin{code}{c}{file processing}
+#include <stdio.h>
+#include <stdlib.h>
+
+int main(int argc, char *argv[]) {
+    if (argc < 2) {
+        fprintf(stderr, "Usage: %s <filename>\n", argv[0]);
+        return 1;
+    }
+
+    FILE *fp = fopen(argv[1], "r");
+    if (!fp) {
+        perror("Cannot open file");
+        return 1;
+    }
+
+    char line[256];
+    while (fgets(line, sizeof(line), fp)) {
+        printf("%s", line);
+    }
+
+    fclose(fp);
+    return 0;
+}
+\end{code}
+
+\subsection*{計算數字和}
+
+\begin{example}{c}{(sum-args.c) Sum command line numbers}
+#include <stdio.h>
+#include <stdlib.h>
+
+int main(int argc, char *argv[]) {
+    if (argc < 2) {
+        fprintf(stderr, "Usage: %s <num1> <num2> ...\n", argv[0]);
+        return 1;
+    }
+
+    int sum = 0;
+    for (int i = 1; i < argc; i++) {
+        int num = atoi(argv[i]);
+        sum += num;
+    }
+
+    printf("Sum: %d\n", sum);
+    return 0;
+}
+\end{example}
+
+\keypoint{命令列參數讓程式更靈活。 檔案名、設置都可透過參數傳遞。}
+
+\section{全域變數與 extern}
+
+全域變數跨檔案可見。 \texttt{extern} 宣告引用其他檔案的全域變數。
+
+\subsection*{跨檔案全域變數}
+
+檔案 1：\texttt{globals.c}
+
+\begin{code}{c}{global variable definition}
+int global_count = 0;
+
+void increment() {
+    global_count++;
+}
+\end{code}
+
+檔案 2：\texttt{main.c}
+
+\begin{code}{c}{extern variable}
+#include <stdio.h>
+
+extern int global_count;
+void increment();
+
+int main() {
+    printf("Count: %d\n", global_count);
+    increment();
+    printf("Count: %d\n", global_count);
+    return 0;
+}
+\end{code}
+
+\subsection*{static 全域變數：檔案作用域}
+
+\begin{code}{c}{static global}
+// In globals.c
+static int counter = 0;
+
+void increment() {
+    counter++;
+}
+
+int get_counter() {
+    return counter;
+}
+
+// main.c cannot access counter directly
+\end{code}
+
+\keypoint{\texttt{extern} 引用外部全域變數。 \texttt{static} 限制作用域到單檔案。}
+
+\section{函式指標}
+
+指標可指向函式。 透過函式指標呼叫函式，實現回調和多態。
+
+\begin{code}{c}{function pointers}
+#include <stdio.h>
+
+int add(int a, int b) { return a + b; }
+int mul(int a, int b) { return a * b; }
+
+int main() {
+    int (*func_ptr)(int, int);
+
+    func_ptr = add;
+    printf("add: %d\n", func_ptr(3, 4));
+
+    func_ptr = mul;
+    printf("mul: %d\n", func_ptr(3, 4));
+
+    return 0;
+}
+\end{code}
+
+\subsection*{回調函式模式}
+
+\begin{code}{c}{callback pattern}
+#include <stdio.h>
+#include <string.h>
+
+typedef int (*CompareFunc)(const void*, const void*);
+
+int compare_int(const void *a, const void *b) {
+    return *(int*)a - *(int*)b;
+}
+
+void sort_with_callback(int *arr, int n,
+                       CompareFunc compare) {
+    // Simple bubble sort using callback
+    for (int i = 0; i < n - 1; i++) {
+        for (int j = 0; j < n - i - 1; j++) {
+            if (compare(&arr[j], &arr[j+1]) > 0) {
+                int temp = arr[j];
+                arr[j] = arr[j+1];
+                arr[j+1] = temp;
+            }
+        }
+    }
+}
+
+int main() {
+    int arr[] = {5, 2, 8, 1};
+    sort_with_callback(arr, 4, compare_int);
+    return 0;
+}
+\end{code}
+
+\keypoint{函式指標實現回調。 \texttt{qsort} 和 \texttt{bsearch} 內部使用回調。}
+
+\section{變長陣列 (VLA)}
+
+C99 支援執行時決定的陣列大小。 但要小心棧空間限制。
+
+\begin{code}{c}{variable length arrays}
+#include <stdio.h>
+
+int main() {
+    int n;
+    printf("Array size: ");
+    scanf("%d", &n);
+
+    int arr[n];  // Size determined at runtime
+
+    for (int i = 0; i < n; i++) {
+        arr[i] = i * i;
+    }
+
+    for (int i = 0; i < n; i++) {
+        printf("%d ", arr[i]);
+    }
+    return 0;
+}
+\end{code}
+
+\subsection*{VLA vs malloc}
+
+VLA 快但有棧大小限制。 大陣列用 \texttt{malloc}。
+
+\begin{code}{c}{VLA considerations}
+// Small arrays: use VLA
+int small[100];
+
+// Large arrays: use malloc
+int n = 1000000;
+int *large = (int*)malloc(n * sizeof(int));
+if (large) {
+    // use large
+    free(large);
+}
+\end{code}
+
+\keypoint{VLA 方便但棧有限。 大於 MB 的陣列應用 \texttt{malloc}。}
+
+\section{綜合應用}
+
+多檔案程式使用上述技術實現模組化設計。
+
+\subsection*{專案結構}
+
+\begin{code}{text}{project layout}
+project/
+  Makefile
+  math.h
+  math.c
+  utils.h
+  utils.c
+  main.c
+\end{code}
+
+\subsection*{header 檔案設計}
+
+\texttt{math.h}：
+
+\begin{code}{c}{header file}
+#ifndef MATH_H
+#define MATH_H
+
+int add(int a, int b);
+int sub(int a, int b);
+int mul(int a, int b);
+
+#endif
+\end{code}
+
+\subsection*{實作與連結}
+
+\begin{code}{c}{implementation}
+// math.c
+#include "math.h"
+
+int add(int a, int b) { return a + b; }
+int sub(int a, int b) { return a - b; }
+int mul(int a, int b) { return a * b; }
+
+// main.c
+#include <stdio.h>
+#include "math.h"
+
+int main() {
+    printf("%d\n", add(5, 3));
+    return 0;
+}
+\end{code}
+
+編譯：
+
+\begin{code}{bash}{makefile}
+gcc -c math.c -o math.o
+gcc -c main.c -o main.o
+gcc math.o main.o -o program
+\end{code}
+
+\keypoint{多檔案程式靠 header 檔宣告、實作檔定義、Makefile 連結。}

@@ -1,0 +1,663 @@
+\chapter{介紹}
+\label{ch:introduction}
+
+程式設計，白話說，就是寫出一段段指令，命令計算機替我們完成工作。
+計算機本身只看得懂非常底層的機器指令，例如把記憶體某個位置的數字
+載入暫存器、再加 $3$ 這類一步一動作的操作。但我們不可能用這種方式
+寫出稍具規模的程式。高階程式語言讓我們可以用接近日常思考的方式描述
+問題，再由\emph{編譯器}把這些描述翻譯成計算機真正執行的機器碼。本書
+要教的高階語言是 C。它夠接近硬體，讓我們能看清程式在記憶體裡實際
+發生什麼事，又比機器語言或組合語言好寫得多。對之後想走系統程式、
+作業系統、嵌入式或底層開發的讀者，這是一條很實用的起點。
+
+這一章不會一次塞進太多語法細節。我們先把幾件基礎事情講清楚：程式到
+底是什麼、機器語言和高階語言差在哪裡、為什麼需要編譯器、寫程式時如
+何用流程圖把思路畫出來，以及一份 \texttt{.c} 文字檔怎麼變成螢幕上的
+結果。路徑是：先看到一支最小的 \texttt{Hello, world!} 並逐行讀懂，
+再用這支程式示範 \texttt{gcc} 與編譯流程，最後集中說明語法、執行期
+與邏輯三種錯誤。更完整的變數、輸入輸出與運算，留到下一章基本程式架
+構再細講。
+
+\section{程式是什麼}
+\label{sec:intro-what-is-programming}
+
+程式的英文是 \emph{program}。如果把計算機想成一位只會照劇本演出的演
+員，那程式就是給它看的劇本：劇本裡一行行寫著先做 A、再做 B、如果條
+件成立就改做 C。計算機的中央處理器（CPU）其實只做一件很單純的事
+。從記憶體讀出一條指令、執行它、再讀下一條。但把大量這種簡單動作
+串起來，就能播放音樂、渲染網頁、控制馬達、或是批改作業。
+
+我們平常接觸到的檔案、照片、影片，在計算機裡本質上都是\emph{數字}：
+文字每個字元對應一個編號，圖片的每個像素也是一組數字。CPU 能直接處
+理的指令同樣是一組組數字，這種計算機原生的指令格式就叫做\emph{機器語
+言}（machine language）。機器語言對人類極不友善：同一件把兩個整數
+相加的事，可能要拆成把記憶體位址 $A$ 的值載入暫存器、把記憶體位
+址 $B$ 的值載入另一個暫存器、把兩個暫存器相加、把結果寫回記憶體位址
+$C$ 好幾步，而且每一步的編碼還會隨 CPU 廠牌而不同。
+
+\emph{暫存器}（register）是 CPU 內部極少量、極快的儲存格；\emph{記憶
+體}（main memory）容量大得多，但存取比較慢。程式執行時，資料經常在
+這兩層之間搬來搬去。現在不必把硬體細節背下來，只要先有這個畫面：我
+們寫的每一個變數，最終都會落在某個記憶體位址上；CPU 則靠暫存器做計
+算。後面學到指標時，這個畫面會變成核心工具。
+
+\emph{高階程式語言}（high-level programming language）在機器語言和我
+們之間加了一層：我們寫 \texttt{total = a + b;}，編譯器負責把它展開成
+機器看得懂的指令序列。這樣我們可以把精力放在要解決什麼問題，而
+不是這顆 CPU 的第幾號暫存器該放什麼。本書使用的 C 就是這樣一種
+高階語言。但它又比許多現代語言更貼近機器：C 程式編譯後通常很精簡、
+跑得很快，而且語言本身提供了直接操作記憶體位址、位元組合的能力，所
+以作業系統、驅動程式、嵌入式韌體這類必須跟硬體打交道的軟體，長
+期以來都以 C 為主要工具之一。
+
+\keypoint{程式是給計算機執行的指令序列。機器語言是 CPU 看得懂的數字
+編碼；高階語言讓人用接近思考的方式寫，再由編譯器翻譯成機器語言。}
+
+跟機器語言同一層、但用助記符號（例如 \texttt{ADD}、\texttt{MOV}）來寫
+的，叫做\emph{組合語言}（assembly language）。組合語言仍然幾乎一對一
+對應某顆 CPU 的指令，換一種處理器通常就要重寫。C 比組合語言高一層：
+同一份 C 原始碼，只要有對應的編譯器，就有機會在不同硬體上產生各自的
+機器碼。這就是下一節要說的可攜性。
+
+\begin{drills}[label=drills:intro-what-is-programming]
+\item 機器語言跟高階語言，哪一種是 CPU 直接看得懂的？哪一種比較貼近
+人類原本的思考方式？
+\item 暫存器（register）跟記憶體（main memory），哪一個容量比較大、
+但存取比較慢？
+\item 用一句話說明「編譯器」在這一節裡扮演的角色。
+\end{drills}
+
+\section{為什麼是 C}
+\label{sec:intro-why-c}
+
+C 語言誕生於 1970 年代初的 Bell Labs。Dennis Ritchie 與 Ken Thompson
+在開發 UNIX 作業系統時，需要一種比組合語言更好維護、又比當時其他高
+階語言更高效的語言；C 從 Thompson 的 B 語言演化而來，並在 1973 年前後
+讓整個 UNIX 核心改用 C 重寫。這件事的意義很大：同一套 C 原始碼，只
+要換一個\emph{編譯器}，就有機會在不同的硬體上執行，\emph{可攜性}
+（portability）從此成為 C 的招牌之一。
+
+後來 Brian Kernighan 與 Dennis Ritchie 合著的 \emph{The C Programming
+Language}（常被稱為 K\&R）在 1978 年出版，幾乎成為當時 C 的事實標準；
+1989 年 ANSI 公布正式標準（常稱 C89 或 C90），之後又有 C99、C11 等修
+訂。
+
+\textbf{本書採用 C99 標準}。C99 是 1999 年制定的標準，在現代實務中仍
+是最常見的選擇：相比 C89，它新增了許多方便的特性（例如 \texttt{for}
+迴圈裡可以直接宣告迴圈變數 \texttt{int i}、支持 \texttt{//} 單行註解），
+又沒有 C11 以後那些比較複雜的新機制。本書所有範例和說明都依循 C99 標準，
+用 \texttt{gcc -std=c99} 或 Clang 等現代編譯器都可以順利編譯執行。如果
+你的環境是舊版 C89，會遇到個別語法不相容（例如迴圈變數宣告會失敗），到
+時候按照編譯器的錯誤訊息調整即可。
+
+跟 Python、Java 這類記憶體由執行環境代管的語言相比，C 把更多責任
+留給程式設計師：陣列有沒有越界、指標指到哪裡、配置到的記憶體有沒有
+歸還，編譯器往往不會幫你擋。這聽起來像缺點，但對想理解程式在機器
+上實際怎麼跑的人來說，反而是優點。你寫的每一行，比較容易對應到記
+憶體裡發生的事。許多語言的執行環境、虛擬機、甚至作業系統核心，底層
+仍大量用 C 寫成；學會 C，等於拿到一把能往下挖的鏟子。
+
+當然，C 不是唯一選擇，也不會是終點。C++、Rust、Go 等語言在 C 的基礎
+上各自加了不同的抽象。但 C 的語法與思維方式影響深遠：學過 C 之後再
+讀其他語言，很多底層概念（堆疊、指標、位元表示）會比較容易對上號。
+本書後半會一路教到指標、記憶體配置、位元操作與資料結構。都是走
+low-level／systems 方向時避不開的基本功。
+
+\keypoint{C 夠接近硬體、執行效率高、可攜性好；代價是許多錯誤要靠程
+式設計師自己避免。本書選擇 C，正是為了把記憶體裡實際發生什麼事
+講清楚。}
+
+\subsection{編譯器和直譯器差在哪裡}
+
+把高階語言變成機器能跑的東西，常見有兩條路。\emph{編譯器}把整份程
+式一次翻譯成執行檔，之後每次執行都直接跑那份機器碼，不必再看原始
+碼。C 走這條路：你改一行，就要重新編譯，換來的是執行時通常比較快、
+也比较接近硬體。
+
+\emph{直譯器}（interpreter）則是邊讀邊執行：它讀到一條敘述，立刻做
+那一條要求的事，通常不會先產出一份獨立的執行檔。許多教學語言一開
+始用直譯，改完馬上試，回饋比較快；代價是執行期多了一層讀程式、再
+做事的開銷，而且發佈給別人跑時，對方機器上也得有那個直譯器。
+
+現實世界很少那麼黑白。有些語言先編譯成一種中間碼，再由虛擬機執行；
+有些直譯器也會把熱門片段編譯加速。對我們來說，先抓住一件事就夠：
+\textbf{C 程式必須先通過編譯，才有東西可以執行}。編譯失敗時，螢幕
+上不會出現你預期的 \texttt{Hello, world!}，只會出現編譯器的抱怨。
+後面會先給出第一支程式，再示範 \texttt{gcc} 怎麼把它變成可執行檔，
+最後集中說明怎麼讀編譯器與執行期的訊息。
+
+標準函式庫也屬於這條翻譯鏈的一部分。C 語言核心並沒有印一行字
+這種內建指令；\texttt{printf} 的宣告寫在 \texttt{stdio.h} 裡，真正的
+機器碼則在系統提供的函式庫裡。編譯器負責檢查你有沒有用對，連結器
+負責把函式庫裡的實作接進來。這就是為什麼最小的程式也要寫
+\texttt{\#include <stdio.h>}：它是告訴工具鏈我要用標準
+輸入輸出這一套現成的工具。
+
+\begin{drills}[label=drills:intro-why-c]
+\item C 語言最早是為了開發哪個作業系統而設計出來的？
+\item 本書採用哪一個 C 標準？相比 C89，它新增的其中一項方便特性是什
+麼？
+\item 編譯器跟直譯器，哪一種是「先把整份程式翻譯成執行檔，之後每次
+執行都直接跑那份機器碼」？C 走哪一條路？
+\item 為什麼很多作業系統、驅動程式仍然用 C 寫，而不是 Python 這類語
+言？
+\end{drills}
+
+\section{用流程圖把思路畫出來}
+\label{sec:intro-flowchart}
+
+還沒寫程式之前，先問一個問題：這支程式要做哪些步驟、遇到條件時走哪
+一條路？ 把答案畫成圖，常常比直接在編輯器裡打字更不容易卡住。
+\emph{流程圖}（flowchart）用方塊表示一個動作，用菱形表示一個是非
+問題，用箭頭表示下一步往哪裡走。流程圖給\emph{人}看的草圖，編譯
+器不會讀它；後面學到判斷與迴圈時，菱形對應 \texttt{if} 的條件，繞
+回來的箭頭對應 \texttt{while}。現在只先養成習慣：步驟不清時先畫，
+不要一開場就在細節裡迷路。
+
+下面這張圖比 \texttt{Hello, world!} 還小：先印一行字，然後結束。中
+間沒有任何判斷。下一節就要看到對應的 C 程式。
+
+\begin{center}
+\begin{tikzpicture}[node distance=10mm]
+    \node[startend] (s) {開始};
+    \node[process, below=of s] (p) {印出 Hello, world!};
+    \node[startend, below=of p] (e) {結束};
+    \draw[flowarrow] (s.south) -- (p.north);
+    \draw[flowarrow] (p.south) -- (e.north);
+\end{tikzpicture}
+\diagcaption{最小流程圖：沒有判斷，從開始依序執行一個動作後結束。
+對應到下一節的第一個 C 程式。}
+\label{fig:ch01-hello-world-flow}
+\end{center}
+
+\stylepoint{流程圖裡每個判斷只問一件事，每個動作方塊只做一件事。圖
+畫得太擠，通常代表思路還沒切乾淨，寫成程式也會擠在同一段裡。}
+
+\begin{drills}[label=drills:intro-flowchart]
+\item 流程圖裡，方塊、菱形、箭頭分別代表什麼？
+\item 編譯器會不會讀你畫的流程圖？它是畫給誰看的？
+\item 圖~\ref{fig:ch01-hello-world-flow} 那張「最小流程圖」裡，一共有
+幾個動作方塊？做了什麼事？
+\end{drills}
+
+\section{第一個 C 程式}
+\label{sec:intro-first-program}
+
+傳統上，學一門新語言的第一個程式會印出 \texttt{Hello, world!}。它夠
+短，卻已經包含一個完整 C 程式必備的幾個部分：引入標準標頭、定義
+\texttt{main} 函式、在函式裡下達指令、最後把控制權交還作業系統。範
+例 \thechapter.1 就是這個程式；我們先把它讀懂，再逐行說明每一部分
+在做什麼。
+
+\begin{example}{c}{(hello-world.c) 第一個 C 程式}
+#include <stdio.h>
+
+int main(void) {
+    printf("Hello, world!\n");
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+Hello, world! \\
+}
+
+這個程式沒有讀任何輸入，因此下面只示範輸出；執行後終端機只會印出一
+行 \texttt{Hello, world!}，然後程式正常結束。
+
+\subsection{逐行閱讀}
+
+\textbf{第 1 行：\texttt{\#include <stdio.h>}}
+
+這是給\emph{前置處理器}（preprocessor）的指令。
+前置處理器在編譯器正式分析程式之前先跑一輪；\texttt{\#include} 的意
+思是把另一個檔案的內容插入到這裡。\texttt{stdio.h} 是 C 標準函
+式庫裡與\emph{標準輸入／輸出}（standard I/O）有關的標頭檔（header），
+裡面宣告了 \texttt{printf} 等函式，讓編譯器知道呼叫 \texttt{printf}
+時參數該長什麼樣子。沒有這一行，後面的 \texttt{printf} 可能無法通
+過編譯。標頭檔通常只放\emph{宣告}；真正的函式機器碼在編譯器附帶的
+函式庫裡，連結階段會自動把需要的部分拉進執行檔。
+
+尖括號 \texttt{<stdio.h>} 表示到系統提供的標準目錄裡找這個檔案。
+之後若要引入自己寫的標頭，會改用雙引號 \texttt{"myheader.h"}，那是後
+面章節的事。現在只要記住：幾乎每個會印東西、讀輸入的程式，開頭都有
+這一行。
+
+\textbf{第 2 行：空行}
+
+\texttt{\#include} 之後空一行，再進入 \texttt{main}，是本書（以及許
+多 C 專案）的排版習慣：把引入外部標頭和我們自己寫的程式本體
+視覺上分開，比較好讀。C 編譯器會忽略多餘的空白行，加不加不影響語意。
+
+\textbf{第 3 行：\texttt{int main(void) \{}}
+
+C 程式是由\emph{函式}（function）組成的；每個可執行程式都必須有一個
+名叫 \texttt{main} 的函式。程式開始執行時，作業系統會把控制權交給
+\texttt{main}，從這裡開始跑。\texttt{int} 表示 \texttt{main} 結束時
+要\emph{回傳}一個整數給作業系統：慣例上回傳 \texttt{0} 代表正常結
+束，非零值常用來表示發生錯誤。函式名稱後面的 \texttt{(void)} 明確
+表示 \texttt{main} 不接收任何參數——\texttt{void} 在這裡的意思是
+「空的」；若需要接收命令列參數，可以寫成
+\texttt{int main(int argc, char *argv[])}，那是進階話題，現在先記住
+程式從 \texttt{main} 開始就夠了。行尾的 \texttt{\{} 標記函式
+\emph{本體}的開始，對應的最後一行 \texttt{\}} 標記結束。
+
+本書之後所有範例都會寫成 \texttt{int main(void)}，不會省略成
+\texttt{int main()}：兩者在大多數編譯器裡效果相同，但空括號
+\texttt{()} 在 C 語言裡原本代表「參數不確定」，只是幾乎所有編譯器都
+把它當空參數處理；\texttt{(void)} 才是 C 標準明確定義的「不接收參
+數」寫法，讀起來也更不容易誤會。
+
+\textbf{第 4 行：\texttt{printf("Hello, world!\textbackslash n");}}
+
+\texttt{printf} 是標準函式庫裡負責\emph{格式化輸出}的函式，名字來自
+print formatted。括號裡的字串 \texttt{"Hello, world!\textbackslash n"}
+是要印的文字；其中的 \texttt{\textbackslash n} 是\emph{跳行}
+（newline）字元，代表印完這行後換到下一行。如果拿掉
+\texttt{\textbackslash n}，游標會停在同一行末尾，後續輸出會接在後面
+。很多初學者的第一個怎麼輸出怪怪的問題，都跟有沒有換行有關。
+整行結尾的分號 \texttt{;} 不能少：在 C 裡，大多數敘述都以分號結束，
+漏掉分號是編譯階段最常見的語法錯誤之一。
+
+\textbf{第 5 行：\texttt{return 0;}}
+
+把 \texttt{0} 回傳給作業系統，表示程式依預期跑完。對這麼短的程式，
+即使省略 \texttt{return 0;}，在 C99 之後的環境裡 \texttt{main} 也常會
+被視為隱含回傳 \texttt{0}；但養成明確寫 \texttt{return 0;} 的習慣，之
+後寫較大的程式時比較不會搞混到底有沒有正常結束。
+
+\textbf{第 6 行：\texttt{\}}}
+
+對應第 3 行的 \texttt{\{}，函式本體在這裡結束。整個 \texttt{main} 裡
+目前只有一條有效敘述（\texttt{printf}）加上 \texttt{return}；之後章
+節會在 \texttt{\{} \texttt{\}} 之間放進變數宣告、迴圈、條件判斷等更
+多內容，但骨架始終是 \texttt{main} 收到控制權 $\rightarrow$ 依序執
+行裡面的敘述 $\rightarrow$ 回傳結束碼。
+
+同一個程式也可以拆成兩次 \texttt{printf}。範例 \thechapter.2 先印
+\texttt{Hello,} 並換行，再印 \texttt{world!} 並換行。執行後會看到兩
+行，而不是一行裡的 \texttt{Hello, world!}。差在逗號後面有沒有立刻換
+行，以及 \texttt{world} 前面有沒有空白。這只是在示範：\texttt{main}
+裡的敘述依照寫下的順序一條一條執行，每一次 \texttt{printf} 都接著上
+一次結束的位置繼續印。
+
+\begin{example}{c}{(hello-two-lines.c) 用兩次 printf 印出兩行}
+#include <stdio.h>
+
+int main(void) {
+    printf("Hello,\n");
+    printf("world!\n");
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+Hello, \\
+world! \\
+}
+
+\texttt{\textbackslash n} 這種寫在字串裡、以反斜線開頭的組合，叫做
+\emph{跳脫序列}（escape sequence）。它不是把兩個字元反斜線和
+n 印到螢幕上，而是編譯器把它理解成一個特殊動作——這裡是換行。
+常用的還有 \texttt{\textbackslash t}（水平定位，看起來像跳到下一個
+定位點）、以及 \texttt{\textbackslash\textbackslash}（真的要印出一
+個反斜線時用）。範例 \thechapter.3 把逗號後面的換行改成定位，執行
+後 \texttt{Hello,} 與 \texttt{world!} 會出現在同一行，中間隔開一段
+空白。
+
+\begin{example}{c}{(hello-tab.c) 用跳脫序列插入定位}
+#include <stdio.h>
+
+int main(void) {
+    printf("Hello,\tworld!\n");
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+Hello,	world! \\
+}
+
+若把範例 \thechapter.1 裡的 \texttt{\textbackslash n} 整段拿掉，編譯
+仍然成功，螢幕上也看得到 \texttt{Hello, world!}，但下一行的終端機提
+示符會黏在同一行後面。這只是程式沒有把游標移到下一行。
+養成習慣：每一段你希望單獨成行的輸出，都自己寫上換行，不要依
+賴作業系統幫忙。
+
+\keypoint{最小的 C 程式需要 \texttt{\#include <stdio.h>}、一個
+\texttt{main} 函式，以及至少一條敘述。\texttt{printf} 字串裡的
+\texttt{\textbackslash n} 負責換行，敘述結尾的分號不能省。}
+
+\subsection{註解：寫給人看的說明}
+
+編譯器只在意語法是否合法；人還需要記得這一段為什麼這樣寫。
+\emph{註解}（comment）會被編譯器整段忽略，專門留給閱讀程式的人。C 有
+兩種常見寫法：\texttt{/* ... */} 可以跨很多行；\texttt{//} 從雙斜線寫
+到該行結尾（C99 起成為標準的一部分，現代編譯器都收）。
+
+\begin{code}{c}{兩種註解的寫法}
+/* 這一段到右方星號斜線為止，都可以寫說明。*/
+
+// 從雙斜線到這一行結束，都是註解。
+printf("Hello, world!\n");  // 印出一行字並換行
+\end{code}
+
+註解不要逐行把程式翻譯成中文（這裡把 $i$ 加一這種句子，看程式本
+身就知道）。比較有用的是解釋\emph{為什麼}：為什麼緩衝區要多留五格、
+為什麼這裡用 \texttt{long long} 而不是 \texttt{int}。範例
+\thechapter.1 短到幾乎不需要註解；程式一長，沒有註解的區塊就會變成謎。
+
+\stylepoint{註解寫為什麼，不要寫做了什麼。程式碼已經說了做
+什麼；註解負責補上讀程式的人看不到的意圖。}
+
+\begin{drills}[label=drills:intro-first-program]
+\item 把範例 \thechapter.1 裡的 \texttt{\textbackslash n} 拿掉，猜猜終
+端機會出現什麼狀況？
+\item \texttt{int main(void)} 裡的 \texttt{(void)} 是什麼意思？跟省
+略成 \texttt{int main()} 差在哪裡？
+\item \texttt{//} 註解跟 \texttt{/* */} 註解，哪一種可以跨很多行？
+\item 要把 \texttt{hello-world.c} 改成印兩次 \texttt{Hello, world!}，
+該怎麼改？
+\end{drills}
+
+\section{從原始碼到執行}
+\label{sec:intro-build-pipeline}
+
+上一節已經看過 \texttt{hello-world.c} 長什麼樣子。這一節用同一份程式
+示範：怎麼把它存成 \texttt{.c} 檔、用 \texttt{gcc} 編譯、在終端機執
+行。寫程式的日常很少一次寫對；比較常見的是寫成 \texttt{.c} 檔、編
+譯、執行、對照結果、再改。編譯器和機器只會照你寫下的做，不會自動
+猜你其實想做什麼。
+
+\subsection{編輯}
+
+用任意文字編輯器把程式寫進一個檔案，慣例上副檔名用 \texttt{.c}（例如
+\texttt{hello-world.c}），方便一眼看出這是 C 原始碼。編輯器本身不
+懂 C，它只是幫我們存檔；有些編輯器會順便標示語法、自動縮排，但那
+是額外的幫手，不是必要條件。
+
+原始碼必須是純文字。用文書處理軟體存成帶格式的檔案，編譯器會看不懂。
+檔名盡量只用英文字母、數字、連字號與底線，避免空白與中文。C 語言本身
+並沒有禁止這種命名習慣，只是這樣終端機指令比較不容易寫錯。
+
+\subsection{編譯：前置處理、翻譯、連結}
+
+編譯器讀取 \texttt{.c} 檔，檢查語法是否合法，再把合法的部分翻譯成機
+器碼，通常產生一個\emph{執行檔}（executable）。表面上我們只打一條
+\texttt{gcc} 指令，內部其實常分成好幾段工作，初學者先記住三個名字就
+夠了：
+
+\begin{enumerate}
+    \item \textbf{前置處理}（preprocessing）：處理以 \texttt{\#} 開頭
+          的指令，例如把 \texttt{\#include <stdio.h>} 展開成標頭檔的內
+          容。這一步還在文字層級，還沒開始真正翻譯成機器碼。
+    \item \textbf{編譯}（compiling，狹義）：把處理過的原始碼翻譯成目
+          標碼（object code）。語法錯誤多半在這一步被抓出來。
+    \item \textbf{連結}（linking）：把我們的目標碼，跟標準函式庫裡
+          \texttt{printf} 等函式的實作接在一起，產生最終執行檔。標頭
+          檔只告訴編譯器 \texttt{printf} 長什麼樣子；真正的機器碼
+          在函式庫裡，靠連結器找出來。
+\end{enumerate}
+
+這三步也可以拆開看。若執行
+\texttt{gcc -c hello-world.c}，編譯器會停在目標碼這一層，通常產
+生 \texttt{hello-world.o}：裡面已經是機器指令，但還沒接上
+\texttt{printf} 的實作，因此還不能直接 \texttt{./} 執行。再對
+\texttt{.o} 做連結，才會得到執行檔。初學階段用
+\texttt{gcc hello-world.c -o hello-world} 一次做完即可；之後寫到多個
+\texttt{.c} 檔組成一個程式時，就會真的需要先分別編成 \texttt{.o} 再
+連結。現在只要知道：你在編輯器裡看到的文字，跟作業系統載入進記憶
+體執行的位元組，中間隔著好幾層翻譯。
+
+本書使用 \texttt{gcc} 編譯器。在終端機裡的典型用法如下：
+
+\begin{code}{c}{用 gcc 編譯一個 C 原始碼檔}
+gcc -Wall 原始碼.c -o 執行檔名稱
+\end{code}
+
+例如把 \texttt{hello-world.c} 編譯成名叫 \texttt{hello-world} 的執行檔，
+可以輸入 \texttt{gcc -Wall hello-world.c -o hello-world}。\texttt{-o}
+用來指定輸出的執行檔名稱；本書範例一律這樣寫，執行時打
+\texttt{./hello-world}。若省略 \texttt{-o}，\texttt{gcc} 會用預設檔名
+\texttt{a.out}，執行時則打 \texttt{./a.out}。
+
+指令建議加上 \texttt{-Wall}，請編譯器把常見的可疑寫法用警告講出來：
+
+\begin{code}{c}{編譯時打開常見警告}
+gcc -Wall hello-world.c -o hello-world
+\end{code}
+
+\texttt{-Wall} 並不會很魔法地把所有警告都挑出來。編譯器會選擇
+對初學者特別有用的檢查。養成習慣之後，很多執行期才爆出的問題，會在編譯階
+段就被點名。
+
+編譯階段若原始碼違反 C 的語法規則（例如少寫分號、括號不配對），編譯
+器會報\emph{錯誤}（error），且\textbf{不會}產生執行檔。有時編譯器也會給\emph{警告}（warning）：語法上勉強過
+得去，但可能有隱患。警告不一定會阻止產生執行檔，但習慣上仍應認真閱
+讀。漏分號這類語法錯誤長什麼樣子，下一節會用剛才那支程式示範。
+
+\keypoint{編譯失敗表示原始碼還不是合法的 C，執行檔不會出現。先把編
+譯器指出的那一行（以及它的上一行）看完，再改、再編譯；不要猜測著亂
+改。}
+
+\subsection{執行}
+
+編譯成功後，在終端機啟動執行檔。在 Unix 或 macOS 上，若執行檔在
+\emph{目前目錄}，通常要寫成 \texttt{./hello-world}。前面的
+\texttt{./} 表示就在這個資料夾裡找，避免跟系統 PATH 裡其他同名程
+式搞混。程式跑起來後，它可能讀取鍵盤輸入、在螢幕印出結果；執行到一半才暴露的問題，叫做\emph{執行期錯誤}
+（runtime error），得靠測試與除錯回頭修正原始碼，再重新編譯。
+
+\subsection{自己動手試一次}
+
+若你的環境已安裝 \texttt{gcc}，可以照下面步驟重現範例 \thechapter.1
+（路徑與檔名可自訂，重點是副檔名 \texttt{.c} 與編譯指令）：
+
+\begin{enumerate}
+    \item 用編輯器建立 \texttt{hello-world.c}，內容與範例
+          \thechapter.1 相同。
+    \item 在該檔所在目錄執行
+          \texttt{gcc -Wall hello-world.c -o hello-world}。
+    \item 執行 \texttt{./hello-world}，應看到一行
+          \texttt{Hello, world!}。
+    \item （選做）把 \texttt{printf} 那一行的分號刪掉再編譯，對照終端
+          機裡的錯誤訊息；細節見下一節。
+    \item （選做）把範例 \thechapter.1 改成範例 \thechapter.2 的兩次
+          \texttt{printf}，確認終端機出現兩行而不是一行。
+    \item （選做）把 \texttt{\textbackslash n} 改成
+          \texttt{\textbackslash t}，對照範例 \thechapter.3 的輸出。
+\end{enumerate}
+
+\begin{drills}[label=drills:intro-build-pipeline]
+\item 編譯的三個步驟依序是什麼？各自大致負責什麼？
+\item \texttt{-Wall} 這個編譯選項的作用是什麼？
+\item 如果編譯指令省略了 \texttt{-o}，產生的執行檔預設叫什麼名字？
+\item 在 Unix 或 macOS 上，為什麼要打 \texttt{./hello-world} 而不是
+直接打 \texttt{hello-world}？
+\end{drills}
+
+\section{三種錯誤：語法、執行期、邏輯}
+\label{sec:intro-error-types}
+
+寫程式幾乎一定會出錯。比較有用的分類是錯在哪一層。因為不同層的錯，
+出現的時機不一樣，修法也不一樣。
+
+\textbf{語法錯誤}（syntax error）發生在編譯階段。C 對標點極嚴：敘
+述結尾要分號、括號要成對、字串的直引號要關起來。把範例
+\thechapter.1 的 \texttt{printf} 那一行分號拿掉，在這台機器上用
+\texttt{gcc -Wall hello-world.c -o hello-world} 編譯時，得到的訊息大
+意是：第 $4$ 行結尾 \texttt{expected ';' after expression}，並用
+\texttt{\^{}} 指出少分號的位置。有錯誤就\textbf{不會}產生執行檔，只能
+改原始碼再編譯。編譯器有時也會給警告：語法勉強合法，但寫法可疑。
+警告擋不住執行檔，卻常常是下一類錯誤的預告，不要當成裝飾關掉。錯誤
+訊息有時會指到下一行。因為編譯器讀完一行，到下一
+行才確定上一句還沒結束。除錯時記得也檢查看起來沒報錯的上一行。
+
+\textbf{執行期錯誤}（runtime error）發生在程式已經跑起來之後：語法
+過了，但執行到某一刻，行為超出語言保證的範圍，或作業系統把程式停
+掉。整數除以零在 C 裡是\emph{未定義行為}（undefined behavior）。
+在 x86 的 Linux 或 macOS 上，整數除以零\emph{常見}的結果是 CPU 觸
+發硬體例外、作業系統中斷程式，終端機可能出現 \texttt{Floating point
+exception}、\texttt{Abort trap} 或 \texttt{core dumped} 這類訊息。
+語言標準\emph{不保證}每次都崩潰，也不保證印出同一個數字；有的環境
+可能靜默印出一個看起來合理的值。本書只描述觀察到的現象，不把某次
+結果當成標準答案。更後面才會碰到的存取不該碰的記憶體，在 Unix 上常以
+\emph{segmentation fault} 的形式出現。共同點是：\texttt{gcc} 當下
+可能一句話都不說，問題要等執行才爆。
+
+\textbf{邏輯錯誤}（logical error）最陰險：編譯過、執行也正常結束，
+螢幕上就是有字，只是那不是題目要的答案。除錯（debug）平常說的，
+多半就是在找這種錯。範例 \thechapter.7 看起來跟範例 \thechapter.1
+幾乎一樣，差在 \texttt{printf} 被寫了兩次。若規格是只印一行
+問候語，這個程式語法完全合法、也不會崩潰，但輸出多了一行。機器
+很聽話，它印了你寫下的每一句，沒有義務去猜你其實只想印一次。
+
+\begin{example}{c}{(hello-twice.c) 能跑、但結果不符合預期}
+#include <stdio.h>
+
+int main(void) {
+    printf("Hello, world!\n");
+    printf("Hello, world!\n");
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+Hello, world! \\
+Hello, world! \\
+}
+
+下一章開始讀入數字、做運算之後，邏輯錯誤會變成該加寫成乘、該
+比大小寫反這類更難一眼看出的狀況。現在先建立一個習慣：每寫完一
+版，都用自己心裡的預期輸出對一下螢幕。流程圖可以畫成下面這樣。
+三個菱形分別對應上面三種錯。任何一個答案不滿意，都回到編輯。
+
+\begin{center}
+\begin{tikzpicture}[
+node distance=8mm and 12mm,
+% 標籤文字樣式 (帶白底以防遮擋線條)
+label text/.style={
+    font=\scriptsize\sffamily, fill=white, inner sep=2pt
+}
+]
+
+% --- 節點定義 ---
+\node[startend] (edit) {編輯原始碼};
+\node[process, below=of edit] (cc) {編譯};
+\node[decision, below=of cc] (syn) {有語法錯誤？};
+\node[process, below=of syn] (run) {執行};
+\node[decision, below=of run] (rt) {執行期錯誤？};
+\node[decision, below=of rt] (ok) {結果正確？};
+\node[startend, below=of ok] (done) {完成};
+
+% --- 主流程箭頭 (向下) ---
+\draw[flowarrow] (edit.south) -- (cc.north);
+\draw[flowarrow] (cc.south) -- (syn.north);
+\draw[flowarrow] (syn.south) -- node[label text] {否} (run.north);
+\draw[flowarrow] (run.south) -- (rt.north);
+\draw[flowarrow] (rt.south) -- node[label text] {否} (ok.north);
+\draw[flowarrow] (ok.south) -- node[label text] {是} (done.north);
+
+% --- 迴圈箭頭 (向右折返) ---
+\draw[flowarrow] (syn.east) -- node[above, font=\scriptsize] {是} ++(2.0cm,0) |- (edit.east);
+\draw[flowarrow] (rt.east)  -- node[above, font=\scriptsize] {是} ++(3.2cm,0) |- (edit.east);
+\draw[flowarrow] (ok.east)  -- node[above, font=\scriptsize] {否} ++(4.4cm,0) |- (edit.east);
+
+\end{tikzpicture}
+\diagcaption{寫程式的除錯迴圈：先過語法，再過執行，最後核對結果是
+否符合預期。任何一關失敗都回到編輯。}
+\label{fig:ch01-debug-loop}
+\end{center}
+
+\keypoint{錯誤比警告嚴重：有語法錯誤就沒有執行檔。警告仍應讀完。
+能跑也不等於對。邏輯錯誤要靠你拿預期結果去對。}
+
+\stylepoint{先讓程式能編譯，再讓它能跑完，最後才追求答案正確。三
+件事混在一次修改裡，出了問題會不知道該從哪一行查起。}
+
+到這裡，我們已經具備幾個起點：程式是高階語言寫成、由編譯器翻譯後執
+行的指令序列；流程圖用來整理步驟；C 是貼近系統、可攜又高效的主力語
+言之一；一個最小的 C 程式需要 \texttt{\#include}、\texttt{main} 與至
+少一條敘述；而寫程式的日常，就是在語法、執行與邏輯三層之間來回修
+正。下一章會在這個骨架上，從 \texttt{printf} 輸出格式與變數接下去，
+不再重講 \texttt{\#include} 與編譯三步驟。到時候 \texttt{Hello, world!} 裡的
+\texttt{\textbackslash n} 和 \texttt{printf} 格式字串，會變成可以靈活
+組合的工具，而不只是照抄的一行魔術。
+
+\begin{drills}[label=drills:intro-error-types]
+\item 把 \texttt{printf} 那一行的分號拿掉，這個錯誤會在哪個階段被抓
+出來？
+\item 整數除以零，在 C 的三種錯誤分類裡屬於哪一種？
+\item 範例 \thechapter.7（\texttt{hello-twice.c}）屬於哪一種錯誤？它
+明明能編譯、能執行，為什麼還是有問題？
+\item 「警告」（warning）跟「錯誤」（error）有什麼不同？警告會不會
+擋下執行檔？
+\end{drills}
+
+\addcontentsline{toc}{section}{練習解答}
+\section*{練習解答}
+
+各節練習的答案收在這裡。 短題只給能一句話核對的結果。
+
+\paragraph{第~\ref{sec:intro-what-is-programming}~節}
+\begin{enumerate}
+\item 機器語言是 CPU 直接看得懂的；高階語言比較貼近人類的思考方式，
+要靠編譯器翻譯成機器語言才能執行。
+\item 記憶體容量比較大，但存取比暫存器慢；暫存器容量極少，但速度很
+快。
+\item 編譯器把我們寫的高階語言描述，翻譯成計算機真正執行的機器碼。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:intro-why-c}~節}
+\begin{enumerate}
+\item UNIX。
+\item C99；例如 \texttt{for} 迴圈裡可以直接宣告迴圈變數
+\texttt{int i}，或支援 \texttt{//} 單行註解（任一個即可）。
+\item 編譯器；C 走這條路，先整份翻譯成執行檔，之後每次執行都直接跑
+那份機器碼。
+\item 因為 C 把記憶體管理的責任交給程式設計師，執行效率高、又貼近硬
+體，適合需要直接跟硬體打交道的系統程式。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:intro-flowchart}~節}
+\begin{enumerate}
+\item 方塊表示一個動作，菱形表示一個是非問題，箭頭表示下一步往哪裡
+走。
+\item 不會。 流程圖是畫給人看的草圖，幫助整理思路，編譯器不會讀它。
+\item 兩個：「印出 Hello, world!」，然後結束；中間沒有任何判斷。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:intro-first-program}~節}
+\begin{enumerate}
+\item 螢幕上仍然看得到 \texttt{Hello, world!}，但游標不會換到下一
+行，下一行的終端機提示符會黏在同一行後面。
+\item \texttt{(void)} 明確表示 \texttt{main} 不接收任何參數；省略成
+\texttt{main()} 在大多數編譯器裡效果相同，但語意上代表「參數未指
+定」，不如 \texttt{(void)} 清楚。
+\item \texttt{/* */} 可以跨很多行；\texttt{//} 只到該行結尾為止。
+\item 把 \texttt{printf("Hello, world!\textbackslash n");} 那一行複製
+一次，變成連續兩條 \texttt{printf} 敘述。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:intro-build-pipeline}~節}
+\begin{enumerate}
+\item 前置處理（展開 \texttt{\#include} 等指令）、編譯（翻譯成目標
+碼，語法錯誤在這一步被抓出來）、連結（把目標碼跟函式庫實作接在一
+起，產生執行檔）。
+\item 請編譯器把常見的可疑寫法用警告講出來，幫忙抓出很多執行期才會
+爆出來的問題。
+\item \texttt{a.out}。
+\item \texttt{./} 表示到目前目錄裡找執行檔，避免跟系統 PATH 裡其他同
+名程式搞混。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:intro-error-types}~節}
+\begin{enumerate}
+\item 編譯階段：這是語法錯誤，編譯器會直接報錯，不會產生執行檔。
+\item 執行期錯誤：語法過了，但執行到某一刻，行為超出語言保證的範
+圍。
+\item 邏輯錯誤：語法合法、執行也正常結束，只是輸出的內容跟預期的規
+格不一樣（多印了一行）。
+\item 警告不會擋下執行檔的產生，但常常是下一類（執行期或邏輯）錯誤
+的預告，不應該當成裝飾忽略；錯誤則會讓編譯直接失敗。
+\end{enumerate}

@@ -1,0 +1,1749 @@
+\chapter{判斷}
+\label{ch:conditionals}
+
+到目前為止，我們寫的程式大多是「讀入資料、計算、印出結果」，不管輸入是什麼，
+執行的步驟都一樣。 但實際問題裡，程式常常需要\textbf{依條件選擇不同的
+做法}：分數夠就及格、不夠就不及格；年份符合閏年規則就印 \texttt{YES}，否
+則印 \texttt{NO}；輸入的字元是 \texttt{R} 就停、是 \texttt{G} 就走⋯⋯
+這種「先檢查條件，再決定走哪條路」的結構，統稱為\textbf{判斷}或
+\textbf{分支}（branching）。
+
+這一章依語法複雜度推進：先認識關係式與 $0$／$1$，再學單路 \texttt{if}、
+雙路 \texttt{if-else}、多路 \texttt{else if} 與獨立 \texttt{if} 的差別，
+然後才組合 \texttt{\&\&}、\texttt{||} 與短路求值，最後用 \texttt{?:} 與
+\texttt{switch} 處理特定情境。 在硬體層面，CPU 遇到條件分支時，會依條件
+的真偽改變\textbf{程式計數器}（program counter）指向的位址，也就是「下一
+條要執行的指令」；現代處理器還會做分支預測，猜錯了就得把已經投機執行的工
+作丟掉重來。
+
+沿路上我們也會特別留意幾個 C 語言裡容易踩到的坑：把 \texttt{==} 寫成
+\texttt{=} 的賦值錯誤，以及 \texttt{else if} 與獨立 \texttt{if} 該怎麼
+選。
+
+\section{關係式與真假值}
+\label{sec:cond-relational}
+
+要做判斷，第一步是把「我們想問的問題」寫成一個可以求值的\textbf{關係式}
+（relational expression）。 C 的關係運算子跟數學裡的 $<$、$>$、$=$ 很像，
+但結果是\textbf{整數}：條件成立時結果是 $1$，不成立時是 $0$。 這個
+$0$／$1$ 的慣例會一直跟著我們；之後 \texttt{if} 括號裡的條件，其實就
+是在問「這個運算式的值是不是非零」。
+
+\begin{code}{c}{六種關係運算子}
+a < b    // a 是否小於 b
+a > b    // a 是否大於 b
+a <= b   // a 是否小於或等於 b
+a >= b   // a 是否大於或等於 b
+a == b   // a 是否等於 b（兩個等號！）
+a != b   // a 是否不等於 b
+\end{code}
+
+範例 \thechapter.2 讀入兩個整數，直接把 \texttt{a == b} 與 \texttt{a > b}
+的結果印出來。 輸入 \texttt{8 8} 時得到 \texttt{1} 再 \texttt{0}：相等
+為真、大於為假。 輸入 \texttt{9 4} 則是 \texttt{0} 再 \texttt{1}。 這
+時還沒用到 \texttt{if}，但已經看見比較式的值就是 $0$ 或 $1$。
+
+\begin{example}{c}{(print-cmp.c) 把比較結果當成整數印出}
+#include <stdio.h>
+
+int main(void) {
+    int a, b;
+    scanf("%d %d", &a, &b);
+    printf("%d\n", a == b);
+    printf("%d\n", a > b);
+    return 0;
+}
+\end{example}
+
+\iosample{
+8 8 \\
+}{
+1 \\
+0 \\
+}
+
+C99 起可以用 \texttt{<stdbool.h>} 裡的 \texttt{bool}、\texttt{true}、
+\texttt{false} 來強調邏輯值；印出來通常仍是 $1$ 與 $0$。 比較的優先順序
+低於加減乘除。 \texttt{i > j + n} 其實是 \texttt{i > (j + n)}；仍建議
+把算術部分括起來，讀的時候才不必先在腦子裡排優先順序。
+
+C 語言裡最常見的初學者錯誤之一，是把「比較是否相等」的 \texttt{==} 寫成
+「指派」用的 \texttt{=}：
+
+\begin{code}{c}{把 == 誤寫成 = 的後果}
+if (i == 0) {      // 正確：測試 i 是否等於 0
+    ...
+}
+
+if (i = 0) {       // 錯誤：先把 0 指派給 i，再測試結果是否非零
+    ...            // 這個 if 永遠不會執行（因為 0 是假）
+}
+\end{code}
+
+編譯器通常不會把 \texttt{if (i = 0)} 當成語法錯誤。 它是一個合法的指派
+運算式。 所以這類 bug 只能靠仔細閱讀程式碼或靠編譯器的警告訊息來抓。
+養成習慣：想問「等不等於」時，一律寫兩個等號 \texttt{==}。
+
+\keypoint{關係式的值是整數 $0$ 或 $1$。 \texttt{if (expression)} 把「非
+零」當成真、「零」當成假。}
+
+\begin{drills}[label=drills:cond-relational]
+\item \texttt{a == b} 這個關係式，結果會是哪兩個可能的整數值？
+\item 已知 \texttt{a = 3}、\texttt{b = 5}，\texttt{a < b} 的值是多少？
+\item \texttt{if (i = 0)} 這行為什麼不會被編譯器擋下來？它實際做的是
+比較還是賦值？
+\end{drills}
+
+\section{只有 if：條件成立才做事}
+\label{sec:cond-if-only}
+
+\texttt{if} 敘述的結構很簡單：括號裡放一個運算式，非零就執行後面那一
+段，否則整段跳過。 不是每次判斷都有 \texttt{else}；有時條件成立才
+做事，否則這一段直接跳過。
+
+\begin{code}{c}{if 敘述}
+if (condition) {
+    statement1;
+}
+\end{code}
+
+\begin{center}
+\begin{tikzpicture}[node distance=1.3cm and 2.2cm]
+    \node[startend] (start) {Start};
+    \node[decision, below=of start] (cond) {condition?};
+    \node[process, below left=1.3cm and 2.2cm of cond] (stmt) {statement1};
+    \node[startend, below=4.4cm of cond] (end) {End};
+
+    \draw[flowarrow] (start.south) -- (cond.north);
+    \draw[flowarrow] (cond.west) -| node[above,pos=0.25,font=\scriptsize] {true} (stmt.north);
+    \draw[flowarrow] (cond.south) -- node[right,font=\scriptsize] {false} (end.north);
+    \draw[flowarrow] (stmt.south) -- ++(0,-0.5) |- (end.west);
+\end{tikzpicture}
+\diagcaption{只有 \texttt{if}：\texttt{condition} 為真時執行
+\texttt{statement1}，為假時跳過，直接到 \texttt{End}。}
+\end{center}
+
+條件為假時，控制流沿主幹往下，不進入 \texttt{statement1}；為真時
+向左執行動作後再匯入 \texttt{End}。
+
+範例 \thechapter.5 讀入一個整數，只有正數才印出來。 輸入 \texttt{7}
+會看到一行 \texttt{7}；輸入 \texttt{-2} 則什麼都不印。 不是當機，
+只是那一個 \texttt{printf} 沒被執行。 這是本章第一個含 \texttt{if} 的
+完整程式。
+
+\begin{example}{c}{(print-if-positive.c) 只印出正數}
+#include <stdio.h>
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+    if (n > 0) {
+        printf("%d\n", n);
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+7 \\
+}{
+7 \\
+}
+
+\begin{drills}[label=drills:cond-if-only]
+\item 範例 print-if-positive.c 輸入 \texttt{-2} 時，程式會印出什麼？
+\item 只有 \texttt{if}、沒有 \texttt{else} 時，條件為假會發生什麼事？
+\item \texttt{if} 的括號裡放的是什麼型別的值？非零與零分別對應什麼？
+\end{drills}
+
+\section{if-else：二選一分支}
+\label{sec:cond-if-else}
+
+如果「條件不成立時也要做別的事」，就加上 \texttt{else}，形成\textbf{二
+選一}：
+
+\begin{code}{c}{if-else 敘述}
+if (condition) {
+    statement1;
+} else {
+    statement2;
+}
+\end{code}
+
+\begin{center}
+\begin{tikzpicture}[node distance=1.3cm and 2.2cm]
+    \node[startend] (start) {Start};
+    \node[decision, below=of start] (cond) {condition?};
+    \node[process, below left=1.3cm and 2.2cm of cond] (stmt1) {statement1};
+    \node[process, below right=1.3cm and 2.2cm of cond] (stmt2) {statement2};
+    \node[startend, below=3.2cm of cond] (end) {End};
+
+    \draw[flowarrow] (start.south) -- (cond.north);
+    \draw[flowarrow] (cond.west) -| node[above,pos=0.25,font=\scriptsize] {true} (stmt1.north);
+    \draw[flowarrow] (cond.east) -| node[above,pos=0.25,font=\scriptsize] {false} (stmt2.north);
+    \draw[flowarrow] (stmt1.south) |- (end.west);
+    \draw[flowarrow] (stmt2.south) |- (end.east);
+\end{tikzpicture}
+\diagcaption{\texttt{if-else}：\texttt{condition} 為真走 \texttt{statement1}，
+為假走 \texttt{statement2}，兩路最後匯入 \texttt{End}。}
+\end{center}
+
+\texttt{condition} 為真時向左，為假時向右；兩條路各自執行完再往下
+匯流。
+
+範例 \thechapter.7 用一個分數門檻做最經典的 \texttt{if-else}：$60$ 分以
+上及格，否則不及格。
+
+\begin{example}{c}{(pass-or-fail.c) 依分數判斷及格或不及格}
+#include <stdio.h>
+
+int main(void) {
+    int score;
+    scanf("%d", &score);
+
+    if (score >= 60) {
+        printf("PASS\n");
+    } else {
+        printf("FAIL\n");
+    }
+}
+\end{example}
+
+\iosample{
+55 \\
+}{
+FAIL \\
+}
+
+只有兩種互斥的結果時，\texttt{if-else} 很合適。
+
+\begin{drills}[label=drills:cond-if-else]
+\item 範例 pass-or-fail.c 輸入 \texttt{60} 時，會印出 \texttt{PASS}
+還是 \texttt{FAIL}？
+\item \texttt{if-else} 適合互斥的兩種結果，還是允許兩段都執行？
+\end{drills}
+
+\section{懸空的 else}
+\label{sec:cond-dangling-else}
+
+\texttt{else} 會配給\textbf{最近、還沒配對}的那個 \texttt{if}。 若內
+層 \texttt{if} 沒加大括號，外層的 \texttt{else} 可能配錯對象。 這就
+是懸空的 \texttt{else}（dangling else）。 本書一律加大括號，這個坑
+會少很多。
+
+\begin{code}{c}{危險：內層 if 沒加大括號時，else 可能配錯}
+if (outer) {
+    if (inner)
+        statement1;
+else
+    statement2;
+}
+\end{code}
+
+正確作法是讓每一個 \texttt{if}／\texttt{else} 的本體都是複合敘述，
+縮排也跟配對一致。
+
+\keypoint{\texttt{if} 和 \texttt{else} 各自控制\textbf{一段}敘述；如果
+本體超過一行，一定要用 \texttt{\{\}} 包成複合敘述。 只寫一行不加括號、
+下一行又寫別的敘述，編譯器會把 \texttt{else} 配錯對象，產生語法錯誤或
+懸空的 \texttt{else}。}
+
+\begin{drills}[label=drills:cond-dangling-else]
+\item \texttt{else} 會配對給哪一個 \texttt{if}：離它最近的，還是最外
+層的？
+\item 為什麼本書建議每個 \texttt{if}／\texttt{else} 本體都用大括號包
+起來？
+\end{drills}
+
+\section{用取餘數做二元分類}
+\label{sec:cond-modulo}
+
+很多判斷題目其實是在問「某個整數屬不屬於某一類」。 偶數還是奇數、能不能
+被某個數整除、餘數是多少⋯⋯ 這類問題幾乎都離不開\textbf{取餘數}
+（modulo）運算子 \texttt{\%}：\texttt{x \% d} 的值是 $x$ 除以 $d$ 的餘
+數。 學會 \texttt{if-else} 之後，這是最常見的第一批實戰應用。
+
+\begin{code}{c}{用 x \% d == 0 測試整除}
+if (x % d == 0) {
+    // x 能被 d 整除
+} else {
+    // x 不能被 d 整除
+}
+\end{code}
+
+範例 \thechapter.10 是最常見的特例：\texttt{d = 2}，用餘數是 $0$ 還是
+$1$ 來區分偶數與奇數。
+
+\begin{example}{c}{(even-or-odd.c) 判斷偶數或奇數}
+#include <stdio.h>
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+
+    if (n % 2 == 0) {
+        printf("EVEN\n");
+    } else {
+        printf("ODD\n");
+    }
+}
+\end{example}
+
+\iosample{
+4 \\
+}{
+EVEN \\
+}
+
+把 $d$ 換成任意正整數，就得到更一般的整除測試。 範例 \thechapter.11 讀入
+\texttt{X} 和 \texttt{D}，判斷 \texttt{X} 能不能被 \texttt{D} 整除。 邏輯
+跟偶奇判斷完全一樣，只是把 \texttt{2} 換成變數 \texttt{D}。
+
+\begin{example}{c}{(divisible-by.c) 判斷 X 能否被 D 整除}
+#include <stdio.h>
+
+int main(void) {
+    int X, D;
+    scanf("%d %d", &X, &D);
+
+    if (X % D == 0) {
+        printf("YES\n");
+    } else {
+        printf("NO\n");
+    }
+}
+\end{example}
+
+\iosample{
+12 3 \\
+}{
+YES \\
+}
+
+\stylepoint{「$n$ 是偶數」寫成 \texttt{n \% 2 == 0} 比寫成
+\texttt{n / 2 * 2 == n} 更直接，也更容易一眼看出意圖。 若測資可能
+含負數，奇數判斷應寫 \texttt{n \% 2 != 0}，因為負奇數的餘數是
+\texttt{-1}，不是 \texttt{1}。}
+
+\begin{drills}[label=drills:cond-modulo]
+\item 判斷偶數要寫 \texttt{n \% 2 == 0} 還是 \texttt{n \% 2 == 1}？
+\item \texttt{-3 \% 2} 的值是多少？為什麼奇數判斷建議寫成
+\texttt{n \% 2 != 0} 而不是 \texttt{n \% 2 == 1}？
+\item \texttt{X \% D == 0} 這個條件在問什麼？
+\end{drills}
+
+\section{用判斷改寫數值}
+\label{sec:cond-rewrite-values}
+
+判斷也可以拿來改變數，而不只是選哪一句 \texttt{printf}。 範例
+\thechapter.12 讀入兩個整數，印出較大的那一個：把 \texttt{a >= b} 當成
+問題「$a$ 有沒有至少跟 $b$ 一樣大？」，是就印 \texttt{a}，否則印
+\texttt{b}。 輸入 \texttt{3 7} 時，\texttt{a >= b} 的值是 $0$，改走
+\texttt{else} 印 $7$。
+
+\begin{example}{c}{(maximum-of-two.c) 印出兩個整數中較大者}
+#include <stdio.h>
+
+int main(void) {
+    int a, b;
+    scanf("%d %d", &a, &b);
+
+    if (a >= b) {
+        printf("%d\n", a);
+    } else {
+        printf("%d\n", b);
+    }
+}
+\end{example}
+
+\iosample{
+3 7 \\
+}{
+7 \\
+}
+
+範例 \thechapter.13 求絕對值：若 \texttt{n} 為負，就把 \texttt{n} 改成
+\texttt{-n}，最後一律印出非負的結果。
+
+\begin{example}{c}{(abs-int.c) 用 if 求絕對值}
+#include <stdio.h>
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+    if (n < 0) {
+        n = -n;
+    }
+    printf("%d\n", n);
+    return 0;
+}
+\end{example}
+
+\iosample{
+-9 \\
+}{
+9 \\
+}
+
+「三個數裡最大的那個」不必一次寫出六道兩兩比較。 先假設第一個就是
+目前最大，再跟第二個比、跟第三個比，較大的就更新。 這是一串\textbf{
+獨立}的 \texttt{if}，因為每一個都可能改寫 \texttt{max}。
+
+\begin{example}{c}{(max-three.c) 用獨立 if 更新目前最大值}
+#include <stdio.h>
+
+int main(void) {
+    int a, b, c;
+    scanf("%d %d %d", &a, &b, &c);
+    int max = a;
+    if (b > max) {
+        max = b;
+    }
+    if (c > max) {
+        max = c;
+    }
+    printf("%d\n", max);
+    return 0;
+}
+\end{example}
+
+\iosample{
+4 9 1 \\
+}{
+9 \\
+}
+
+範例 \thechapter.15 則是「必要時才交換」：若 \texttt{a > b}，用上一
+章的暫存變數對調，最後由小到大印出。 輸入 \texttt{9 2} 得到
+\texttt{2 9}。
+
+\begin{example}{c}{(print-ordered.c) 兩數由小到大印出}
+#include <stdio.h>
+
+int main(void) {
+    int a, b;
+    scanf("%d %d", &a, &b);
+    if (a > b) {
+        int temp = a;
+        a = b;
+        b = temp;
+    }
+    printf("%d %d\n", a, b);
+    return 0;
+}
+\end{example}
+
+\iosample{
+9 2 \\
+}{
+2 9 \\
+}
+
+\begin{drills}[label=drills:cond-rewrite-values]
+\item 求絕對值時，\texttt{n < 0} 成立要對 \texttt{n} 做什麼動作？
+\item 找三個數的最大值，為什麼要用三個獨立的 \texttt{if}，而不是
+\texttt{else if} 階梯？
+\item 範例 print-ordered.c 輸入 \texttt{9 2} 時，輸出的兩數順序是什
+麼？
+\end{drills}
+
+\section{else if 階梯：多路選擇}
+\label{sec:cond-else-if-ladder}
+
+當有\textbf{好幾個互斥的區間}要對應不同結果。 例如分數換等第。 與其寫一
+串互相嵌套的 \texttt{if-else}，不如排成\textbf{階梯}：從上往下依序測試，
+第一個成立的條件決定結果，後面全部跳過。
+
+\begin{code}{c}{else if 階梯}
+if (condition1) {
+    ...
+} else if (condition2) {
+    ...
+} else if (condition3) {
+    ...
+} else {
+    ...
+}
+\end{code}
+
+\begin{center}
+\begin{tikzpicture}[node distance=1.3cm and 2.0cm]
+    \node[startend] (start) {Start};
+    \node[decision, below=of start] (cond1) {cond1?};
+    \node[decision, below=1.6cm of cond1] (cond2) {cond2?};
+    \node[decision, below=1.6cm of cond2] (cond3) {cond3?};
+    \node[process, below=1.6cm of cond3] (default) {default};
+    \node[startend, below=1.3cm of default] (end) {End};
+
+    \node[process, left=3.2cm of cond1] (stmt1) {stmt1};
+    \node[process, left=3.2cm of cond2] (stmt2) {stmt2};
+    \node[process, left=3.2cm of cond3] (stmt3) {stmt3};
+
+    \draw[flowarrow] (start.south) -- (cond1.north);
+    \draw[flowarrow] (cond1.south) -- node[right,font=\scriptsize] {F} (cond2.north);
+    \draw[flowarrow] (cond2.south) -- node[right,font=\scriptsize] {F} (cond3.north);
+    \draw[flowarrow] (cond3.south) -- node[right,font=\scriptsize] {F} (default.north);
+    \draw[flowarrow] (default.south) -- (end.north);
+
+    \draw[flowarrow] (cond1.west) -- node[above,font=\scriptsize] {T} (stmt1.east);
+    \draw[flowarrow] (cond2.west) -- node[above,font=\scriptsize] {T} (stmt2.east);
+    \draw[flowarrow] (cond3.west) -- node[above,font=\scriptsize] {T} (stmt3.east);
+
+    % 匯流線畫在 stmt 左側，避免從 stmt1 往下穿過 stmt2、stmt3
+    \coordinate (bus) at ([xshift=-0.8cm]stmt1.west);
+    \coordinate (b1) at (bus |- stmt1.west);
+    \coordinate (b2) at (bus |- stmt2.west);
+    \coordinate (b3) at (bus |- stmt3.west);
+    \coordinate (bend) at (bus |- end.west);
+
+    \draw[flowarrow] (stmt1.west) -- (b1);
+    \draw[flowarrow] (stmt2.west) -- (b2);
+    \draw[flowarrow] (stmt3.west) -- (b3);
+    \draw[black!70, thick] (b1) -- (bend);
+    \draw[flowarrow] (bend) -- (end.west);
+\end{tikzpicture}
+\diagcaption{沿右側主幹依序測試 \texttt{cond1}、\texttt{cond2}、\texttt{cond3}；
+第一個成立的條件執行對應 \texttt{stmt} 後整條結束，全部不成立才走
+\texttt{default}。}
+\end{center}
+
+右側主幹上，條件不成立就往下測下一個；成立時向左執行對應
+\texttt{stmt}，再匯入 \texttt{End}。
+
+範例 \thechapter.17 把分數換成等第字母：$A \ge 90$、$B \ge 80$、依此類
+推。 注意條件必須\textbf{從高到低}排。 如果先測 \texttt{score >= 60}，
+那 $95$ 分也會被歸成 \texttt{D}。
+
+\begin{example}{c}{(grade-level.c) 分數換等第}
+#include <stdio.h>
+
+int main(void) {
+    int score;
+    scanf("%d", &score);
+
+    if (score >= 90) {
+        printf("A\n");
+    } else if (score >= 80) {
+        printf("B\n");
+    } else if (score >= 70) {
+        printf("C\n");
+    } else if (score >= 60) {
+        printf("D\n");
+    } else {
+        printf("E\n");
+    }
+}
+\end{example}
+
+\iosample{
+72 \\
+}{
+C \\
+}
+
+三種互斥情形（正、負、零）也可以用同一套階梯來寫。 範例 \thechapter.18
+依正負零印出 \texttt{POSITIVE}、\texttt{NEGATIVE}、\texttt{ZERO}。
+
+\begin{example}{c}{(sign-of-number.c) 判斷正數、負數或零}
+#include <stdio.h>
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+
+    if (n > 0) {
+        printf("POSITIVE\n");
+    } else if (n < 0) {
+        printf("NEGATIVE\n");
+    } else {
+        printf("ZERO\n");
+    }
+}
+\end{example}
+
+\iosample{
+-3 \\
+}{
+NEGATIVE \\
+}
+
+範例 \thechapter.19 用二次方程的判別式判斷根的類型。 判別式
+$\Delta = b^2 - 4ac$ 決定根的個數：$\Delta > 0$ 時有兩個實根，
+$\Delta = 0$ 時有一個根，$\Delta < 0$ 時無實根。
+
+\begin{example}{c}{(quadratic-roots.c) 判斷二次方程的根}
+#include <stdio.h>
+
+int main(void) {
+    int a, b, c;
+    scanf("%d %d %d", &a, &b, &c);
+
+    int delta = b * b - 4 * a * c;
+
+    if (delta > 0) {
+        printf("TWO REAL ROOTS\n");
+    } else if (delta == 0) {
+        printf("ONE ROOT\n");
+    } else {
+        printf("NO REAL ROOTS\n");
+    }
+
+    return 0;
+}
+\end{example}
+
+\iosample{
+1 -3 2 \\
+1 -2 1 \\
+1 0 1 \\
+}{
+TWO REAL ROOTS \\
+ONE ROOT \\
+NO REAL ROOTS \\
+}
+
+如果有三種（或更多）\textbf{互斥}的情形，例如兩數相等、前者較大、前者
+較小，也要用連鎖的 \texttt{if-else if-else}。 範例 \thechapter.20 讀入
+\texttt{A} 和 \texttt{B}，依大小關係印出 \texttt{A=B}、\texttt{A<B}、或
+\texttt{A>B}。 順序很重要：必須先測 \texttt{A == B}，再測 \texttt{A < B}，
+最後的 \texttt{else} 才代表 \texttt{A > B}。
+
+\begin{example}{c}{(size-relation.c) 三種大小關係}
+#include <stdio.h>
+
+int main(void) {
+    int A, B;
+    scanf("%d %d", &A, &B);
+
+    if (A == B) {
+        printf("A=B\n");
+    } else if (A < B) {
+        printf("A<B\n");
+    } else {
+        printf("A>B\n");
+    }
+}
+\end{example}
+
+\iosample{
+5 5 \\
+}{
+A=B \\
+}
+
+\keypoint{\texttt{else if} 階梯裡，一旦某個 \texttt{if} 或 \texttt{else if}
+成立並執行完，\textbf{整條階梯就結束}。 不會再往下測試。 這正是「區間
+互斥」題目該用階梯、而不是一串獨立 \texttt{if} 的原因。}
+
+\begin{drills}[label=drills:cond-else-if-ladder]
+\item 把分數換成等第的 \texttt{else if} 階梯，條件為什麼必須從高分排
+到低分？
+\item 一旦某個 \texttt{else if} 成立並執行完，階梯剩下的條件還會被
+測試嗎？
+\end{drills}
+
+\section{獨立 if 與決策表：可以同時符合多條規則}
+\label{sec:cond-independent-if}
+
+\texttt{else if} 階梯適合「互斥選一」；但有些題目允許\textbf{多條規則同
+時成立}，只是最後要依題意取「加總」或「最大值」。 這時候應該寫\textbf{一
+串獨立的 \texttt{if}}，每條規則各自檢查、各自更新結果，而不是用
+\texttt{else if} 把後面的規則擋掉。
+
+範例 \thechapter.21 模擬刮刮卡：三條獎金規則可能同時符合，但只領\textbf{
+最高}的那一項。 程式用三個獨立的 \texttt{if} 依序檢查，每次用「新獎金是
+否比目前累計更高」來更新 \texttt{prize}。
+
+\begin{example}{c}{(scratch-card-max.c) 刮刮卡取最高獎金}
+#include <stdio.h>
+
+int main(void) {
+    int d1, d2;
+    scanf("%d %d", &d1, &d2);
+
+    int prize = 0;
+
+    // 規則 1：d1 為奇數，100 元
+    if (d1 % 2 == 1) {
+        prize = 100;
+    }
+
+    // 規則 2：d2 是 2、5 或 8，200 元
+    if (d2 == 2 || d2 == 5 || d2 == 8) {
+        if (prize < 200) {
+            prize = 200;
+        }
+    }
+
+    // 規則 3：兩數相同，50 元
+    if (d1 == d2) {
+        if (prize < 50) {
+            prize = 50;
+        }
+    }
+
+    printf("%d\n", prize);
+}
+\end{example}
+
+\iosample{
+1 3 \\
+}{
+100 \\
+}
+
+\iosample{
+2 5 \\
+}{
+200 \\
+}
+
+如果把三條規則改成 \texttt{else if} 階梯，第一條成立後後面永遠不會再
+檢查。 對「取最高獎金」這種\textbf{非互斥}的題目就會答錯。 寫之前先問：
+「這些條件是互斥的，還是可能同時成立？」
+
+\keypoint{\texttt{else if} 表示「前面都不成立才看這條」；獨立的 \texttt{if}
+表示「不管前面如何，這條都要檢查」。 決策表題目如果允許多條規則同時命中，
+幾乎一定該用獨立 \texttt{if}。}
+
+\stylepoint{取最大、取最小這類「目前最佳解」用獨立 \texttt{if} 逐一
+更新；只有互斥選一時才用 \texttt{else if}。}
+
+\begin{drills}[label=drills:cond-independent-if]
+\item 什麼情況該用一串獨立的 \texttt{if}，而不是 \texttt{else if}
+階梯？
+\item 若把刮刮卡的三條獎金規則改寫成 \texttt{else if} 階梯，會有什麼
+後果？
+\end{drills}
+
+\section{邏輯運算子：組合多個條件}
+\label{sec:cond-logical-ops}
+
+單一條件有時不夠用。 「$X$ 在 $L$ 到 $H$ 之間（含端點）」需要\textbf{
+兩個}條件同時成立；「$i$ 在範圍外」則是\textbf{任一}條件成立即可。 C 提
+供三個邏輯運算子來組合條件：
+
+\begin{code}{c}{邏輯運算子 !、\&\&、||}
+!expr          // 邏輯非：expr 為 0 時結果為 1，否則為 0
+expr1 && expr2 // 邏輯且：兩邊都非 0 時結果為 1
+expr1 || expr2 // 邏輯或：任一邊非 0 時結果為 1
+\end{code}
+
+比較運算子的結果是 $0$ 或 $1$，可以直接當成邏輯運算子的運算元。 C 把
+\textbf{任何非零}都當成真，所以 \texttt{3 \&\& 0} 是假（$0$），
+\texttt{3 || 0} 是真（$1$），\texttt{!3} 是假。 能寫清楚的關係式就
+寫清楚，不要靠「非零就算真」讓人猜。
+
+範例 \thechapter.23 讀取下界 \texttt{L}、上界 \texttt{H} 和待測值
+\texttt{X}，用 \texttt{L <= X \&\& X <= H} 一次表達「$L \le X \le H$」。
+
+\begin{example}{c}{(in-range.c) 判斷 X 是否在 L 到 H 之間（含端點）}
+#include <stdio.h>
+
+int main(void) {
+    int L, H, X;
+    scanf("%d %d %d", &L, &H, &X);
+
+    if (L <= X && X <= H) {
+        printf("YES\n");
+    } else {
+        printf("NO\n");
+    }
+}
+\end{example}
+
+\iosample{
+1 10 5 \\
+}{
+YES \\
+}
+
+\begin{drills}[label=drills:cond-logical-ops]
+\item \texttt{!}、\texttt{\&\&}、\texttt{||} 分別是什麼意思？
+\item \texttt{L <= X \&\& X <= H} 這個複合條件在表達什麼？
+\item \texttt{3 \&\& 0} 的值是多少？
+\end{drills}
+
+\section{短路求值}
+\label{sec:cond-short-circuit}
+
+\texttt{\&\&} 和 \texttt{||} 有一個重要性質：只要左邊已經足夠決定整
+個運算式的真假，就不會去算右邊。 這叫短路求值（short-circuit
+evaluation）：\texttt{\&\&} 左邊為假（$0$）時，右邊完全不會被求值；
+\texttt{||} 左邊為真（非 $0$）時，右邊也不會被求值。
+
+\begin{code}{c}{短路求值的規則}
+expr1 && expr2   // 左邊為 0 時，expr2 不會被算
+expr1 || expr2   // 左邊非 0 時，expr2 不會被算
+\end{code}
+
+這不只是效能上的小聰明，還能拿來擋掉本來會出錯的運算。 整數除以零是
+未定義行為，把除數是否為零放在 \texttt{\&\&} 左邊，除法就只在確定安全
+時才會被算。
+
+\begin{example}{c}{(guard-divide.c) 用 \&\& 短路擋掉除以零}
+#include <stdio.h>
+
+int main(void) {
+    int i;
+    scanf("%d", &i);
+
+    if (i != 0 && 100 / i > 5) {
+        printf("YES\n");
+    } else {
+        printf("NO\n");
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+0 \\
+}{
+NO \\
+}
+
+\iosample{
+10 \\
+}{
+YES \\
+}
+
+輸入 \texttt{0} 時，\texttt{i != 0} 已經是假，\texttt{\&\&} 不會再去
+算 \texttt{100 / i}，程式直接印出 \texttt{NO}，不會真的去執行那個除
+法。 條件的順序不是隨意的：如果寫反成
+\texttt{100 / i > 5 \&\& i != 0}，輸入 \texttt{0} 就會先算
+\texttt{100 / i}，真的去做這個未定義行為的運算。 除以零在不同平台的
+下場不一樣：有些會讓程式收到訊號直接中止，有些會安靜地給出一個沒有
+意義的結果，不保證每次、每台機器都相同。 把會出錯的那段放在保護它的
+條件後面，才能保證它永遠不會真的被執行。
+
+\texttt{||} 的短路則用來跳過用不到的計算。 下面的
+\texttt{is\_multiple\_of\_seven} 會在被呼叫時印一行訊息，用來證明它
+到底有沒有被呼叫。
+
+\begin{example}{c}{(skip-expensive-check.c) 用 || 短路跳過昂貴檢查}
+#include <stdio.h>
+
+int is_multiple_of_seven(int x) {
+    printf("(checking %d)\n", x);
+    return x % 7 == 0;
+}
+
+int main(void) {
+    int x;
+    scanf("%d", &x);
+
+    if (x < 0 || is_multiple_of_seven(x)) {
+        printf("YES\n");
+    } else {
+        printf("NO\n");
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+-3 \\
+}{
+YES \\
+}
+
+\iosample{
+14 \\
+}{
+(checking 14) \\
+YES \\
+}
+
+輸入 \texttt{-3} 時，\texttt{x < 0} 已經是真，\texttt{||} 不會再呼叫
+\texttt{is\_multiple\_of\_seven}，所以沒有印出 \texttt{(checking ...)}
+這一行。 輸入 \texttt{14} 時左邊是假，右邊才真正被求值，
+\texttt{(checking 14)} 這行證明函式確實被呼叫了一次。 沒有這行訊息，
+讀者只能相信程式碼裡的註解；有了它，短路有沒有發生就是印出來的事實。
+
+短路也表示放在右邊的副作用不保證每次都發生。 把遞增、遞減或函式呼叫
+寫進 \texttt{\&\&}、\texttt{||} 右邊，副作用能不能發生會隨左邊的真假
+改變，讀程式的人很容易漏看。 後面短路碰上指定那一節會示範更極端的情
+形：右邊藏著一次指定，短路一發生，那個變數就悄悄維持舊值。
+
+\keypoint{\texttt{\&\&} 左邊為假時不算右邊；\texttt{||} 左邊為真時
+不算右邊。 拿短路擋掉會出錯的運算（例如除以零）很安全；拿它決定副作
+用（遞增、指定、呼叫函式）發不發生，讀的人很容易漏看，應該避免。}
+
+\begin{drills}[label=drills:cond-short-circuit]
+\item \texttt{i != 0 \&\& 100 / i > 5}，輸入 \texttt{i = 0} 時，
+\texttt{100 / i} 會不會被求值？為什麼這樣寫是安全的？
+\item 若把上一題的條件寫反成 \texttt{100 / i > 5 \&\& i != 0}，輸入
+\texttt{i = 0} 會發生什麼事？
+\item \texttt{||} 左邊為真時，右邊還會不會被求值？
+\end{drills}
+
+\section{連鎖比較：別把數學式直接搬進 C}
+\label{sec:cond-chained-compare}
+
+數學上我們習慣寫 $L \le X \le H$，但 C 語言沒有連鎖比較這種語法。
+\texttt{L <= X <= H} 其實會被解讀成 \texttt{(L <= X) <= H}：先算出
+\texttt{L <= X} 的結果（$0$ 或 $1$），再拿這個 $0$／$1$ 去跟
+\texttt{H} 比，幾乎永遠不是我們想要三者之間的大小關係。 正確寫法是拆
+成兩個比較，中間用 \texttt{\&\&} 接起來；上一節的短路在這裡也用得上
+，只要前段比較已經為假，\texttt{\&\&} 就不會再看後段。
+
+「$A$、$B$、$C$ 嚴格遞增」在數學裡常寫成 $A < B < C$，但 C 不支援
+這種寫法。 下面這段看起來像數學，其實完全不是：
+
+\begin{code}{c}{錯誤：以為 a < b < c 代表三者嚴格遞增}
+if (a < b < c) {   // 實際上是 (a < b) < c
+    ...
+}
+\end{code}
+
+\texttt{a < b} 的結果只有 $0$ 或 $1$。 如果 \texttt{a < b} 成立，左半部
+是 $1$，接著 \texttt{1 < c} 只在 \texttt{c > 1} 時才成立。 這跟「三者
+嚴格遞增」是兩回事。 正確寫法是把兩段比較拆開：
+
+\begin{code}{c}{正確：用 \&\& 串起兩個嚴格不等式}
+if (a < b && b < c) {
+    ...
+}
+\end{code}
+
+範例 \thechapter.29 讀入三個整數，依這個正確寫法判斷是否嚴格遞增。
+
+\begin{example}{c}{(strictly-increasing.c) 判斷三數是否嚴格遞增}
+#include <stdio.h>
+
+int main(void) {
+    int a, b, c;
+    scanf("%d %d %d", &a, &b, &c);
+
+    if (a < b && b < c) {
+        printf("YES\n");
+    } else {
+        printf("NO\n");
+    }
+}
+\end{example}
+
+\iosample{
+1 2 3 \\
+}{
+YES \\
+}
+
+\iosample{
+2 1 3 \\
+}{
+NO \\
+}
+
+第二組測資 \texttt{2 1 3}：\texttt{a < b} 是 \texttt{2 < 1}，結果
+$0$，整個 \texttt{\&\&} 因短路不再看 \texttt{b < c}，條件為假，印
+\texttt{NO}。
+
+\stylepoint{看到題目裡的「$L \le X \le H$」「$A < B < C$」這類數學連鎖比
+較，在 C 裡一律改寫成兩個（或更多）關係式，用 \texttt{\&\&} 串起來。}
+
+\begin{drills}[label=drills:cond-chained-compare]
+\item \texttt{a < b < c} 在 C 裡實際上會被解讀成什麼？
+\item 正確表達「\texttt{a}、\texttt{b}、\texttt{c} 嚴格遞增」該怎麼
+寫？
+\end{drills}
+
+\section{複合條件：閏年規則}
+\label{sec:cond-leap-year}
+
+有些條件沒辦法用單一關係式表達，需要把多個整除測試用 \texttt{\&\&} 和
+\texttt{||} 組合起來。 格里曆的閏年規則是：能被 $4$ 整除但不能被 $100$
+整除，\textbf{或者}能被 $400$ 整除。
+
+範例 \thechapter.30 直接把這個規則寫進 \texttt{if} 的條件裡。 $2000$ 年
+能被 $400$ 整除，是閏年；$1900$ 年能被 $100$ 整除但不能被 $400$ 整除，
+不是閏年。
+
+\begin{example}{c}{(leap-year.c) 判斷是否為閏年}
+#include <stdio.h>
+
+int main(void) {
+    int Y;
+    scanf("%d", &Y);
+
+    if ((Y % 4 == 0 && Y % 100 != 0) || Y % 400 == 0) {
+        printf("YES\n");
+    } else {
+        printf("NO\n");
+    }
+}
+\end{example}
+
+\iosample{
+2000 \\
+}{
+YES \\
+}
+
+\iosample{
+1900 \\
+}{
+NO \\
+}
+
+用 $2000$ 走一遍：\texttt{Y \% 4 == 0} 成立，但 \texttt{Y \% 100 != 0}
+不成立，前半段 \texttt{\&\&} 整體為假；接著 \texttt{Y \% 400 == 0} 成
+立，\texttt{||} 右邊為真，整個條件為真，印 \texttt{YES}。
+
+外層括號 \texttt{(Y \% 4 == 0 \&\& Y \% 100 != 0)} 不是多餘的裝飾。 
+\texttt{\&\&} 比 \texttt{||} 優先序高，但加上括號可以讓「能被 $4$ 整除且
+不是世紀年」這一整段意義一眼可讀，也跟題目文字描述的結構對齊。
+
+\begin{drills}[label=drills:cond-leap-year]
+\item 閏年規則的完整條件式怎麼寫（用 \texttt{\%4}、\texttt{\%100}、
+\texttt{\%400}）？
+\item 西元 \texttt{1900} 年是不是閏年？為什麼？
+\end{drills}
+
+\section{更多複合條件}
+\label{sec:cond-more-compound}
+
+「三邊能否圍成三角形」要兩邊都顧到：每邊為正，且任兩邊之和大於第
+三邊。 少寫一條，就會把 \texttt{8 4 3} 這種退化情形誤判成合法。
+
+\begin{example}{c}{(triangle-ok.c) 判斷三邊能否圍成三角形}
+#include <stdio.h>
+
+int main(void) {
+    int a, b, c;
+    scanf("%d %d %d", &a, &b, &c);
+    if (a > 0 && b > 0 && c > 0 &&
+        a + b > c && b + c > a && a + c > b) {
+        printf("YES\n");
+    } else {
+        printf("NO\n");
+    }
+}
+\end{example}
+
+\iosample{
+3 4 5 \\
+}{
+YES \\
+}
+
+\iosample{
+8 4 3 \\
+}{
+NO \\
+}
+
+直角三角形則是畢氏定理：把「斜邊是 $c$」寫成
+\texttt{a * a + b * b == c * c}。 範例 \thechapter.32 假設輸入已經依
+「兩股、一斜」的順序給定。
+
+\begin{example}{c}{(right-triangle.c) 判斷是否為以 c 為斜邊的直角三角形}
+#include <stdio.h>
+
+int main(void) {
+    int a, b, c;
+    scanf("%d %d %d", &a, &b, &c);
+    if (a * a + b * b == c * c) {
+        printf("YES\n");
+    } else {
+        printf("NO\n");
+    }
+}
+\end{example}
+
+\iosample{
+3 4 5 \\
+}{
+YES \\
+}
+
+三個數是否都為正，是單純的 \texttt{\&\&}：任一個 $\le 0$ 就整段為
+假。 「恰好一個條件成立」則比較像互斥或：兩邊的真假不能相同。 範
+例 \thechapter.34 把「非零當成真」，用 \texttt{(p != 0) != (q != 0)}
+表達「恰好一邊為真」。
+
+\begin{example}{c}{(all-positive.c) 三數是否皆為正}
+#include <stdio.h>
+
+int main(void) {
+    int a, b, c;
+    scanf("%d %d %d", &a, &b, &c);
+    if (a > 0 && b > 0 && c > 0) {
+        printf("YES\n");
+    } else {
+        printf("NO\n");
+    }
+}
+\end{example}
+
+\iosample{
+1 2 3 \\
+}{
+YES \\
+}
+
+\begin{example}{c}{(exactly-one.c) 恰好一個為真}
+#include <stdio.h>
+
+int main(void) {
+    int p, q;
+    scanf("%d %d", &p, &q);
+    if ((p != 0) != (q != 0)) {
+        printf("ONE\n");
+    } else {
+        printf("NOT_ONE\n");
+    }
+}
+\end{example}
+
+\iosample{
+1 0 \\
+}{
+ONE \\
+}
+
+\texttt{\&\&} 與 \texttt{!} 也可以同時出現。 範例 \thechapter.35 要
+求能被 $3$ 與 $5$ 整除、但不能被 $7$ 整除：\texttt{15} 符合，
+\texttt{105}（$3\times5\times7$）不符合。
+
+\begin{example}{c}{(mult-35-not7.c) 3 與 5 的倍數，但不是 7 的倍數}
+#include <stdio.h>
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+    if (n % 3 == 0 && n % 5 == 0 && n % 7 != 0) {
+        printf("YES\n");
+    } else {
+        printf("NO\n");
+    }
+}
+\end{example}
+
+\iosample{
+15 \\
+}{
+YES \\
+}
+
+\begin{drills}[label=drills:cond-more-compound]
+\item 判斷三邊能否圍成三角形，除了三邊都要為正，還要檢查什麼？
+\item \texttt{(p != 0) != (q != 0)} 這個寫法在表達「恰好一個為真」，
+它的邏輯是什麼？
+\end{drills}
+
+時間區間常常先換成「從午夜算起的總分鐘」，再當成普通整數比較。 範
+例 \thechapter.36 判斷是否落在下午三點到五點半（含兩端）。
+
+\begin{example}{c}{(tea-window.c) 把時與分換成總分鐘再比區間}
+#include <stdio.h>
+
+int main(void) {
+    int h, m;
+    scanf("%d %d", &h, &m);
+    int t = h * 60 + m;
+    if (t >= 15 * 60 && t <= 17 * 60 + 30) {
+        printf("YES\n");
+    } else {
+        printf("NO\n");
+    }
+}
+\end{example}
+
+\iosample{
+16 0 \\
+}{
+YES \\
+}
+
+三數取中位數可以用巢狀的「是否夾在另外兩個之間」來寫：先問 \texttt{a}
+是不是中間那個，再問 \texttt{b}，否則就是 \texttt{c}。 相等時「夾在中
+間」仍然成立，所以 \texttt{2 2 5} 的中位數是 $2$。 範例 \thechapter.37
+示範這種複合條件的寫法。
+
+\begin{example}{c}{(median-three.c) 用巢狀區間判斷三數的中位數}
+#include <stdio.h>
+
+int main(void) {
+    int a, b, c;
+    scanf("%d %d %d", &a, &b, &c);
+    int mid;
+    if ((a >= b && a <= c) || (a >= c && a <= b)) {
+        mid = a;
+    } else if ((b >= a && b <= c) || (b >= c && b <= a)) {
+        mid = b;
+    } else {
+        mid = c;
+    }
+    printf("%d\n", mid);
+    return 0;
+}
+\end{example}
+
+\iosample{
+9 1 4 \\
+}{
+4 \\
+}
+
+\section{短路碰上指定}
+\label{sec:cond-short-circuit-assign}
+
+前面一節說過 \texttt{||} 左邊為真就不再算右邊。 這裡看進階陷阱：若右邊
+藏著指定，那一次「沒算」會讓變數維持舊值。 範例 \thechapter.38 把指定
+寫進條件裡（這不是推薦寫法，只為了把陷阱攤開）：
+\texttt{(k = i) > 0 || (ell = j) > 0}。 輸入 \texttt{7 2} 時左邊已經為
+真，右邊的指定被跳過，\texttt{ell} 仍是 $0$；輸入 \texttt{0 2} 時左邊
+為假，右邊才執行，\texttt{ell} 變成 $2$。
+
+\begin{example}{c}{(short-side.c) 短路讓右邊的指定不一定發生}
+#include <stdio.h>
+
+int main(void) {
+    int i, j;
+    int k = 0;
+    int ell = 0;
+    scanf("%d %d", &i, &j);
+    if ((k = i) > 0 || (ell = j) > 0) {
+        printf("TRUE\n");
+    } else {
+        printf("FALSE\n");
+    }
+    printf("%d %d\n", k, ell);
+    return 0;
+}
+\end{example}
+
+\iosample{
+7 2 \\
+}{
+TRUE \\
+7 0 \\
+}
+
+\keypoint{不要把指定寫進 \texttt{\&\&}／\texttt{||} 的運算元裡。 短
+路是為了少做不必做的測試，不是為了選擇性賦值。}
+
+\begin{drills}[label=drills:cond-short-circuit-assign]
+\item \texttt{(k = i) > 0 || (ell = j) > 0}，輸入 \texttt{7 2} 時，
+\texttt{ell} 最後是多少？為什麼？
+\item 為什麼不建議把賦值寫進 \texttt{\&\&}／\texttt{||} 的運算元裡？
+\end{drills}
+
+\section{條件運算子：寫在運算式裡的二選一}
+\label{sec:cond-ternary}
+
+有時你要的不是選擇執行哪一段敘述，只是依條件選兩個值裡的一個。
+條件運算子 \texttt{?:} 的寫法是 \texttt{condition ? a : b}：條件非
+零就取 \texttt{a}，否則取 \texttt{b}。 它是運算式，可以直接出現在
+賦值右邊，不需要額外的變數先存起來再判斷。
+
+\begin{code}{c}{條件運算子}
+mag = (n >= 0) ? n : -n;
+\end{code}
+
+\texttt{?:} 的優先順序很低，條件兩邊建議加括號，讀的時候才不必先在
+腦子裡排優先序。
+
+\subsection{巢狀 ?:：一行做多選一}
+
+\texttt{?:} 的第二個分支可以再放一個 \texttt{?:}，而且是\textbf{右
+結合}：\texttt{a ? b : c ? d : e} 會被讀成
+\texttt{a ? b : (c ? d : e)}。 這讓好幾個互斥的區間可以縮成一行，效果
+跟 \texttt{else if} 階梯一樣，只是階梯選的是要執行的敘述，這裡選的是
+要放進變數的值。
+
+\begin{code}{c}{巢狀條件運算子}
+grade = (score >= 90) ? 'A' :
+        (score >= 80) ? 'B' :
+        (score >= 70) ? 'C' : 'D';
+\end{code}
+
+範例 \thechapter.41 把前面等第字母那個 \texttt{else if} 階梯改寫成一
+串巢狀 \texttt{?:}，答案完全一樣：輸入 \texttt{72} 一樣得到
+\texttt{C}。
+
+\begin{example}{c}{(grade-ternary.c) 用巢狀 ?: 選出等第字母}
+#include <stdio.h>
+
+int main(void) {
+    int score;
+    scanf("%d", &score);
+
+    char grade = (score >= 90) ? 'A' :
+                 (score >= 80) ? 'B' :
+                 (score >= 70) ? 'C' :
+                 (score >= 60) ? 'D' : 'E';
+
+    printf("%c\n", grade);
+    return 0;
+}
+\end{example}
+
+\iosample{
+72 \\
+}{
+C \\
+}
+
+每個分支都只是一個字元，沒有其他動作，這正是巢狀 \texttt{?:} 適用的
+場合：每條規則都只是在選一個值。 分支一旦要做多件事，或條件超過三、
+四層，讀起來會比對應的 \texttt{else if} 階梯更累；那時就該換回
+\texttt{if-else}，不要硬把敘述塞進問號冒號兩側。
+
+\subsection{陷阱：兩個分支的型別可能不一樣}
+
+\texttt{?:} 的兩個分支不用同型別，但運算式最終只有\textbf{一個}型
+別。 C 會先套用一般算術轉換，把兩個分支的型別統一，再決定整個
+\texttt{?:} 表達式的型別。 就算實際選中的是 \texttt{int} 那一支，只
+要另一支是 \texttt{double}，結果型別就是 \texttt{double}。
+
+\begin{example}{c}{(ternary-type.c) 沒被選中的分支也決定了型別}
+#include <stdio.h>
+
+int main(void) {
+    int n = 5;
+    printf("%zu\n", sizeof(n > 0 ? n : 0));
+    printf("%zu\n", sizeof(n > 0 ? n : 0.0));
+
+    double result = (n > 0) ? n : 0.0;
+    printf("%g\n", result);
+    return 0;
+}
+\end{example}
+
+\iosample{
+}{
+4 \\
+8 \\
+5 \\
+}
+
+\texttt{n > 0} 為真，兩次都選中 \texttt{n} 這一支。 第一行兩個分支都
+是 \texttt{int}，\texttt{sizeof} 量到 $4$。 第二行另一支是
+\texttt{0.0}，整個 \texttt{?:} 表達式因此變成 \texttt{double}，
+\texttt{sizeof} 量到 $8$；\texttt{n} 本身沒有變，是選中它之後又被轉成
+\texttt{double} 才交出去。 把這個結果直接印成 \texttt{\%d} 會讀到錯的
+位元組，跟第 13 章格式指定符不對齊的陷阱同一個道理。
+
+\keypoint{\texttt{?:} 的型別由兩個分支一起決定，不是由實際選中的那一
+支單獨決定。 分支型別不同時，較窄的那一支會被轉換，就算它沒被選中。}
+
+\stylepoint{\texttt{?:} 只適合選一個值；分支需要做動作、或巢狀超過兩
+三層，就改回 \texttt{if-else}，不要把敘述硬塞進冒號兩側。}
+
+\begin{drills}[label=drills:cond-ternary]
+\item \texttt{mag = (n >= 0) ? n : -n;} 這行在做什麼？
+\item \texttt{a ? b : c ? d : e} 的結合方向是左結合還是右結合？
+\item \texttt{?:} 的兩個分支型別不同（一個 \texttt{int}、一個
+\texttt{double}）時，整個 \texttt{?:} 表達式的型別由誰決定？
+\end{drills}
+
+\section{switch：一個值對應多種固定選項}
+\label{sec:cond-switch}
+
+當程式要依\textbf{一個整數或字元}的值，從\textbf{很多固定選項}中挑一個
+來做，\texttt{if-else if} 階梯雖然可行，但 \texttt{switch} 通常更清楚，
+編譯器也較容易生成有效率的跳轉表（jump table）。
+
+\begin{code}{c}{switch 的基本結構}
+switch (expression) {
+    case 常數1:
+        ...
+        break;
+    case 常數2:
+        ...
+        break;
+    default:
+        ...
+        break;
+}
+\end{code}
+
+\begin{center}
+\begin{tikzpicture}[node distance=1.3cm and 2.0cm]
+    \node[startend] (start) {Start};
+    \node[process, below=of start] (expr) {Evaluate expr};
+    \node[decision, below=1.3cm of expr] (case1) {expr == c1?};
+    \node[decision, below=1.6cm of case1] (case2) {expr == c2?};
+    \node[decision, below=1.6cm of case2] (case3) {expr == c3?};
+    \node[process, below=1.6cm of case3] (default) {default};
+    \node[startend, below=1.3cm of default] (end) {End};
+
+    \node[process, left=3.2cm of case1] (stmt1) {stmt1};
+    \node[process, left=3.2cm of case2] (stmt2) {stmt2};
+    \node[process, left=3.2cm of case3] (stmt3) {stmt3};
+
+    \draw[flowarrow] (start.south) -- (expr.north);
+    \draw[flowarrow] (expr.south) -- (case1.north);
+    \draw[flowarrow] (case1.south) -- node[right,font=\scriptsize] {N} (case2.north);
+    \draw[flowarrow] (case2.south) -- node[right,font=\scriptsize] {N} (case3.north);
+    \draw[flowarrow] (case3.south) -- node[right,font=\scriptsize] {N} (default.north);
+    \draw[flowarrow] (default.south) -- (end.north);
+
+    \draw[flowarrow] (case1.west) -- node[above,font=\scriptsize] {Y} (stmt1.east);
+    \draw[flowarrow] (case2.west) -- node[above,font=\scriptsize] {Y} (stmt2.east);
+    \draw[flowarrow] (case3.west) -- node[above,font=\scriptsize] {Y} (stmt3.east);
+
+    % 匯流線畫在 stmt 左側，避免從 stmt1 往下穿過 stmt2、stmt3
+    \coordinate (bus) at ([xshift=-0.8cm]stmt1.west);
+    \coordinate (b1) at (bus |- stmt1.west);
+    \coordinate (b2) at (bus |- stmt2.west);
+    \coordinate (b3) at (bus |- stmt3.west);
+    \coordinate (bend) at (bus |- end.west);
+
+    \draw[flowarrow] (stmt1.west) -- (b1);
+    \draw[flowarrow] (stmt2.west) -- (b2);
+    \draw[flowarrow] (stmt3.west) -- (b3);
+    \draw[black!70, thick] (b1) -- (bend);
+    \draw[flowarrow] (bend) -- (end.west);
+\end{tikzpicture}
+\diagcaption{先求出 \texttt{expr}，再沿主幹依序問 \texttt{expr == c1?}、
+\texttt{c2?}、\texttt{c3?}；相等時向左執行對應 \texttt{stmt}，都不符才
+走 \texttt{default}。}
+\end{center}
+
+跟 \texttt{else if} 階梯同一套視覺語言：\texttt{switch} 是對同一個值
+連續問相等，\texttt{else if} 則是對不同條件依序提問。
+
+\texttt{case} 後面必須是\textbf{編譯期可知的常數}（字面常數或 \texttt{enum}
+常數），不能是變數。 每個 \texttt{case} 結束通常要寫 \texttt{break}，否
+則程式會\textbf{穿透}（fall through）到下一個 \texttt{case} 繼續執行。
+
+範例 \thechapter.44 用 \texttt{enum} 定義一週七天，再依輸入的整數（$0$
+到 $6$）印出對應的縮寫名稱。
+
+\begin{example}{c}{(weekday-name.c) 用 enum 與 switch 印出星期名稱}
+#include <stdio.h>
+
+enum Weekday {
+    SUN, MON, TUE, WED, THU, FRI, SAT
+};
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+
+    enum Weekday day = n;
+    switch (day) {
+        case SUN:
+            printf("SUN\n");
+            break;
+        case MON:
+            printf("MON\n");
+            break;
+        case TUE:
+            printf("TUE\n");
+            break;
+        case WED:
+            printf("WED\n");
+            break;
+        case THU:
+            printf("THU\n");
+            break;
+        case FRI:
+            printf("FRI\n");
+            break;
+        case SAT:
+            printf("SAT\n");
+            break;
+        default:
+            printf("UNKNOWN\n");
+            break;
+    }
+}
+\end{example}
+
+\iosample{
+3 \\
+}{
+WED \\
+}
+
+多個 \texttt{case} 可以\textbf{刻意}不加 \texttt{break}，讓它們共用同一段
+程式碼。 這叫做\textbf{分組 case}（grouped cases）。 範例 \thechapter.45
+依月份輸出季節。
+
+\begin{example}{c}{(season-from-month.c) 用分組 case 依月份輸出季節}
+#include <stdio.h>
+
+enum Season { SPRING, SUMMER, AUTUMN, WINTER };
+
+int main(void) {
+    int M;
+    scanf("%d", &M);
+
+    enum Season season;
+    switch (M) {
+        case 3:
+        case 4:
+        case 5:
+            season = SPRING;
+            break;
+        case 6:
+        case 7:
+        case 8:
+            season = SUMMER;
+            break;
+        case 9:
+        case 10:
+        case 11:
+            season = AUTUMN;
+            break;
+        case 12:
+        case 1:
+        case 2:
+            season = WINTER;
+            break;
+        default:
+            season = WINTER;
+            break;
+    }
+
+    switch (season) {
+        case SPRING:
+            printf("SPRING\n");
+            break;
+        case SUMMER:
+            printf("SUMMER\n");
+            break;
+        case AUTUMN:
+            printf("AUTUMN\n");
+            break;
+        case WINTER:
+            printf("WINTER\n");
+            break;
+    }
+}
+\end{example}
+
+\iosample{
+4 \\
+}{
+SPRING \\
+}
+
+\stylepoint{只有當多個 \texttt{case} 要\textbf{刻意}共用同一段程式碼時，才
+省略 \texttt{break} 讓它穿透；其他情況每個 \texttt{case} 結尾都應寫
+\texttt{break}，避免執行流滑進下一個標籤。}
+
+\texttt{switch} 的控制運算式也可以是字元：字元在 C 裡就是一種整數。
+讀字元時，格式前面加一個空白 \texttt{" \%c"}，讓 \texttt{scanf} 先
+跳過換行或空白，否則很容易讀到上一行留下來的 \texttt{\textbackslash n}。
+範例 \thechapter.46 依 \texttt{R}／\texttt{Y}／\texttt{G} 印出停、等、
+走。
+
+\begin{example}{c}{(traffic.c) 用字元 switch 模擬號誌}
+#include <stdio.h>
+
+int main(void) {
+    char light;
+    scanf(" %c", &light);
+    switch (light) {
+        case 'R':
+            printf("STOP\n");
+            break;
+        case 'Y':
+            printf("WAIT\n");
+            break;
+        case 'G':
+            printf("GO\n");
+            break;
+        default:
+            printf("?\n");
+            break;
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+G \\
+}{
+GO \\
+}
+
+四則運算選單也很適合 \texttt{switch}。 範例 \thechapter.47 讀
+\texttt{a}、運算子、\texttt{b}；除法時若除數為 $0$ 就印 \texttt{ERR}，
+避免未定義行為。
+
+\begin{example}{c}{(mini-calc.c) 依運算子字元做整數四則}
+#include <stdio.h>
+
+int main(void) {
+    int a, b;
+    char op;
+    scanf("%d %c %d", &a, &op, &b);
+    switch (op) {
+        case '+':
+            printf("%d\n", a + b);
+            break;
+        case '-':
+            printf("%d\n", a - b);
+            break;
+        case '*':
+            printf("%d\n", a * b);
+            break;
+        case '/':
+            if (b == 0) {
+                printf("ERR\n");
+            } else {
+                printf("%d\n", a / b);
+            }
+            break;
+        default:
+            printf("ERR\n");
+            break;
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+8 * 3 \\
+}{
+24 \\
+}
+
+\begin{drills}[label=drills:cond-switch]
+\item \texttt{case} 後面必須是什麼樣的值？可以是變數嗎？
+\item 忘記在 \texttt{case} 結尾寫 \texttt{break} 會發生什麼事？這種
+現象叫做什麼？
+\item 什麼情況下「刻意」不寫 \texttt{break} 是合理的？
+\end{drills}
+
+到這裡，關係式、邏輯組合、\texttt{if}／\texttt{else if}、獨立
+\texttt{if}、以及 \texttt{switch} 都已經能處理題庫裡大多數「先分類、
+再輸出」的題目。 下一章「迴圈」會把同一段判斷重複很多次。 條件的
+寫法不變，只是它會被問過一遍又一遍。
+
+\addcontentsline{toc}{section}{練習解答}
+\section*{練習解答}
+
+各節練習的答案收在這裡。 短題只給能一句話核對的結果。
+
+\paragraph{第~\ref{sec:cond-relational}~節}
+\begin{enumerate}
+\item $0$ 或 $1$。
+\item $1$（真）。
+\item 它是一個合法的賦值運算式：先把 \texttt{0} 存進 \texttt{i}，再
+把賦值後的結果（\texttt{0}，也就是假）當成條件值，所以這個 \texttt{if}
+永遠不會執行。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:cond-if-only}~節}
+\begin{enumerate}
+\item 什麼都不印：\texttt{n > 0} 不成立，\texttt{printf} 那段被跳
+過，但程式不會當機。
+\item 直接跳過整個本體，繼續往下執行 \texttt{if} 之後的敘述。
+\item 整數（$0$ 或非零）；非零視為真，零視為假。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:cond-if-else}~節}
+\begin{enumerate}
+\item \texttt{PASS}（\texttt{score >= 60} 成立）。
+\item 互斥的兩種結果——同一時間只會執行其中一段。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:cond-dangling-else}~節}
+\begin{enumerate}
+\item 離它最近、還沒配對的那個 \texttt{if}。
+\item 因為只寫一行不加括號時，\texttt{else} 可能配到內層的 \texttt{if}
+而不是外層，跟縮排暗示的結構不一致，容易產生邏輯錯誤。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:cond-modulo}~節}
+\begin{enumerate}
+\item \texttt{n \% 2 == 0}。
+\item $-1$；因為負奇數的餘數是 $-1$ 而不是 $1$，用 \texttt{== 1} 會
+把負奇數誤判成偶數。
+\item \texttt{X} 能不能被 \texttt{D} 整除。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:cond-rewrite-values}~節}
+\begin{enumerate}
+\item 把 \texttt{n} 改成 \texttt{-n}。
+\item 因為每個數都可能改寫目前最大值，用 \texttt{else if} 的話，一旦
+第一條成立，後面的數就不會再被拿來比較，可能漏掉真正的最大值。
+\item \texttt{2 9}（由小到大）。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:cond-else-if-ladder}~節}
+\begin{enumerate}
+\item 因為階梯由上往下、第一個成立的條件就決定結果；如果先測低分的
+門檻（例如 \texttt{score >= 60}），高分也會被這條擋下來，永遠測不
+到後面更高的門檻。
+\item 不會，階梯在第一個成立的條件執行完後就結束。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:cond-independent-if}~節}
+\begin{enumerate}
+\item 多條規則允許同時成立、且結果要取加總或最大值時。
+\item 第一條規則成立後，後面的規則就不會再被檢查，可能選不到真正該
+給的最高獎金。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:cond-logical-ops}~節}
+\begin{enumerate}
+\item \texttt{!} 是邏輯非；\texttt{\&\&} 是邏輯且（兩邊都非零才為
+真）；\texttt{||} 是邏輯或（任一邊非零就為真）。
+\item \texttt{X} 是否介於 \texttt{L} 和 \texttt{H} 之間（含兩端）。
+\item $0$（假）。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:cond-short-circuit}~節}
+\begin{enumerate}
+\item 不會；\texttt{\&\&} 左邊已經為假，右邊直接跳過，所以除以零不
+會真的被執行。
+\item \texttt{100 / i} 會先被算，輸入 \texttt{0} 時觸發除以零的未定
+義行為。
+\item 不會。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:cond-chained-compare}~節}
+\begin{enumerate}
+\item \texttt{(a < b) < c}：先算出 \texttt{a < b} 的 $0$／$1$，再拿
+這個值跟 \texttt{c} 比較，不是三者遞增關係。
+\item \texttt{a < b \&\& b < c}。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:cond-leap-year}~節}
+\begin{enumerate}
+\item \texttt{(Y \% 4 == 0 \&\& Y \% 100 != 0) || Y \% 400 == 0}。
+\item 不是；\texttt{1900} 能被 \texttt{100} 整除，但不能被 \texttt{400}
+整除。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:cond-more-compound}~節}
+\begin{enumerate}
+\item 任兩邊之和要大於第三邊。
+\item 兩者的「非零狀態」不同（一個為真、一個為假）時，結果才為真。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:cond-short-circuit-assign}~節}
+\begin{enumerate}
+\item $0$；因為左邊 \texttt{(k = i) > 0} 已經為真，短路讓右邊的
+\texttt{(ell = j) > 0} 完全不會被求值，\texttt{ell} 維持原本的初值。
+\item 因為短路可能讓賦值不被執行，副作用發不發生要看左邊的真假，容
+易讓讀程式的人漏看或誤判。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:cond-ternary}~節}
+\begin{enumerate}
+\item 若 \texttt{n} 非負就把 \texttt{n} 存進 \texttt{mag}，否則存
+\texttt{-n}——這是在算絕對值。
+\item 右結合。
+\item 由兩個分支型別一起決定：較窄的一支會被轉換成較寬的型別，就算
+它沒被選中。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:cond-switch}~節}
+\begin{enumerate}
+\item 編譯期可知的常數（字面常數或 \texttt{enum} 常數）；不能是變
+數。
+\item 執行流會「穿透」到下一個 \texttt{case} 繼續執行，這現象叫做
+fall through。
+\item 想讓多個 \texttt{case} 刻意共用同一段程式碼時（分組 case）。
+\end{enumerate}

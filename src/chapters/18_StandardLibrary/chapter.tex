@@ -1,0 +1,1858 @@
+\chapter{C 標準程式庫}
+\label{ch:stdlib}
+
+「精熟標準程式庫」不是背過很多函式名字，是三件可遷移的能力：看得懂一份函
+式規格、認得失敗長什麼樣子、會用函式指標把資料型別和演算法拆開。 把這三件
+事當骨架，本章出現的每一個函式都掛得上去；讀者遇到書上沒教的函式，也能靠
+同一套骨架自己查手冊。
+
+這一章分三段走。 第一段練「讀規格」的能力：標準程式庫的邊界在哪裡、怎麼拆
+解一份函式原型、C 的錯誤回報有幾種家族、程式怎麼開始與結束。 第二段是全章
+重心：用函式指標把演算法從資料型別裡拆出來，\texttt{qsort} 與
+\texttt{bsearch} 是唯一的教學載體。 第三段快速巡覽字元／字串、數學、時
+間、可變參數、國際化幾個分領域。 章末有一個把所有主題串起來的整合專案。
+節末練習的答案收在章末。
+
+\section{標準程式庫是什麼}
+\label{sec:sl-what}
+
+標準程式庫不是 C 語言本身的一部分，是隨編譯器附帶的一套函式與型別，C11
+標準把它切成 29 個標頭檔（\texttt{<stdio.h>}、\texttt{<stdlib.h>}、
+\texttt{<string.h>}⋯，比 C99 多了 \texttt{<stdalign.h>}、
+\texttt{<stdatomic.h>}、\texttt{<stdnoreturn.h>}、\texttt{<threads.h>}、
+\texttt{<uchar.h>} 這五個——本書其他地方用到的 \texttt{\_Static\_assert}、
+\texttt{\_\_STDC\_VERSION\_\_} 站的都是 C11 的立場）。 標頭檔提供的是
+\textbf{宣告}，函式真正的實作藏在
+別處的函式庫檔案裡——這也是為什麼有些函式庫要在編譯時額外加旗標才連結得
+起來：
+
+\begin{code}{bash}{數學函式庫要額外連結}
+gcc prog.c -o prog       # 用到 sqrt、pow 等函式，缺 -lm 可能連結失敗
+gcc prog.c -o prog -lm   # -lm 明確連結數學函式庫
+\end{code}
+
+\texttt{<math.h>} 只是宣告，\texttt{sqrt}／\texttt{pow} 的本體在
+\texttt{libm} 裡；\texttt{-lm} 告訴連結器去哪裡找這些本體。
+
+\subsection{保留名稱}
+
+C 標準替未來的標準程式庫版本、還有編譯器自己的內部用途，保留了一批名字
+——這些名字讀者不該自己拿來用：
+
+\begin{itemize}
+\item 底線開頭的識別字（\texttt{\_foo}、\texttt{\_\_bar}）整批保留給實作
+（編譯器與函式庫）使用。
+\item \texttt{str} 加小寫字母開頭的名字（\texttt{strfoo}、
+\texttt{strxyz}）保留給未來的標準函式庫擴充，即使 C 標準目前還沒有這個
+函式。
+\end{itemize}
+
+自己寫的函式、變數、巨集名字，避開這兩類就好，不用背完整清單。
+
+\subsection{巨集會遮蔽函式}
+
+第~\ref{sec:pp-define}~節提過巨集是純文字替換。 標準程式庫允許某些函式
+\textit{同時}有一個效果相同的巨集版本——常見的是 \texttt{getchar}：
+
+\begin{example}{c}{(macro-hide.c) 用括號躲開巨集}
+#include <stdio.h>
+
+int main(void) {
+    int c1 = getchar();       /* 可能是巨集展開，也可能是函式呼叫 */
+    int c2 = (getchar)();     /* 一定是函式呼叫 */
+    printf("c1=%d c2=%d\n", c1, c2);
+    return 0;
+}
+\end{example}
+
+巨集要展開，名字後面必須\textit{直接}跟著左括號；\texttt{(getchar)} 中間
+被括號擋住，前置處理器找不到「\texttt{getchar} 緊接左括號」這個樣式，就
+不會展開，於是編譯器看到的是一個普通的函式呼叫。 這一招（用括號把名字架
+起來）在你懷疑某個標準函式庫名字被巨集蓋住、想強迫呼叫真正的函式時很有
+用；另一招是 \texttt{\#undef getchar} 之後那個名字就只剩函式版本。
+
+\keypoint{標頭檔只給宣告，函式庫檔案才有實作，缺少對應的連結旗標
+（如 \texttt{-lm}）會連結失敗。 底線開頭與 \texttt{str+小寫} 是保留名
+稱，不要自己用。 \texttt{(name)()} 或 \texttt{\#undef name} 能繞開遮蔽
+函式的巨集版本。}
+
+\begin{drills}[label=drills:sl-what]
+\item 為什麼用到 \texttt{sqrt} 的程式，有些平台不加 \texttt{-lm} 會連結
+失敗，而不是編譯失敗？
+\item 自己想定義一個叫 \texttt{\_config} 的全域變數，為什麼不建議？
+\item \texttt{(getchar)()} 為什麼一定是函式呼叫，不會被巨集展開？
+\item 補空：想強迫呼叫某個可能被巨集遮蔽的標準函式庫函式，除了加括號，
+還可以先 \underline{\hspace{2em}} 那個名字。
+\end{drills}
+
+\section{怎麼讀一份函式規格}
+\label{sec:sl-spec}
+
+標準程式庫的函式手冊看起來都長一個樣子：一行函式原型，加上幾句話說明參
+數與回傳值。 讀熟一份規格，比背下所有函式更有用。 用 \texttt{strtol}
+逐字拆解：
+
+\begin{code}{c}{strtol 的原型}
+long strtol(const char *restrict str, char **restrict endptr, int base);
+\end{code}
+
+\begin{itemize}
+\item 第一個參數 \texttt{const char *}：只讀，函式不會修改這個字串。
+\item 第二個參數 \texttt{char **}：一個「指標的指標」，用來讓函式\textit{回
+傳第二個東西}——除了函式本身的回傳值，還要告訴呼叫端「解析到哪裡停下
+來」。 呼叫端傳一個 \texttt{char *} 變數的位址進去，函式內部把這個變數
+設成指向沒被解析到的第一個字元。
+\item 兩個 \texttt{restrict} 各自限定它所在的那個指標參數，不是一句合起
+來的承諾。 \texttt{str} 上的 \texttt{restrict} 承諾：函式執行期間，
+\texttt{str} 指到的字串內容不會透過其他指標被修改。 \texttt{endptr} 上
+的 \texttt{restrict} 承諾：\texttt{endptr} 指到的那個 \texttt{char *} 變
+數（呼叫端拿來接住「解析到哪裡」的那個變數本身），不會透過其他指標被存
+取。 兩個承諾各自獨立，讓編譯器可以放心優化這兩條各自的存取路徑
+（\texttt{restrict} 這個關鍵字在很多標準函式庫原型裡都會出現，先認得它
+的意思）。
+\item 回傳型別是 \texttt{long}，不是 \texttt{int}：轉換出來的數字可能超
+過 \texttt{int} 能裝的範圍，用更大的型別接住，呼叫端自己決定要不要縮
+小、要不要檢查縮小會不會溢位。
+\end{itemize}
+
+\subsection{回傳值協定的四個家族}
+
+C 沒有例外（exception）機制，函式回報失敗只能靠回傳值或修改某個全域狀
+態。 整個標準程式庫的錯誤回報，可以分成四個家族，後面每一節出現的函式
+都能對到其中一個：
+
+\begin{center}
+\begin{tabular}{p{2.6cm}p{4.0cm}p{5.2cm}}
+\toprule
+家族 & 代表 & 失敗長什麼樣 \\
+\midrule
+哨兵值 & \texttt{getchar}、\texttt{fgetc} & 回傳一個資料範圍外的特殊值
+（\texttt{EOF}） \\
+指標或 \texttt{NULL} & \texttt{fopen}、\texttt{bsearch}、\texttt{malloc}
+& 回傳 \texttt{NULL} \\
+計數 & \texttt{fread}、\texttt{printf} & 回傳值小於預期，或是負數 \\
+設定 \texttt{errno} & \texttt{strtol}、\texttt{math.h} 的函式 & 回傳值
+本身合法，但 \texttt{errno} 被設成非零 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+遇到一個沒教過的函式，先看它的回傳型別落在哪個家族，就知道該檢查什麼：
+回傳型別是可能無效的指標，就檢查 \texttt{NULL}；回傳型別是計數，就跟預
+期的數字比對；回傳值本身看不出失敗（例如 \texttt{strtol} 的
+\texttt{0} 既可能是真的轉出 \texttt{0}，也可能是失敗），就要檢查
+\texttt{errno}。 下一節細講 \texttt{errno} 這個機制。
+
+\keypoint{看到一個新函式，先讀完整的參數型別（尤其是 \texttt{char **}、
+\texttt{void *} 這類）與回傳型別，回傳型別會告訴你失敗長什麼樣，四個家
+族（哨兵值／NULL／計數／errno）幾乎涵蓋全部標準函式庫。}
+
+\begin{drills}[label=drills:sl-spec]
+\item \texttt{strtol} 的第二個參數為什麼是 \texttt{char **} 而不是
+\texttt{char *}？
+\item \texttt{strtol} 回傳 \texttt{long} 而不是 \texttt{int}，用意是什
+麼？
+\item \texttt{fopen} 屬於哪一個回傳值家族？\texttt{fread} 呢？
+\item 補空：\texttt{strtol("abc", \&endptr, 10)} 回傳 \texttt{0}，這個
+\texttt{0} 有兩種可能：一種是字串裡真的解析出 \texttt{0}，另一種是
+\underline{\hspace{2em}}。 光看回傳值分不出來，還要看
+\underline{\hspace{2em}}。
+\end{drills}
+
+\section{錯誤處理}
+\label{sec:sl-errors}
+
+上一節提到的 \texttt{errno} 是一個標準函式庫定義的整數（技術上是一個
+執行緒區域的左值），某些函式偵測到錯誤時會把它設成一個非零的代碼。 用
+法有兩個規則容易忽略：
+
+\begin{itemize}
+\item \textbf{呼叫前先清零}：\texttt{errno} 不會在函式成功時被自動清成
+\texttt{0}，只在某些函式偵測到錯誤時才被寫入。 上一次呼叫留下的舊值可
+能還在，所以要檢查 \texttt{errno} 之前，先手動 \texttt{errno = 0;}。
+\item \textbf{只在規格明確說會設的情況下才檢查}：不是每個函式失敗都會
+設 \texttt{errno}，規格沒提到 \texttt{errno} 的函式，檢查它毫無意義。
+\end{itemize}
+
+\begin{code}{c}{errno 的正確用法}
+errno = 0;
+long v = strtol(s, &endptr, 10);
+if (errno == ERANGE) {
+    /* 真的溢位了 */
+}
+\end{code}
+
+\texttt{perror(prefix)} 把 \texttt{errno} 目前的值翻成一句人看得懂的英
+文訊息，印到 \texttt{stderr}；\\
+\texttt{strerror(errno)} 則是把同一句訊息變成字串，自己決定要印在哪裡：
+
+\begin{code}{c}{perror 與 strerror}
+FILE *fp = fopen("missing.txt", "r");
+if (!fp) {
+    perror("fopen");                          /* fopen: No such file or directory */
+    fprintf(stderr, "detail: %s\n", strerror(errno)); /* 同一句訊息 */
+}
+\end{code}
+
+\subsection{\texttt{assert} 與 \texttt{NDEBUG}}
+
+第~\ref{sec:pp-assert}~節已經自己寫過一個功能對等的版本：\texttt{assert(cond)}
+在 \texttt{cond} 為假時印出訊息並呼叫 \texttt{abort}；只要在
+\texttt{\#include <assert.h>} 之前定義了 \texttt{NDEBUG}，整個
+\texttt{assert} 就變成幾乎不做事的空殼。 \texttt{assert} 檢查的是「這件
+事按照程式邏輯不該發生」（程式設計者的錯誤），不是「使用者輸入可能有
+誤」（那種情況要用回傳值或 \texttt{errno}，因為使用者輸入錯誤在發布版
+也需要處理，不能被 \texttt{NDEBUG} 關掉）。
+
+C11 加入 \texttt{\_Static\_assert(常數表達式, "訊息")}，在\textit{編譯
+期}檢查一個常數條件，不像 \texttt{assert} 要等到執行期：
+
+\begin{code}{c}{\_Static\_assert}
+_Static_assert(sizeof(int) == 4, "this code assumes 32-bit int");
+\end{code}
+
+條件在編譯期就能算出來、又想在寫錯假設時直接編不過，用
+\texttt{\_Static\_assert}；條件要等執行期才知道，用 \texttt{assert}。
+
+\texttt{<signal.h>} 的 \texttt{signal} 用來註冊訊號處理函式，
+\texttt{<setjmp.h>} 的 \texttt{setjmp}／\texttt{longjmp} 可以做非局部跳
+轉——這兩個工具能處理的情境比本書涵蓋的範圍複雜（訊號處理函式裡能安全
+做的事非常有限），這裡只記名字，之後真的需要再深入。
+
+\keypoint{檢查 \texttt{errno} 前先清零，只在規格明確提到的情況下檢查。
+\texttt{assert} 抓程式設計者的錯誤、可以被 \texttt{NDEBUG} 關掉；使用者
+輸入錯誤要用回傳值處理，不能靠 \texttt{assert}。 \texttt{\_Static\_assert}
+是編譯期版本。}
+
+\begin{drills}[label=drills:sl-errors]
+\item 為什麼檢查 \texttt{errno} 之前要先手動清零？
+\item \texttt{perror} 跟 \texttt{strerror} 印出的內容有什麼關係？差別
+在哪裡？
+\item 使用者在 CLI 程式輸入了一個不存在的檔名，該用 \texttt{assert} 還
+是回傳值處理？為什麼？
+\item 補空：\texttt{\_Static\_assert} 在 \underline{\hspace{2em}} 期檢
+查條件，\texttt{assert} 在 \underline{\hspace{2em}} 期檢查。
+\end{drills}
+
+\section{程式的開始與結束}
+\label{sec:sl-startend}
+
+\texttt{main} 的回傳值就是程式的結束狀態碼，\texttt{0}（或
+\texttt{EXIT\_SUCCESS}）表示成功，非零（或 \texttt{EXIT\_FAILURE}）表示
+失敗，殼層（shell）或呼叫這支程式的其他程式可以讀到這個值。
+\texttt{exit(status)} 讓程式從\textit{任何地方}立刻結束，效果跟
+\texttt{main} 執行 \texttt{return status;} 一樣。
+
+\texttt{atexit(func)} 註冊一個「程式結束前要跑的函式」，可以註冊多個，
+呼叫順序跟註冊順序\textbf{相反}：
+
+\begin{example}{c}{(exit-demo.c) atexit 以反序呼叫}
+#include <stdio.h>
+#include <stdlib.h>
+
+void cleanup1(void) { printf("cleanup1\n"); }
+void cleanup2(void) { printf("cleanup2\n"); }
+
+int main(void) {
+    atexit(cleanup1);
+    atexit(cleanup2);
+    printf("Program running\n");
+    exit(0);
+}
+\end{example}
+
+\iosample{}{Program running\\cleanup2\\cleanup1}
+
+\subsection{\texttt{exit} 與 \texttt{\_Exit} 的真實差別}
+
+\texttt{exit} 在結束前會依序做三件事：呼叫所有 \texttt{atexit} 註冊的
+函式、沖出（flush）所有開啟的串流緩衝區、關閉所有開啟的檔案。
+\texttt{\_Exit} 跳過這三件事，直接結束程式。 差別不是敘述能說清楚的，
+用會不會印出東西來看最直接：
+
+\begin{example}{c}{(exit-vs-underscore-exit.c) 有沒有沖出緩衝區}
+#include <stdio.h>
+#include <stdlib.h>
+
+int main(int argc, char **argv) {
+    printf("about to exit"); /* 故意不加換行 */
+    if (argc > 1 && argv[1][0] == 'E') {
+        _Exit(0); /* 不沖出緩衝區、不呼叫 atexit 函式 */
+    } else {
+        exit(0); /* 沖出緩衝區、呼叫 atexit 函式 */
+    }
+    return 0;
+}
+\end{example}
+
+\begin{code}{bash}{把標準輸出重新導向到檔案，逼緩衝區真的積著}
+./prog > out1.txt; cat out1.txt      # about to exit
+./prog E > out2.txt; cat out2.txt    # 空的
+\end{code}
+
+\texttt{stdout} 接到檔案時走全緩衝，\texttt{printf} 那一行沒有換行，內
+容留在緩衝區裡還沒真正寫進檔案。 走 \texttt{exit} 的那一份，緩衝區在程
+式結束前被沖出，\texttt{out1.txt} 裡看得到 \texttt{about to exit}；走
+\texttt{\_Exit} 的那一份，緩衝區內容直接被丟棄，\texttt{out2.txt} 是空
+的。 \texttt{\_Exit} 通常只用在確定不需要清理、想儘快結束的場合（例如
+\texttt{fork} 出來的子行程裡發生無法處理的錯誤）。
+
+\subsection{\texttt{abort}：不清理，直接中止}
+
+\texttt{abort()} 送出 \texttt{SIGABRT} 訊號，讓程式異常終止，\textbf{不
+會}呼叫 \texttt{atexit} 註冊的函式：
+
+\begin{example}{c}{(abort-demo.c) abort 跳過 atexit}
+#include <stdio.h>
+#include <stdlib.h>
+
+void cleanup(void) { printf("cleanup ran\n"); }
+
+int main(void) {
+    atexit(cleanup);
+    printf("before abort\n");
+    abort();
+    printf("unreachable\n");
+    return 0;
+}
+\end{example}
+
+\iosample{}{before abort}
+
+只印出 \texttt{before abort}，\texttt{cleanup ran} 沒有機會執行——第
+\ref{sec:pp-assert}~節自製的 \texttt{assert} 失敗時就是呼叫 \texttt{abort}，
+現在知道原因了：斷言失敗代表程式已經處在不可信任的狀態，\texttt{abort}
+選擇「立刻停下」而不是「按正常程序清理後再走」。
+
+\texttt{atexit} 不被呼叫這件事，C 標準說得很清楚（\texttt{abort} 屬於
+「異常終止」，跟 \texttt{exit} 的「正常終止」不同）。 但\textbf{已開啟串
+流裡還沒沖出的緩衝內容會不會保留下來}，標準只說是
+\textit{implementation-defined}——不保證會、也不保證不會，換一個平台可
+能不一樣。 沿用第~\ref{sec:sl-startend}~節 \texttt{exit} vs
+\texttt{\_Exit} 的手法：故意不加換行、把輸出重新導向到檔案，實際看這台機
+器怎麼選：
+
+\begin{example}{c}{(abort-flush.c) abort 有沒有沖出緩衝區，是 implementation-defined}
+#include <stdio.h>
+#include <stdlib.h>
+
+int main(void) {
+    printf("before abort"); /* 故意不加換行 */
+    abort();
+    return 0;
+}
+\end{example}
+
+\begin{code}{bash}{重新導向到檔案，逼緩衝區真的積著}
+./abort-flush > out.txt; cat out.txt
+\end{code}
+
+\iosample{}{before abort}
+
+在這台機器（macOS）上，\texttt{out.txt} 裡確實看得到
+\texttt{before abort}——代表這個平台的 \texttt{abort} 實作會沖出已開啟串
+流的緩衝內容。 但這不是所有平台都保證的行為：C 標準把它列為
+implementation-defined，不能寫程式時假設緩衝內容一定會（或一定不會）留
+下來；真的要保證重要資料寫進磁碟，該在 \texttt{abort} 之前自己
+\texttt{fflush}，不要依賴這個沒有保證的副作用。
+
+\keypoint{\texttt{atexit} 註冊的函式以反序呼叫。 \texttt{exit} 會沖出緩
+衝區並呼叫 \texttt{atexit} 函式，\texttt{\_Exit} 兩者都跳過，
+\texttt{abort} 也跳過 \texttt{atexit} 且直接送出中止訊號。 三個「結束程
+式」的函式清理程度完全不同，不要當成同義詞。}
+
+\begin{drills}[label=drills:sl-startend]
+\item \texttt{atexit(cleanup1); atexit(cleanup2);} 之後程式結束，呼叫順
+序是什麼？
+\item \texttt{exit-vs-underscore-exit.c} 用 \texttt{exit} 跑一次、用
+\texttt{\_Exit} 跑一次，都重新導向到檔案，兩個檔案內容為什麼不一樣？
+\item \texttt{abort()} 之後，用 \texttt{atexit} 註冊的清理函式會不會執
+行？
+\item 補空：\texttt{main} 執行到最後的 \texttt{return status;}，效果等
+同呼叫 \underline{\hspace{2em}}。
+\end{drills}
+
+\section{字串與數字之間：轉換函式}
+\label{sec:sl-strtol}
+
+\texttt{atoi}／\texttt{atof} 把字串轉成數字，用起來像下面這樣：
+
+\begin{code}{c}{atoi 基本用法}
+int num = atoi("12345");
+double d = atof("3.14159");
+\end{code}
+
+但 \texttt{atoi} 有三個缺陷，湊在一起讓它幾乎不能用在真正需要檢查輸入的
+場合：
+
+\begin{example}{c}{(atoi-flaws.c) atoi 的三個缺陷}
+#include <stdio.h>
+#include <stdlib.h>
+
+int main(void) {
+    printf("%d\n", atoi("0"));       /* 合法的 0 */
+    printf("%d\n", atoi("abc"));     /* 也是 0：轉換失敗還是真的是 0？ */
+    printf("%d\n", atoi("42abc"));   /* 42：吃了幾個字元？不知道 */
+    printf("%d\n", atoi("99999999999999999999")); /* 溢位：未定義行為 */
+    return 0;
+}
+\end{example}
+
+\iosample{}{0\\0\\42\\-1（此平台觀察到的值，技術上是未定義行為）}
+
+\texttt{atoi("abc")} 和 \texttt{atoi("0")} 回傳一模一樣的 \texttt{0}，
+呼叫端沒有任何辦法分辨轉換失敗與真的轉出 \texttt{0}；\texttt{"42abc"}
+轉出 \texttt{42}，但呼叫端不知道字串裡還有沒被吃掉的 \texttt{"abc"}；超
+出 \texttt{int} 範圍時，C 標準沒有規定會發生什麼事。
+
+\subsection[strtol 錯誤檢查包裝函式]{用 \texttt{strtol} 寫一個真正檢查錯誤的包裝函式}
+
+\texttt{strtol(str, \&endptr, base)} 靠 \texttt{endptr} 告訴你解析到哪
+裡停下來，靠 \texttt{errno} 告訴你有沒有溢位，把這兩個資訊用起來，才能
+做到 \texttt{atoi} 做不到的事：
+
+\begin{example}{c}{(parse-int.c) 完整檢查錯誤的 strtol 包裝}
+#include <stdio.h>
+#include <stdlib.h>
+#include <errno.h>
+#include <limits.h>
+#include <stdbool.h>
+
+bool parse_int(const char *s, int *out) {
+    errno = 0;
+    char *endptr;
+    long v = strtol(s, &endptr, 10);
+
+    if (endptr == s) return false;       /* 完全沒吃到數字 */
+    if (*endptr != '\0') return false;   /* 有尾巴垃圾 */
+    if (errno == ERANGE) return false;   /* long 溢位 */
+    if (v < INT_MIN || v > INT_MAX) return false; /* long 縮到 int 溢位 */
+
+    *out = (int)v;
+    return true;
+}
+
+int main(void) {
+    const char *tests[] = {
+        "42", "  42", "42abc", "abc", "",
+        "2147483647", "2147483648", "-17"
+    };
+    for (int i = 0; i < 8; i++) {
+        int out;
+        if (parse_int(tests[i], &out))
+            printf("\"%s\" -> %d\n", tests[i], out);
+        else
+            printf("\"%s\" -> parse failed\n", tests[i]);
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{}{"42" -> 42\\"  42" -> 42\\"42abc" -> parse failed\\"abc" -> parse failed\\"" -> parse failed\\"2147483647" -> 2147483647\\"2147483648" -> parse failed\\"-17" -> -17}
+
+四個檢查缺一不可：\texttt{endptr == s} 抓「完全沒有數字」（例如空字串
+或純字母）；\texttt{*endptr != '\textbackslash 0'} 抓「有數字，但後面還
+有殘留的垃圾字元」；\texttt{errno == ERANGE} 抓「連 \texttt{long} 都裝不
+下」；範圍檢查抓「\texttt{long} 裝得下、但縮到 \texttt{int} 會溢位」。
+另外，\texttt{"  42"} 前面帶空白也能成功解析——\texttt{strtol} 會先跳過
+開頭的空白字元，這是規格保證的行為，不是巧合。
+
+\subsection{\texttt{base} 參數}
+
+第三個參數決定用哪個進位制解析，\texttt{2} 到 \texttt{36} 都合法；傳
+\texttt{0} 讓 \texttt{strtol} 自動偵測——\texttt{0x}／\texttt{0X} 開頭當
+十六進位，\texttt{0} 開頭當八進位，其餘當十進位，跟 C 原始碼裡數字常數
+的規則一致。 浮點數的等價工具是 \texttt{strtod}，用法跟 \texttt{strtol}
+同一套（\texttt{endptr}、\texttt{errno}），只是沒有 \texttt{base} 參
+數。
+
+\subsection{跟 \texttt{sscanf} 比較}
+
+只要解析一個獨立的數字，\texttt{strtol}／\texttt{strtod} 檢查得比
+\texttt{sscanf} 更細（分得出「沒吃到」跟「有殘留」跟「溢位」）；一行裡
+要同時解析好幾個不同型別的欄位（像 CSV 的一行），\texttt{sscanf} 或
+\texttt{fgets}+\texttt{sscanf} 的組合更省事，細節見第
+\ref{sec:fio-fmt}~節。 兩者不是互斥，各自適合的場合不一樣。
+
+\keypoint{\texttt{atoi} 分不出「失敗」與「轉出 0」，也不知道吃了幾個字
+元，溢位是未定義行為。 \texttt{strtol} 用 \texttt{endptr} 定位解析終
+點、用 \texttt{errno} 回報溢位，四個檢查（沒吃到、有殘留、long 溢位、縮
+小溢位）湊齊才算真正安全。}
+
+\begin{drills}[label=drills:sl-strtol]
+\item \texttt{atoi("abc")} 跟 \texttt{atoi("0")} 都回傳 \texttt{0}，呼叫
+端要怎麼分辨轉換有沒有成功？（提示：用 \texttt{atoi} 分辨不出來）
+\item \texttt{parse\_int("42abc", \&out)} 為什麼回傳 \texttt{false}？是
+哪一個檢查抓到的？
+\item \texttt{parse\_int("2147483648", \&out)}（\texttt{INT\_MAX + 1}）
+為什麼失敗？是 \texttt{strtol} 本身失敗，還是縮小成 \texttt{int} 才失
+敗？
+\item 補空：\texttt{base} 傳 \texttt{0} 讓 \texttt{strtol} 自動偵測進位
+制，\texttt{"0x1A"} 會被當成 \underline{\hspace{2em}} 進位。
+\end{drills}
+
+\section{函式指標與 \texttt{qsort}}
+\label{sec:sl-qsort}
+
+C 沒有泛型（generic），要寫一個能排序\textit{任何}型別陣列的函式，只剩
+一條路：把「怎麼比較兩個元素」這件事，從排序演算法本身抽出來，變成一個
+外部傳進來的函式。 這正是 \texttt{qsort} 的原型長這樣的原因：
+
+\begin{code}{c}{qsort 的原型}
+void qsort(void *base, size_t n, size_t size,
+           int (*compar)(const void *, const void *));
+\end{code}
+
+\texttt{void *base} 是陣列開頭的位址——\texttt{void *} 能指向任何型別，
+但沒有型別資訊，\texttt{qsort} 不知道每個元素多大；所以要多給
+\texttt{size\_t size} 告訴它每個元素占多少位元組，\texttt{qsort} 內部就
+能靠「位址 + 位移量」自己搬動任意型別的元素，完全不需要知道那個型別叫
+什麼。 最後一個參數 \texttt{compar} 是函式指標：呼叫端提供一個「怎麼比
+較兩個元素」的函式，\texttt{qsort} 排序過程中需要比較時就呼叫它。 位址
+＋元素大小＋比較函式，三件事合起來取代了「泛型」。
+
+比較函式的契約：接兩個 \texttt{const void *}（各指向陣列裡的一個元
+素），回傳負值表示第一個排在前面、正值表示第二個排在前面、\texttt{0}
+表示兩者相等。 這個規則要對陣列裡\textit{所有}可能的配對都成立，形成一
+個一致的全序，否則排序結果不可靠。
+
+\subsection{整數：小心減法溢位}
+
+\begin{code}{c}{危險與安全的整數比較函式}
+/* 危險：極端值相減會溢位 */
+int compare_int_bad(const void *a, const void *b) {
+    return *(const int *)a - *(const int *)b;
+}
+
+/* 安全：不做減法 */
+int compare_int(const void *a, const void *b) {
+    int x = *(const int *)a, y = *(const int *)b;
+    return (x > y) - (x < y);
+}
+\end{code}
+
+\begin{example}{c}{(qsort-int.c) 減法版在極端值上真的排錯}
+#include <stdio.h>
+#include <stdlib.h>
+
+int compare_int_bad(const void *a, const void *b) {
+    return *(const int *)a - *(const int *)b;
+}
+int compare_int(const void *a, const void *b) {
+    int x = *(const int *)a, y = *(const int *)b;
+    return (x > y) - (x < y);
+}
+
+int main(void) {
+    int extreme[] = {2147483647, -2147483648, 0};
+    qsort(extreme, 3, sizeof(int), compare_int_bad);
+    for (int i = 0; i < 3; i++) printf("%d ", extreme[i]);
+    printf("\n");
+
+    int extreme2[] = {2147483647, -2147483648, 0};
+    qsort(extreme2, 3, sizeof(int), compare_int);
+    for (int i = 0; i < 3; i++) printf("%d ", extreme2[i]);
+    printf("\n");
+    return 0;
+}
+\end{example}
+
+\iosample{}{2147483647 -2147483648 0\\-2147483648 0 2147483647}
+
+第一行完全沒排好：\texttt{INT\_MAX - INT\_MIN} 本身就溢位（有號整數溢位
+是未定義行為），比較函式回傳的正負號變得不可靠，\texttt{qsort} 靠這個
+不可靠的訊號做出的排序自然是錯的。 第二行用
+\texttt{(x > y) - (x < y)} 完全不做減法，兩個布林值相減永遠落在
+\texttt{-1}／\texttt{0}／\texttt{1}，不會溢位，排序正確。 這個寫法值得
+記下來，之後看到任何「比較函式」都優先考慮它，不要下意識寫
+\texttt{a - b}。
+
+\subsection{字串：兩種佈局，兩種比較函式}
+
+字串陣列常見的兩種記憶體佈局，比較函式\textbf{不一樣}，這是
+\texttt{qsort} 最高頻出錯的地方：
+
+\begin{example}{c}{(qsort-string.c) char *arr[] 與 char arr[][N] 的比較函式}
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+/* 佈局一：char *arr[]，每個元素是「指標」 */
+int compare_string_ptr(const void *a, const void *b) {
+    return strcmp(*(const char **)a, *(const char **)b);
+}
+
+/* 佈局二：char arr[][N]，每個元素本身就是字元陣列 */
+int compare_string_arr(const void *a, const void *b) {
+    return strcmp((const char *)a, (const char *)b);
+}
+
+int main(void) {
+    char *words[] = {"zebra", "apple", "mango"};
+    qsort(words, 3, sizeof(char *), compare_string_ptr);
+    for (int i = 0; i < 3; i++) printf("%s ", words[i]);
+    printf("\n");
+
+    char fixed[3][10] = {"zebra", "apple", "mango"};
+    qsort(fixed, 3, sizeof(fixed[0]), compare_string_arr);
+    for (int i = 0; i < 3; i++) printf("%s ", fixed[i]);
+    printf("\n");
+    return 0;
+}
+\end{example}
+
+\iosample{}{apple mango zebra\\apple mango zebra}
+
+差別在 \texttt{qsort} 傳進比較函式的 \texttt{a}、\texttt{b} 永遠是「指
+向陣列元素的位址」。 佈局一的元素本身就是 \texttt{char *}，所以
+\texttt{a} 是「指向 \texttt{char *} 的位址」，也就是 \texttt{char **}，
+要先解一次參考拿到真正的字串指標，才能傳給 \texttt{strcmp}——這就是
+\texttt{*(const char **)a} 的由來。 佈局二的元素本身就是字元陣列（也就
+是字串本身），\texttt{a} 已經是「指向這個字串第一個字元」的位址，直接
+當 \texttt{const char *} 用即可，不用多解一次參考。 兩種比較函式對調著
+用，程式通常不會馬上當掉，但比較結果毫無意義（把一段記憶體位址的位元
+組硬套進 \texttt{strcmp}），是未定義行為，結果無法預期。
+
+\subsection{結構：多鍵比較}
+
+\begin{example}{c}{(qsort-date.c) 日期的多鍵比較}
+#include <stdio.h>
+#include <stdlib.h>
+
+typedef struct { int year, month, day; } Date;
+
+int compare_date(const void *a, const void *b) {
+    const Date *d1 = (const Date *)a;
+    const Date *d2 = (const Date *)b;
+    if (d1->year != d2->year) return d1->year - d2->year;
+    if (d1->month != d2->month) return d1->month - d2->month;
+    return d1->day - d2->day;
+}
+
+int main(void) {
+    Date dates[] = {{2021,7,15}, {2020,3,8}, {2020,1,5}, {2020,3,1}};
+    qsort(dates, 4, sizeof(Date), compare_date);
+    for (int i = 0; i < 4; i++)
+        printf("%04d-%02d-%02d\n", dates[i].year, dates[i].month, dates[i].day);
+    return 0;
+}
+\end{example}
+
+\iosample{}{2020-01-05\\2020-03-01\\2020-03-08\\2021-07-15}
+
+先比年，年不同就直接用年的差分出勝負，不再看月和日；年相同才比月，月
+也相同才比日——這是\textbf{短路}的寫法：只要某一鍵已經分出勝負，後面
+的鍵完全不用看。 這裡的年月日範圍都小，直接減法不會溢位，可以簡化寫
+成 \texttt{a - b}；如果鍵的範圍可能碰到整數邊界，還是要換成
+\texttt{(x > y) - (x < y)}。 順便一提：如果把日期編碼成單一整數
+\texttt{YYYYMMDD}（例如 \texttt{20200308}），比較函式會退化成上一小節
+的整數版本——這說明多鍵比較本質上就是「把好幾個鍵，依優先度合併成一個
+排序訊號」，編碼成單一整數只是這件事的極端特例，代價是遇到日期範圍超
+出整數容量、或月/日需要補零比較之類的情況會比較不直觀。
+
+\subsection{一個位元的鍵：穩定性}
+
+\texttt{qsort} 的規格\textbf{不保證穩定}——鍵相等的兩個元素，排序後的
+相對順序可能被打散。 鍵的可能值只有兩種（例如某個位元是 \texttt{0} 還
+是 \texttt{1}）時，這個問題特別容易被看到：
+
+\begin{example}{c}{(qsort-stability.c) 位元鍵的不穩定與修復}
+#include <stdio.h>
+#include <stdlib.h>
+
+typedef struct { int bit, orig_index; } Item;
+
+int compare_bit_unstable(const void *a, const void *b) {
+    return ((const Item *)a)->bit - ((const Item *)b)->bit;
+}
+
+int compare_bit_stable(const void *a, const void *b) {
+    const Item *x = (const Item *)a, *y = (const Item *)b;
+    if (x->bit != y->bit) return x->bit - y->bit;
+    return x->orig_index - y->orig_index; /* tie-break */
+}
+
+int main(void) {
+    enum { N = 40 };
+    Item items[N];
+    for (int i = 0; i < N; i++) {
+        items[i].bit = (i < N / 2) ? 1 : 0;
+        items[i].orig_index = i;
+    }
+    for (int i = N - 1; i > 0; i--) { /* 洗牌 */
+        int j = (i * 37 + 11) % (i + 1);
+        Item t = items[i]; items[i] = items[j]; items[j] = t;
+    }
+
+    Item copy[N];
+    for (int i = 0; i < N; i++) copy[i] = items[i];
+    qsort(copy, N, sizeof(Item), compare_bit_unstable);
+    printf("unstable, bit=0 group order: ");
+    for (int i = 0; i < N; i++) if (copy[i].bit == 0) printf("%d ", copy[i].orig_index);
+    printf("\n");
+
+    for (int i = 0; i < N; i++) copy[i] = items[i];
+    qsort(copy, N, sizeof(Item), compare_bit_stable);
+    printf("stable, bit=0 group order:   ");
+    for (int i = 0; i < N; i++) if (copy[i].bit == 0) printf("%d ", copy[i].orig_index);
+    printf("\n");
+    return 0;
+}
+\end{example}
+
+\iosample{}{unstable, bit=0 group order: 28 34 20 22 24 38 21 26 23 32 36 25 27 29 31 33 35 37 39 30\\stable, bit=0 group order:   20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39}
+
+不加 tie-break 的版本，\texttt{bit == 0} 那一群元素排完序之後，
+\texttt{orig\_index} 的順序被打亂了（不是原來的 \texttt{20, 21, 22,
+...}），這就是不穩定的真面目；加了 tie-break（鍵相等時再比
+\texttt{orig\_index}）的版本，\texttt{bit} 相同的元素之間永遠按照原始索
+引排列，行為等同一個穩定排序。 只要在結構裡多塞一個「原始位置」欄位、
+在比較函式裡當最後一個 tie-break 鍵，就能讓不保證穩定的 \texttt{qsort}
+表現得像穩定排序——這個技巧跟位元操作那一章的取位元運算銜接得上：位元
+鍵這種只有兩三種可能值、大量並列（tie）的情境，正是最容易踩到不穩定問
+題的場合。
+
+上面「不穩定」那組輸出是這台機器、這個 \texttt{qsort} 實作跑出來的結
+果，\textbf{不是每個平台都保證會亂}：有些 libc 的 \texttt{qsort} 在陣列
+夠小時會退化成插入排序，剛好又是穩定的，讓你在自己機器上怎麼測都「看
+起來穩定」。 這正是不能依賴 \texttt{qsort} 穩定性的意思——沒有任何一段
+標準文字保證它穩定，你的機器沒亂不代表換一個函式庫版本、換一個陣列大
+小不會亂。
+
+\keypoint{\texttt{void *} + \texttt{size\_t} 讓 \texttt{qsort} 不需要知
+道元素型別；比較函式的契約是回傳負／零／正、且對所有配對一致。 整數比
+較用 \texttt{(x>y)-(x<y)} 避免溢位；\texttt{char *arr[]} 要解兩次參考、
+\texttt{char arr[][N]} 只需解一次；\texttt{qsort} 不保證穩定，鍵可能相
+等時要自己加 tie-break。}
+
+\begin{drills}[label=drills:sl-qsort]
+\item \texttt{compare\_int\_bad} 在哪兩個值上會出錯？換成
+\texttt{(x>y)-(x<y)} 為什麼能避開這個問題？
+\item \texttt{char *words[]} 跟 \texttt{char fixed[3][10]} 的比較函式為
+什麼不能互換？互換之後編譯器會不會報錯？
+\item \texttt{compare\_date} 為什麼可以只在「年不同」時才回傳，年相同
+時完全不看月和日的差？
+\item 補空：\texttt{qsort} 不保證 \underline{\hspace{2em}}，鍵相等的元
+素要自己在結構裡加一個欄位當 tie-break。
+\end{drills}
+
+\section{\texttt{bsearch}}
+\label{sec:sl-bsearch}
+
+\texttt{bsearch} 在已排序的陣列裡做二分搜尋，時間複雜度 $O(\log n)$，但
+它有三條前提，缺一不可：
+
+\begin{enumerate}
+\item 陣列必須已經排序。
+\item 搜尋時用的比較函式，必須跟排序時用的是同一套語意（同一個鍵、同
+一個順序）。
+\item 陣列裡不能有兩個「比較函式判定為相等」但其實不是同一筆資料、卻
+期待搜到特定一筆的假設——\texttt{bsearch} 找到任何一個相等的元素就會停
+下來，不保證是哪一個。
+\end{enumerate}
+
+\begin{code}{c}{bsearch 的原型}
+void *bsearch(const void *key, const void *base, size_t n, size_t size,
+              int (*compar)(const void *, const void *));
+\end{code}
+
+\subsection{key 與元素型別不對稱}
+
+\texttt{bsearch} 跟 \texttt{qsort} 共用同一種比較函式格式，但呼叫時第
+一個參數 \texttt{key} 不是陣列裡的元素，是呼叫端自己準備的「要找的
+值」。 比較函式的兩個參數，第一個永遠是 \texttt{key} 的位址，第二個才
+是陣列裡某個元素的位址——這個不對稱在同型別搜尋時看不出差別，但概念上
+要分清楚。
+
+\begin{example}{c}{(bsearch-demo.c) 重用 qsort 的三個比較函式}
+#include <stdio.h>
+#include <stdlib.h>
+
+int compare_int(const void *a, const void *b) {
+    int x = *(const int *)a, y = *(const int *)b;
+    return (x > y) - (x < y);
+}
+
+typedef struct { int year, month, day; } Date;
+int compare_date(const void *a, const void *b) {
+    const Date *d1 = (const Date *)a, *d2 = (const Date *)b;
+    if (d1->year != d2->year) return d1->year - d2->year;
+    if (d1->month != d2->month) return d1->month - d2->month;
+    return d1->day - d2->day;
+}
+
+int main(void) {
+    int arr[] = {1, 2, 5, 8, 9, 10};
+    int target = 5;
+    int *r1 = (int *)bsearch(&target, arr, 6, sizeof(int), compare_int);
+    printf("find 5: %s\n", r1 ? "found" : "not found");
+
+    int missing = 6;
+    int *r2 = (int *)bsearch(&missing, arr, 6, sizeof(int), compare_int);
+    printf("find 6: %s\n", r2 ? "found" : "not found");
+
+    Date dates[] = {{2020,1,5}, {2020,3,8}, {2021,7,15}};
+    Date key = {2020, 3, 8};
+    Date *r3 = (Date *)bsearch(&key, dates, 3, sizeof(Date), compare_date);
+    if (r3) printf("find date: %04d-%02d-%02d\n", r3->year, r3->month, r3->day);
+    return 0;
+}
+\end{example}
+
+\iosample{}{find 5: found\\find 6: not found\\find date: 2020-03-08}
+
+三個呼叫直接重用第~\ref{sec:sl-qsort}~節寫過的 \texttt{compare\_int}、
+\texttt{compare\_date}——同一個比較函式，先給 \texttt{qsort} 決定排序順
+序，再給 \texttt{bsearch} 決定搜尋順序，兩邊的「順序」必須是同一個定
+義，這正是「泛型」最有說服力的展示：演算法（排序、搜尋）跟資料的比較
+邏輯完全分離，寫一次比較函式，兩種演算法都能用。 找不到時回傳
+\texttt{NULL}，跟其他「回傳指標或 NULL」家族的函式一致（第
+\ref{sec:sl-spec}~節）。
+
+\subsection{\texttt{bsearch} 做不到的事}
+
+\texttt{bsearch} 只回答「陣列裡有沒有一個等於 \texttt{key} 的元素」，
+回傳的是「某一個」相等的元素，不是「第一個」；它也做不到常見的
+lower\_bound／upper\_bound 語意（找第一個不小於 \texttt{key} 的位置），
+更沒辦法在「沒找到」的時候告訴你應該插入哪個位置。 這些需求只能自己手
+寫二分搜尋，用半開區間 $[lo, hi)$ 的不變量寫法最不容易寫錯：
+
+\begin{example}{c}{(lower-bound.c) 手寫 lower\_bound}
+#include <stdio.h>
+
+/* 半開區間 [lo, hi)：回傳第一個 >= target 的位置；
+   找不到時回傳 n（代表該插入的位置） */
+int lower_bound(const int *arr, int n, int target) {
+    int lo = 0, hi = n;
+    while (lo < hi) {
+        int mid = lo + (hi - lo) / 2;
+        if (arr[mid] < target) lo = mid + 1;
+        else hi = mid;
+    }
+    return lo;
+}
+
+int main(void) {
+    int arr[] = {1, 2, 5, 5, 5, 8, 9, 10};
+    printf("lower_bound(5) = %d\n", lower_bound(arr, 8, 5));
+    printf("lower_bound(6) = %d\n", lower_bound(arr, 8, 6));
+    printf("lower_bound(0) = %d\n", lower_bound(arr, 8, 0));
+    printf("lower_bound(11) = %d\n", lower_bound(arr, 8, 11));
+    return 0;
+}
+\end{example}
+
+\iosample{}{lower\_bound(5) = 2\\lower\_bound(6) = 5\\lower\_bound(0) = 0\\lower\_bound(11) = 8}
+
+\texttt{lower\_bound(5)} 回傳 \texttt{2}：陣列裡三個 \texttt{5} 當中第
+一個的位置；\texttt{lower\_bound(6)} 回傳 \texttt{5}：陣列裡沒有
+\texttt{6}，但如果要插入一個 \texttt{6}、還想保持排序，該插進索引
+\texttt{5}（也就是原本 \texttt{5} 那一串之後、\texttt{8} 之前）。 這正
+是遞迴那一章講過的區間表示法——用半開區間表示「還沒排除的搜尋範圍」，
+迴圈不變量永遠是「答案在 \texttt{[lo, hi)} 裡面」，寫法上跟遞迴版的二分
+搜尋是同一個思路，只是這裡用迴圈實作。
+
+\keypoint{\texttt{bsearch} 的前提是陣列已排序、比較函式跟排序時一致；
+它回傳「某一個」相等元素、找不到時回傳 \texttt{NULL}，做不到
+lower\_bound／upper\_bound。 需要插入位置或第一個/最後一個相等元素，要
+自己手寫半開區間二分搜尋。}
+
+\begin{drills}[label=drills:sl-bsearch]
+\item \texttt{bsearch} 的三條前提各自缺一個會發生什麼事？各舉一個後果。
+\item 比較函式的第一個參數是 \texttt{key} 的位址還是陣列元素的位址？跟
+第二個參數比起來有什麼不同？
+\item 為什麼 \texttt{bsearch-demo.c} 可以直接重用
+\texttt{qsort-date.c} 裡的 \texttt{compare\_date}？這件事說明了什麼？
+\item 補空：\texttt{bsearch} 做不到「找不到時回傳插入位置」，這種需求
+要改用 \underline{\hspace{2em}}。
+\end{drills}
+
+\section{隨機數}
+\label{sec:sl-rand}
+
+\texttt{rand()} 回傳一個 \texttt{0} 到 \texttt{RAND\_MAX} 之間的偽隨機
+整數，\texttt{srand(seed)} 設定產生序列的種子——同一個種子永遠產生同一
+串序列（方便寫可重現的測試），\texttt{srand(time(NULL))} 用目前時間當
+種子，讓每次執行的序列不同。
+
+\subsection{模擬骰子}
+
+\begin{example}{c}{(dice.c) 模擬 60000 次骰子，看均勻性}
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+
+int main(void) {
+    srand((unsigned)time(NULL));
+    int counts[7] = {0};
+    int trials = 60000;
+    for (int i = 0; i < trials; i++) {
+        int die = rand() % 6 + 1;
+        counts[die]++;
+    }
+    for (int face = 1; face <= 6; face++) {
+        printf("%d: %5d (%.2f%%)\n", face, counts[face], 100.0 * counts[face] / trials);
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{}{1: 10092 (16.82\%)\\2: 10153 (16.92\%)\\3:  9904 (16.51\%)\\4:  9872 (16.45\%)\\5:  9964 (16.61\%)\\6: 10015 (16.69\%)}
+
+六個面的比例都貼近理論值 $1/6 \approx 16.67\%$，眼睛看均勻性比背公式直
+覺。
+
+\subsection{模偏差與拒絕取樣}
+
+\texttt{rand() \% n} 是最常見的寫法，但有兩個問題：低位元的隨機品質通
+常比高位元差（某些演算法的實作，低位元的週期性比高位元明顯）；如果
+\texttt{RAND\_MAX + 1} 不是 \texttt{n} 的整數倍，\texttt{\% n} 的結果不
+會完全均勻，某些餘數會比另一些稍微更常出現，這叫\textbf{模偏差}。
+\texttt{n} 很小、\texttt{RAND\_MAX} 很大時偏差通常小到量不出來，但公平
+性要求高的場合（例如洗牌、抽獎），正確做法是\textbf{拒絕取樣}：
+
+\begin{example}{c}{(rand-reject.c) 拒絕取樣避免模偏差}
+#include <stdio.h>
+#include <stdlib.h>
+
+int fair_rand(int n) {
+    int limit = (RAND_MAX / n) * n; /* 只保留能整除 n 的範圍 */
+    int r;
+    do {
+        r = rand();
+    } while (r >= limit); /* 超出範圍的值直接丟掉，重新抽 */
+    return r % n;
+}
+
+int main(void) {
+    srand(1);
+    int counts[3] = {0};
+    for (int i = 0; i < 30000; i++) counts[fair_rand(3)]++;
+    for (int i = 0; i < 3; i++) printf("%d: %d\n", i, counts[i]);
+    return 0;
+}
+\end{example}
+
+\iosample{}{0: 9980\\1: 10079\\2: 9941}
+
+\texttt{limit} 是小於或等於 \texttt{RAND\_MAX} 的最大的 \texttt{n} 的倍
+數（\texttt{(RAND\_MAX / n) * n} 用整數除法自動算出這個值）；抽到的值大
+於或等於 \texttt{limit} 就直接丟掉重抽，只在保留下來的均勻範圍裡取餘數，
+這樣每個餘數出現的機率才是真正相等。 有個邊界情況值得一提：如果
+\texttt{RAND\_MAX + 1} 剛好是 \texttt{n} 的倍數，這個算法會比理論上必要
+的範圍再少留一個 \texttt{n}，多丟掉一整段其實還算均勻的值——不影響正確
+性，只是稍微浪費了一點點抽樣。 最後要誠實說明一件
+事：\texttt{rand} 的演算法是公開的，序列可預測，\textbf{不能用在任何安
+全相關的場合}（密碼、token、亂數金鑰），那些場合要用作業系統提供的密
+碼學安全亂數來源，不在本書範圍內。
+
+\subsection{蒙地卡羅法估算 $\pi$}
+
+\begin{example}{c}{(monte-carlo.c) 隨機取樣估算圓周率}
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+#include <math.h>
+
+double estimate_pi(long samples) {
+    long inside = 0;
+    for (long i = 0; i < samples; i++) {
+        double x = (double)rand() / RAND_MAX;
+        double y = (double)rand() / RAND_MAX;
+        if (x * x + y * y <= 1.0) inside++;
+    }
+    return 4.0 * inside / samples;
+}
+
+int main(void) {
+    srand((unsigned)time(NULL));
+    const double pi_exact = acos(-1.0); /* M_PI 不是標準 C，acos(-1.0) 才可攜 */
+    for (long n = 1000; n <= 10000000; n *= 100) {
+        double pi_est = estimate_pi(n);
+        printf("N=%8ld  pi~=%.6f  error=%.6f\n", n, pi_est, fabs(pi_est - pi_exact));
+    }
+    return 0;
+}
+\end{example}
+
+\texttt{<math.h>} 定義的 \texttt{M\_PI} 是 POSIX／編譯器擴充，不是 ISO C
+標準的一部分，用 \texttt{-std=c11} 這種嚴格模式編譯會找不到這個名字。
+\texttt{acos(-1.0)} 完全靠標準函式算出同一個 $\pi$，不依賴任何非標準巨
+集——這是本章少數幾個「非標準擴充」的例子，看到 \texttt{M\_} 開頭的巨集
+（\texttt{M\_E}、\texttt{M\_SQRT2}⋯）都要留意它們不保證每個編譯器都有。
+
+\iosample{}{N=    1000  pi~=3.136000  error=0.005593\\N=  100000  pi~=3.143880  error=0.002287\\N=10000000  pi~=3.142468  error=0.000876}
+
+在單位正方形裡隨機取點，落在四分之一圓內的比例乘上 \texttt{4} 就是
+$\pi$ 的估計值——圓面積跟正方形面積的比例是 $\pi/4$。 這種蒙地卡羅法
+的誤差量級是 $O(1/\sqrt{N})$：樣本數要乘 \texttt{100}，誤差才平均縮小
+到十分之一（多一位有效數字），不是乘 \texttt{10} 就有效果。 上面這組
+實測數字（因為是隨機的，每次執行都會有一點出入）大致印證了這個趨勢：
+$N$ 每乘 \texttt{100}，誤差量級確實往下掉了一截，但比起「精確」的數學
+方法收斂得慢得多——這正是隨機演算法的現實：簡單好寫，但要更精確就得付
+出跟樣本數平方成正比的代價。
+
+\keypoint{\texttt{srand(seed)} 決定 \texttt{rand()} 的整條序列，同 seed
+可重現，測試很需要這個特性。 \texttt{rand() \% n} 有模偏差，公平性要求
+高時用拒絕取樣；\texttt{rand} 絕對不能用在安全相關的場合。 蒙地卡羅法
+的誤差是 $O(1/\sqrt{N})$，樣本數要乘 100 才多一位精度。}
+
+\begin{drills}[label=drills:sl-rand]
+\item 同一個 \texttt{seed} 呼叫 \texttt{srand} 兩次、各接著呼叫十次
+\texttt{rand()}，兩串結果會一樣還是不一樣？這個特性對寫測試有什麼用？
+\item \texttt{rand() \% 3} 在 \texttt{RAND\_MAX} 不是 \texttt{3} 的倍數
+時，為什麼不是完全均勻？
+\item 拒絕取樣裡，抽到的值大於或等於 \texttt{limit} 時為什麼要丟掉重
+抽，而不是直接對 \texttt{limit} 取餘數？
+\item 補空：蒙地卡羅法的誤差量級是 \underline{\hspace{2em}}，樣本數要
+乘 \underline{\hspace{2em}} 倍，誤差才平均縮小到十分之一。
+\end{drills}
+
+\section{字元與字串}
+\label{sec:sl-charstring}
+
+\texttt{<ctype.h>} 的分類函式（\texttt{isalpha}、\texttt{isdigit}、
+\texttt{isspace}⋯）有一條幾乎沒有中文教材強調過的規則：\textbf{參數必
+須先轉成 \texttt{unsigned char}}（或是 \texttt{EOF}），否則是未定義行
+為。
+
+\begin{example}{c}{(ctype-ub.c) 有號 char 傳進 ctype 函式的陷阱}
+#include <stdio.h>
+#include <ctype.h>
+
+int main(void) {
+    char c = -1; /* 在有號 char 的平台上，這是負值 */
+    printf("isalpha(c) [dangerous] = %d\n", isalpha(c));
+    printf("isalpha((unsigned char)c) [safe] = %d\n", isalpha((unsigned char)c));
+    return 0;
+}
+\end{example}
+
+\iosample{}{isalpha(c) [dangerous] = 0\\isalpha((unsigned char)c) [safe] = 0}
+
+兩行印出來的結果一樣，這正是這個陷阱最陰險的地方：這台機器上兩種寫法看
+起來「都對」，程式也沒有當掉，很容易讓人誤以為 \texttt{isalpha(c)} 這樣
+寫沒問題。 但這只是這個平台的查表剛好夠寬容，不是保證——原因是這些函式的
+典型實作是一張查表：用參數的數值當索引，去一張長度
+\texttt{256}（或更長）的表裡查分類結果。 \texttt{char} 在很多平台是有
+號的，值 \texttt{-1} 當索引會變成負數，往表格陣列的邊界之前存取，是不
+是造成問題完全看實作——這台機器的表格剛好多留了緩衝、沒有壞掉，但 C
+標準沒有做這個保證，換一個平台可能直接讀到不相關的記憶體甚至當掉。
+規則很簡單：呼叫 \texttt{<ctype.h>} 的任何函式之前，先把參數轉成
+\texttt{unsigned char}（如果來源可能是 \texttt{EOF}，直接傳
+\texttt{int} 型別的 \texttt{EOF} 值即可，不用轉型，因為 \texttt{EOF}
+本身就在允許的輸入範圍裡）。
+
+\subsection{\texttt{<string.h>} 的搜尋函式群}
+
+\begin{example}{c}{(string-search.c) strchr／strstr／strspn／strcspn}
+#include <stdio.h>
+#include <string.h>
+
+int main(void) {
+    const char *s = "hello, world";
+    char *p = strchr(s, 'w');
+    printf("strchr: %s\n", p ? p : "(null)");
+
+    char *q = strstr(s, "wor");
+    printf("strstr: %s\n", q ? q : "(null)");
+
+    const char *digits = "12345abc";
+    size_t n = strspn(digits, "0123456789");
+    printf("strspn: %zu digits at the front\n", n);
+
+    char line[] = "hello\n";
+    line[strcspn(line, "\n")] = '\0';
+    printf("strcspn: \"%s\" (length %zu)\n", line, strlen(line));
+    return 0;
+}
+\end{example}
+
+\iosample{}{strchr: world\\strstr: world\\strspn: 5 digits at the front\\strcspn: "hello" (length 5)}
+
+\texttt{strchr} 找一個字元，\texttt{strstr} 找一個子字串，兩者都回傳
+\texttt{NULL} 表示沒找到（回傳值家族：指標或 NULL）；\texttt{strspn}
+回傳「從開頭算起，連續屬於某個字元集合的長度」，常用來檢查一段前綴是
+不是全部由某些字元組成。 \texttt{strcspn} 剛好相反：回傳「從開頭算起，連
+續\textbf{不屬於}某個字元集合的長度」，也就是第一個「有出現在集合裡」的
+字元位置。
+
+\keypoint{\texttt{line[strcspn(line, "\textbackslash n")] = '\textbackslash 0';}
+是去掉 \texttt{fgets} 讀進來那個換行字元的標準慣用法：\texttt{strcspn}
+找到第一個 \texttt{\textbackslash n} 的位置，直接把那個位置寫成字串結尾，
+比自己找換行、比對長度都省事，找不到換行時也剛好等於字串長度，不會出
+錯。}
+
+\subsection{\texttt{strtok} 的靜態狀態}
+
+\texttt{strtok(str, delim)} 第一次呼叫傳真正的字串，之後每次呼叫傳
+\texttt{NULL} 就會接著上次停下的地方繼續切：
+
+\begin{example}{c}{(strtok-reentrant.c) strtok 的靜態狀態不可重入}
+#include <stdio.h>
+#include <string.h>
+
+void process_line(char *line) {
+    char *tok = strtok(line, " ");
+    while (tok != NULL) {
+        printf("  word: %s\n", tok);
+        tok = strtok(NULL, " ");
+    }
+}
+
+int main(void) {
+    char lines[] = "aa bb cc\nxx yy zz";
+    char *line = strtok(lines, "\n");
+    while (line != NULL) {
+        printf("line: %s\n", line);
+        char copy[32];
+        snprintf(copy, sizeof copy, "%s", line); /* 有邊界檢查，不像 strcpy 會溢位 */
+        process_line(copy); /* 內部又呼叫了一次 strtok！ */
+        line = strtok(NULL, "\n");
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{}{line: aa bb cc\\\ \ word: aa\\\ \ word: bb\\\ \ word: cc}
+
+第二行 \texttt{xx yy zz} 完全沒有出現。 \texttt{strtok} 靠一個函式內部
+的\textbf{靜態變數}記住「上次切到哪裡」，這個狀態是全域共用的，不分是
+哪一段字串在切。 外層 \texttt{strtok(lines, "\textbackslash n")} 切完
+第一行後，靜態狀態記著「還沒切到 \texttt{xx yy zz} 那一段」；但
+\texttt{process\_line} 內部又呼叫了 \texttt{strtok(line, " ")}，把同一
+份靜態狀態改成「這一份 \texttt{copy} 已經切完」——外層迴圈接著呼叫
+\texttt{strtok(NULL, "\textbackslash n")} 時，讀到的是被內層弄亂的狀
+態，於是直接回傳 \texttt{NULL}，第二行就這樣不見了。 這正是「不可重
+入」的意思：一個函式如果同一時間（或巢狀呼叫）被用兩次，會互相干擾。
+需要巢狀切字串，要用 POSIX 的 \texttt{strtok\_r} 或 C11 的
+\texttt{strtok\_s}，把狀態變成呼叫端自己拿著的變數，不共用。
+
+\keypoint{\texttt{<ctype.h>} 系列函式的參數必須先轉成
+\texttt{unsigned char}，否則有號 \texttt{char} 的負值是未定義行為。
+\texttt{strtok} 用共用的靜態狀態記位置，巢狀呼叫（或多執行緒）會互相
+干擾，這種情況要換 \texttt{strtok\_r}。}
+
+\begin{drills}[label=drills:sl-charstring]
+\item 為什麼 \texttt{isalpha} 這類函式的參數要先轉成
+\texttt{unsigned char}？這台機器沒出事，代表這樣寫是安全的嗎？
+\item \texttt{strchr} 與 \texttt{strstr} 找不到時各回傳什麼？
+\item \texttt{strtok-reentrant.c} 為什麼第二行 \texttt{xx yy zz} 沒有被
+印出來？
+\item 補空：需要在巢狀呼叫裡各自維護獨立的切字串狀態，要換用
+\underline{\hspace{2em}}。
+\end{drills}
+
+\section{數學}
+\label{sec:sl-math}
+
+\texttt{<math.h>} 的函式碰到定義域外的輸入（例如 \texttt{sqrt(-1)}）或
+結果超出可表示範圍（例如 \texttt{log(0)}）時，標準允許兩種回報機制：
+設定 \texttt{errno}（\texttt{EDOM} 表示定義域錯誤、\texttt{ERANGE} 表示
+值域錯誤），或是設定浮點例外旗標，兩種機制哪個生效由
+\texttt{math\_errhandling} 這個巨集決定，\textbf{不是所有平台都用
+errno}：
+
+\begin{example}{c}{(math-errors.c) 定義域與值域錯誤}
+#include <stdio.h>
+#include <math.h>
+#include <errno.h>
+
+int main(void) {
+    errno = 0;
+    double r1 = sqrt(-1.0);
+    printf("sqrt(-1) = %f, isnan = %d, errno==EDOM? %d\n",
+           r1, isnan(r1), errno == EDOM);
+
+    errno = 0;
+    double r2 = log(0.0);
+    printf("log(0) = %f, isinf = %d, errno==ERANGE? %d\n",
+           r2, isinf(r2), errno == ERANGE);
+    return 0;
+}
+\end{example}
+
+\iosample{}{sqrt(-1) = nan, isnan = 1, errno==EDOM? 0\\log(0) = -inf, isinf = 1, errno==ERANGE? 0}
+
+在這台機器上兩個 \texttt{errno} 檢查都是假的——不是程式寫錯，是這個平
+臺的 \texttt{math\_errhandling} 只用浮點例外（\texttt{MATH\_ERREXCEPT}），
+沒有用 \texttt{errno}（\texttt{MATH\_ERRNO}）。 這也是為什麼
+\texttt{isnan}／\texttt{isinf} 比 \texttt{errno} 更值得信賴：不管平台選
+哪種回報機制，算出來的結果只要是「非數」或「無限大」，這兩個分類巨集
+一定能檢查出來；\texttt{errno} 檢查則要先確認自己的平台真的支援
+\texttt{MATH\_ERRNO}。 想知道自己平台用哪一種，直接印
+\texttt{math\_errhandling} 跟標頭裡定義的 \texttt{MATH\_ERRNO}／
+\texttt{MATH\_ERREXCEPT} 比較就知道。
+
+\texttt{fabs} 跟 \texttt{abs} 不能混用：\texttt{abs} 是
+\texttt{<stdlib.h>} 裡處理 \texttt{int} 的版本，\texttt{fabs} 是
+\texttt{<math.h>} 裡處理 \texttt{double} 的版本，把浮點數傳進
+\texttt{abs} 會先被截斷成整數，得到完全不是本意的結果。
+
+\texttt{<float.h>} 跟 \texttt{<limits.h>} 不是函式，是一批巨集常數，用
+來查詢目前平台各種型別的極限值，例如 \texttt{FLT\_EPSILON}（\texttt{float}
+能分辨的最小差距）、\texttt{DBL\_MAX}、\texttt{INT\_MAX}——想寫出不假設
+特定平台的可攜程式碼，該查這兩個標頭，而不是自己猜一個數字寫死。
+
+\keypoint{\texttt{math.h} 的錯誤可能走 \texttt{errno}、也可能只走浮點
+例外，由 \texttt{math\_errhandling} 決定，別預設 \texttt{errno} 一定有
+效；\texttt{isnan}／\texttt{isinf} 更可靠。 \texttt{fabs} 處理
+\texttt{double}，\texttt{abs} 處理 \texttt{int}，不能混用。
+\texttt{<float.h>}／\texttt{<limits.h>} 查平台極限，不要自己猜數字。}
+
+\begin{drills}[label=drills:sl-math]
+\item 為什麼這台機器上檢查 \texttt{errno == EDOM} 抓不到 \texttt{sqrt(-1)}
+的錯誤？該檢查哪個函式代替？
+\item 把一個 \texttt{double} 傳進 \texttt{abs} 會發生什麼事？
+\item \texttt{FLT\_EPSILON} 跟 \texttt{DBL\_MAX} 分別在說什麼？
+\item 補空：判斷 \texttt{math.h} 函式的計算結果是不是「非數」，應該用
+\underline{\hspace{2em}}，而不是只靠 \texttt{errno}。
+\end{drills}
+
+\section{時間}
+\label{sec:sl-time}
+
+\texttt{time\_t} 是一個代表「某個時間點」的型別（實務上通常是從某個固
+定時刻起算的秒數，但標準沒有規定具體編碼）；\texttt{struct tm} 把時間
+拆成年、月、日、時、分、秒等欄位，方便讀取或組裝。 兩個型別之間要靠
+\texttt{mktime} 轉換：
+
+\begin{example}{c}{(time-demo.c) struct tm、mktime、difftime、strftime}
+#include <stdio.h>
+#include <time.h>
+
+int main(void) {
+    struct tm t1 = {0};
+    t1.tm_year = 2020 - 1900; /* tm_year 是「距 1900 年」 */
+    t1.tm_mon = 3 - 1;        /* tm_mon 是 0-11 */
+    t1.tm_mday = 8;
+    t1.tm_isdst = -1;         /* 不確定有沒有夏令時間，交給 mktime 判斷 */
+
+    struct tm t2 = {0};
+    t2.tm_year = 2021 - 1900;
+    t2.tm_mon = 7 - 1;
+    t2.tm_mday = 15;
+    t2.tm_isdst = -1;
+
+    time_t time1 = mktime(&t1);
+    time_t time2 = mktime(&t2);
+
+    double diff_days = difftime(time2, time1) / (60 * 60 * 24);
+    printf("days between: %.0f\n", diff_days);
+
+    char buf[64];
+    strftime(buf, sizeof buf, "%Y-%m-%d (%A)", &t1);
+    printf("t1 formatted: %s\n", buf);
+    return 0;
+}
+\end{example}
+
+\iosample{}{days between: 494\\t1 formatted: 2020-03-08 (Sunday)}
+
+兩個欄位最容易搞錯：\texttt{tm\_year} 存的是\textit{距離 1900 年}的差
+值，不是西元年份本身，\texttt{2020} 年要存 \texttt{120}；
+\texttt{tm\_mon} 是 \texttt{0} 到 \texttt{11}，一月是 \texttt{0}，不是
+\texttt{1}。 還有一個容易漏掉的欄位：\texttt{tm\_isdst}。 用
+\texttt{\{0\}} 初始化會讓它是 \texttt{0}，等於明確告訴 \texttt{mktime}
+「這個時間點不是夏令時間」；如果實際所在時區當時真的在實施夏令時間，
+\texttt{mktime} 算出來的結果會差一小時。 傳 \texttt{-1} 才是正確的預設
+值——請 \texttt{mktime} 自己依據 \texttt{tm\_year}／\texttt{tm\_mon}／
+\texttt{tm\_mday} 判斷該不該套用夏令時間，不用呼叫端自己猜。
+\texttt{mktime} 除了轉換型別，還會把 \texttt{struct tm}
+「正規化」（例如 \texttt{tm\_mday} 給 \texttt{32} 時自動推算成下個月的
+第幾天，順便算出正確的星期），這也是上面 \texttt{t1 formatted} 那一行
+輸出裡星期幾（\texttt{Sunday}）是對的的原因——我們一開始沒有填
+\texttt{tm\_wday}，是 \texttt{mktime} 幫忙補上的。 \texttt{difftime}
+回傳兩個 \texttt{time\_t} 之間的秒數差（\texttt{double}），除以
+\texttt{86400} 就是天數差。 \texttt{strftime} 依格式字串把
+\texttt{struct tm} 印成字串，比自己拼字串安全，也會自動套用當地語言的
+月份／星期名稱（如果設定了對應的 locale，見第
+\ref{sec:sl-i18n}~節）。
+
+回頭看第~\ref{sec:sl-qsort}~節的日期比較函式：那裡用的
+\texttt{Date} 結構是簡化版，只有年月日三個整數；真正處理日期時，換成
+\texttt{struct tm}、用 \texttt{mktime} 轉成 \texttt{time\_t} 再直接用
+數值比較（或用 \texttt{difftime} 的正負號），可以少考慮「日期進位」
+（例如二月有幾天、閏年）的邊界問題，因為 \texttt{mktime} 已經幫忙正規
+化過。
+
+\keypoint{\texttt{tm\_year} 是距 1900 年的差值，\texttt{tm\_mon} 是
+\texttt{0}-\texttt{11}，兩個都不是字面上的年份／月份數字；
+\texttt{tm\_isdst} 該設成 \texttt{-1} 讓 \texttt{mktime} 自己判斷夏令時
+間，不要留著 \texttt{\{0\}} 初始化出來的 \texttt{0}。 \texttt{mktime}
+會正規化欄位並補上星期；\texttt{difftime} 給秒數差；\texttt{strftime}
+是印時間字串的安全做法。}
+
+\begin{drills}[label=drills:sl-time]
+\item \texttt{struct tm} 存 \texttt{2024} 年 \texttt{tm\_year} 該填多
+少？存三月 \texttt{tm\_mon} 該填多少？
+\item \texttt{time-demo.c} 沒有填 \texttt{t1.tm\_wday}，為什麼
+\texttt{strftime} 印出的星期還是對的？
+\item \texttt{difftime} 回傳的是什麼單位？換算成天要除以多少？
+\item 補空：把 \texttt{Date} 結構換成 \texttt{struct tm} 再用
+\texttt{mktime} 轉換的好處是，不用自己處理 \underline{\hspace{2em}} 之
+類的日期進位問題。
+\end{drills}
+
+\section{可變參數}
+\label{sec:sl-variadic}
+
+\texttt{printf} 能接受不固定數量的參數，靠的是 \texttt{<stdarg.h>} 提供
+的一組工具。 自己寫一個「像 \texttt{printf} 一樣能吃任意參數」的函式，
+需要 \texttt{va\_list}（存取參數列的狀態）、\texttt{va\_start}（開始存
+取）、\texttt{va\_end}（結束存取），加上 \texttt{<stdio.h>} 裡專門吃
+\texttt{va\_list} 的 \texttt{vfprintf} 家族：
+
+\begin{example}{c}{(log-printf.c) 寫一個吃任意參數的 log 函式}
+#include <stdio.h>
+#include <stdarg.h>
+
+void log_printf(const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    fprintf(stderr, "[LOG] ");
+    vfprintf(stderr, fmt, args);
+    fprintf(stderr, "\n");
+    va_end(args);
+}
+
+int main(void) {
+    int x = 42;
+    log_printf("x = %d", x);
+    log_printf("y = %d, name = %s", 7, "test");
+    return 0;
+}
+\end{example}
+
+\iosample{}{[LOG] x = 42\\{[LOG] y = 7, name = test}}
+
+\texttt{va\_start(args, fmt)} 的第二個參數必須是「最後一個有名字的參
+數」（這裡是 \texttt{fmt}），這樣 \texttt{va\_list} 才知道從哪裡開始接
+著找可變的那一批參數。 \texttt{vfprintf} 跟 \texttt{fprintf} 做的事一
+樣，差別只在參數列已經被包成一個 \texttt{va\_list}，不是攤開的
+\texttt{...}——標準函式庫裡幾乎每一個 \texttt{printf} 家族的函式（
+\texttt{printf}、\texttt{sprintf}、\texttt{fprintf}⋯）都有一個對應的
+\texttt{v} 開頭版本，就是為了讓像 \texttt{log\_printf} 這樣「包一層」的
+函式能把收到的可變參數直接轉手傳下去，不需要自己一個一個攤開解析格式
+字串。
+
+\subsection{巨集層級 vs 函式層級的可變參數}
+
+第~\ref{sec:pp-variadic}~節已經示範過另一種可變參數：巨集層級的
+\texttt{\_\_VA\_ARGS\_\_}，那裡的 \texttt{LOG(fmt, ...)} 在\textit{前置
+處理期}就直接展開成一整行 \texttt{fprintf} 呼叫——展開完之後跟手寫的
+\texttt{fprintf} 沒有任何差別，前置處理器不管參數個數，只是照樣把
+\texttt{\_\_VA\_ARGS\_\_} 換成呼叫端傳的那一串東西。 這一節的
+\texttt{log\_printf} 是另一回事：它是一個真正在\textit{執行期}用
+\texttt{va\_list} 走訪任意個數參數的\textbf{函式}，不是文字替換出來
+的。
+
+兩種機制可以合作，各司其職：巨集負責取得呼叫端當下的
+\texttt{\_\_FILE\_\_}／\texttt{\_\_LINE\_\_}（這件事只有巨集辦得到——
+函式呼叫發生在巨集展開之後，函式內部已經看不到呼叫端的原始碼位置），
+格式化與輸出的部分轉手交給函式：
+
+\begin{code}{c}{巨集轉呼叫函式，各司其職}
+#define LOG(fmt, ...) \
+    (fprintf(stderr, "[%s:%d] ", __FILE__, __LINE__), \
+     log_printf(fmt "\n", __VA_ARGS__))
+\end{code}
+
+跟第~\ref{sec:pp-assert}~節直接在巨集裡塞好一整行 \texttt{fprintf} 比起
+來，這裡把「要不要多加時間戳記、要不要同時寫進檔案」這些以後可能變複
+雜的邏輯，都收進 \texttt{log\_printf} 這一個函式——以後要改 log 的行
+為，只要改這個函式本體；巨集永遠只做它唯一辦得到的事：取得呼叫端的原
+始碼位置，其餘全部轉手交給函式。
+
+\keypoint{\texttt{va\_start}／\texttt{va\_end} 搭配 \texttt{va\_list} 讓
+函式在\textbf{執行期}真正走訪任意數量的參數；\texttt{vfprintf} 家族專門
+吃已經包好的 \texttt{va\_list}。 巨集的 \texttt{\_\_VA\_ARGS\_\_}（第
+\ref{sec:pp-variadic}~節）在\textbf{前置處理期}就展開成固定的呼叫。 兩
+者可以合作：巨集取得呼叫端的原始碼位置，函式負責真正的格式化邏輯。}
+
+\begin{drills}[label=drills:sl-variadic]
+\item \texttt{va\_start(args, fmt)} 的第二個參數為什麼一定要是最後一個
+有名字的參數？
+\item \texttt{vfprintf} 跟 \texttt{fprintf} 的差別是什麼？為什麼
+\texttt{log\_printf} 要用 \texttt{vfprintf} 而不是直接呼叫
+\texttt{fprintf(stderr, fmt, args)}？（提示：\texttt{fprintf} 的參數列
+長什麼樣）
+\item 為什麼 \texttt{\_\_FILE\_\_}／\texttt{\_\_LINE\_\_} 一定要留在
+\texttt{LOG} 巨集裡取得，不能搬進 \texttt{log\_printf} 函式內部用同樣的
+方式取得？
+\item 補空：巨集層級的可變參數用 \underline{\hspace{2em}} 代表整包參
+數，在\underline{\hspace{2em}}期展開；函式層級的可變參數要靠
+\underline{\hspace{2em}} 走訪，在\underline{\hspace{2em}}期真正運作。
+\end{drills}
+
+\section{國際化（只講一件事）}
+\label{sec:sl-i18n}
+
+國際化的完整規則對初學者太重，這裡只回答一個問題：為什麼
+\texttt{strlen("中文")} 不是 \texttt{2}？
+
+\begin{example}{c}{(utf8-len.c) 位元組數不等於字元數}
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <locale.h>
+#include <wchar.h>
+
+int main(void) {
+    const char *s = "中文";
+    printf("strlen(\"%s\") = %zu\n", s, strlen(s));
+
+    setlocale(LC_ALL, "");
+    wchar_t wbuf[16];
+    size_t wn = mbstowcs(wbuf, s, 16);
+    if (wn == (size_t)-1) {
+        /* 遇到不合法的多位元組序列（跟目前 locale 對不上）就會這樣回報 */
+        fprintf(stderr, "decode failed: invalid multibyte sequence\n");
+        return 1;
+    }
+    printf("characters decoded: %zu\n", wn);
+    return 0;
+}
+\end{example}
+
+\iosample{}{strlen("中文") = 6\\characters decoded: 2}
+
+原始碼裡的字串常量在編譯器眼中就是一串 \texttt{char}（位元組），
+\texttt{strlen} 數的是位元組數，跟人類眼中的「字元數」完全是兩件事。
+這份原始碼用 UTF-8 編碼儲存，「中」跟「文」在 UTF-8 裡各占 \texttt{3}
+個位元組，兩個字合計 \texttt{6} 個位元組——這就是 \texttt{strlen} 印出
+\texttt{6} 的原因。 要拿到人類直覺上的「字元數」，得先知道字串的編碼規
+則，把位元組序列\textit{解碼}成一串「寬字元」（\texttt{wchar\_t}），
+\texttt{mbstowcs}（multi-byte string to wide-character string）就是做
+這件事的函式，靠目前的 \texttt{locale} 設定知道要用哪種編碼規則解碼；
+\texttt{setlocale(LC\_ALL, "")} 讓程式改用執行環境（例如殼層的
+\texttt{LANG} 環境變數）指定的 locale，而不是 C 語言預設、只認得
+ASCII 的 \texttt{"C"} locale。
+
+一句話總結三個層次：\textbf{位元組}是儲存與傳輸的單位（\texttt{char}）；
+\textbf{編碼字元}是人類認知的一個符號，可能占一到多個位元組（UTF-8 下
+的中文字通常是三個）；\textbf{寬字元}是程式內部用來統一處理各種語言字
+元的型別（\texttt{wchar\_t}），跟位元組數脫鉤。 更完整的
+locale／編碼規則，以及 \texttt{wchar\_t} 系列函式的細節，超出本書範
+圍，需要時查手冊或 cppreference。
+
+\keypoint{\texttt{strlen} 數的是位元組數，不是人類眼中的字元數；UTF-8
+編碼下常見的中文字元占三個位元組。 想要正確的「字元數」，要先靠
+\texttt{setlocale} 加 \texttt{mbstowcs} 之類的函式解碼成寬字元。}
+
+\begin{drills}[label=drills:sl-i18n]
+\item \texttt{strlen("中文")} 印出 \texttt{6}，這個 \texttt{6} 數的是什
+麼單位？
+\item 如果沒有先呼叫 \texttt{setlocale(LC\_ALL, "")}，程式預設用的是哪
+個 locale？這個 locale 認得中文字元嗎？
+\item \texttt{mbstowcs} 這個函式名字裡的 \texttt{mbs} 跟 \texttt{wcs}
+分別代表什麼？
+\item 補空：想知道一個字串「人類眼中有幾個字」，不能只看
+\texttt{strlen}，要先用 \underline{\hspace{2em}} 把位元組序列解碼成寬
+字元。
+\end{drills}
+
+\phantomsection
+\addcontentsline{toc}{section}{整合專案：CSV 資料表 CLI}
+\section*{整合專案：CSV 資料表 CLI}
+\label{sec:sl-capstone}
+
+單一個專案，比十三節各自的小範例更能看出這些工具怎麼配合。 專案是一個
+處理 CSV 資料表的命令列工具，每個子命令對應前面某幾節：
+
+\begin{itemize}
+\item 讀檔用第~\ref{sec:fio-line}~節的 \texttt{fgets}，每個欄位用
+\texttt{strtol}／\texttt{strtod} 解析（第~\ref{sec:sl-strtol}~節），解
+析失敗印出行號、用 \texttt{EXIT\_FAILURE} 結束（第
+\ref{sec:sl-startend}~節）。
+\item \texttt{sort} 子命令用多鍵比較函式（日期主鍵、姓名次鍵）交給
+\texttt{qsort}（第~\ref{sec:sl-qsort}~節）。
+\item \texttt{--gen N} 子命令用 \texttt{rand} 產生 \texttt{N} 筆隨機測
+資（第~\ref{sec:sl-rand}~節）。
+\item \texttt{--stats} 子命令排序後用 \texttt{strftime} 印出資料的日期
+範圍（第~\ref{sec:sl-time}~節）。
+\item 用 \texttt{atexit} 註冊一個清理函式，程式結束時報告處理了幾筆資
+料（第~\ref{sec:sl-startend}~節）。
+\end{itemize}
+
+\begin{example}{c}{(csvtool.c) CSV 資料表 CLI（節錄核心邏輯）}
+typedef struct {
+    int year, month, day;
+    char name[32];
+    double score;
+} Row;
+
+static int row_count = 0;
+
+static void report_cleanup(void) {
+    fprintf(stderr, "[cleanup] processed %d rows\n", row_count);
+}
+
+/* 解析 "YYYY-MM-DD" 格式的日期，失敗回傳 0 */
+static int parse_date(const char *s, int *y, int *m, int *d) {
+    char *endptr;
+    errno = 0;
+    long yy = strtol(s, &endptr, 10);
+    if (errno != 0 || *endptr != '-') return 0;
+    long mm = strtol(endptr + 1, &endptr, 10);
+    if (errno != 0 || *endptr != '-') return 0;
+    long dd = strtol(endptr + 1, &endptr, 10);
+    if (errno != 0 || *endptr != '\0') return 0;
+    *y = (int)yy; *m = (int)mm; *d = (int)dd;
+    return 1;
+}
+
+/* 逐行讀取，任何一欄解析失敗就印出行號並 exit(EXIT_FAILURE) */
+static Row *load_csv(const char *path, int *out_n) {
+    FILE *fp = fopen(path, "r");
+    if (!fp) { perror(path); exit(EXIT_FAILURE); }
+
+    int capacity = 16, n = 0, lineno = 0;
+    Row *rows = malloc((size_t)capacity * sizeof(Row));
+    if (!rows) { fprintf(stderr, "out of memory\n"); exit(EXIT_FAILURE); }
+    char line[256];
+
+    while (fgets(line, sizeof line, fp)) {
+        lineno++;
+        line[strcspn(line, "\n")] = '\0';
+        if (line[0] == '\0') continue;
+
+        char date_str[32], name_str[32], score_str[32];
+        if (sscanf(line, "%31[^,],%31[^,],%31s",
+                   date_str, name_str, score_str) != 3) {
+            fprintf(stderr, "line %d: bad format: %s\n", lineno, line);
+            exit(EXIT_FAILURE);
+        }
+
+        Row r;
+        if (!parse_date(date_str, &r.year, &r.month, &r.day)) {
+            fprintf(stderr, "line %d: bad date: %s\n", lineno, date_str);
+            exit(EXIT_FAILURE);
+        }
+        strncpy(r.name, name_str, sizeof r.name - 1);
+        r.name[sizeof r.name - 1] = '\0';
+
+        errno = 0;
+        char *endptr;
+        r.score = strtod(score_str, &endptr);
+        if (errno != 0 || *endptr != '\0') {
+            fprintf(stderr, "line %d: bad score: %s\n", lineno, score_str);
+            exit(EXIT_FAILURE);
+        }
+
+        if (n == capacity) {
+            capacity *= 2;
+            Row *tmp = realloc(rows, (size_t)capacity * sizeof(Row));
+            if (!tmp) { fprintf(stderr, "out of memory\n"); exit(EXIT_FAILURE); }
+            rows = tmp;
+        }
+        rows[n++] = r;
+    }
+    fclose(fp);
+    *out_n = n;
+    return rows;
+}
+
+/* 多鍵比較：日期主鍵，姓名次鍵 */
+static int compare_row(const void *a, const void *b) {
+    const Row *r1 = (const Row *)a, *r2 = (const Row *)b;
+    if (r1->year != r2->year) return r1->year - r2->year;
+    if (r1->month != r2->month) return r1->month - r2->month;
+    if (r1->day != r2->day) return r1->day - r2->day;
+    return strcmp(r1->name, r2->name);
+}
+
+int main(int argc, char **argv) {
+    if (argc < 3) { fprintf(stderr, "usage: %s sort <file>\n", argv[0]); return 1; }
+    atexit(report_cleanup);
+
+    int n;
+    Row *rows = load_csv(argv[2], &n);
+    row_count = n; /* atexit 的 report_cleanup 靠這個變數報告筆數 */
+
+    qsort(rows, (size_t)n, sizeof(Row), compare_row);
+    for (int i = 0; i < n; i++) {
+        printf("%04d-%02d-%02d,%s,%.1f\n",
+               rows[i].year, rows[i].month, rows[i].day, rows[i].name, rows[i].score);
+    }
+    free(rows);
+    return 0;
+}
+\end{example}
+
+\begin{code}{bash}{執行}
+gcc csvtool.c -o csvtool
+./csvtool sort data.csv
+./csvtool --stats data.csv
+./csvtool --gen 5
+\end{code}
+
+\begin{code}{text}{data.csv}
+2020-03-08,bob,88.5
+2020-01-05,alice,92.0
+2021-07-15,carol,75.0
+2020-03-08,alice,81.0
+\end{code}
+
+\iosample{}{2020-01-05,alice,92.0\\2020-03-08,alice,81.0\\2020-03-08,bob,88.5\\2021-07-15,carol,75.0\\{[cleanup] processed 4 rows}}
+
+日期相同的兩筆（\texttt{2020-03-08} 的 \texttt{bob} 跟 \texttt{alice}）
+靠次鍵姓名分出順序——這是第~\ref{sec:sl-qsort}~節多鍵比較的直接應用。
+值得留意一個容易忽略的執行細節：\texttt{atexit} 註冊的
+\texttt{report\_cleanup} 用 \texttt{fprintf(stderr, ...)}（不緩衝，馬上
+輸出），而 \texttt{sort} 印出的資料是透過 \texttt{printf} 寫進
+\texttt{stdout}。 在互動式終端機上，\texttt{stdout} 是\textbf{行緩衝}，
+每一行排序結果印完（帶著換行）就立刻沖出去，所以上面
+\texttt{\textbackslash iosample} 呈現的順序（排序結果在前、
+\texttt{cleanup} 訊息最後）就是終端機上會看到的正常順序。 但如果把 \texttt{stdout} 重新導向到檔案（或者像
+\texttt{./csvtool sort data.csv > out.txt 2>\&1} 這樣連 \texttt{stderr}
+也一起導向、合併觀察），緩衝模式會切成全緩衝——這正是第
+\ref{sec:sl-startend}~節 \texttt{exit-vs-underscore-exit.c} 那個例子的設
+定。 \texttt{sort} 印出的內容會先留在 \texttt{stdout} 的緩衝區裡，直到
+\texttt{exit} 收尾時才真正沖出；\texttt{cleanup} 走的 \texttt{stderr}
+不緩衝，當場就寫出去。 於是在合併觀察的情況下，反而會先看到
+\texttt{cleanup} 那一行、排序結果最後才出現——順序完全由緩衝模式決定，不
+是「終端機上就會這樣」。
+
+\section{常見錯誤清單}
+\label{sec:sl-checklist}
+
+下面每一條都對應前面某一節。
+
+\begin{itemize}
+\item 底線開頭、\texttt{str+小寫} 是保留名稱；巨集可能遮蔽同名函式，用
+\texttt{(name)()} 或 \texttt{\#undef} 繞開。
+（第~\ref{sec:sl-what}~節）
+\item 回傳值協定分四個家族：哨兵值、指標或 NULL、計數、errno。 看新函
+式先看回傳型別落在哪個家族。
+（第~\ref{sec:sl-spec}~節）
+\item 檢查 \texttt{errno} 前先清零，只在規格明確提到的情況下檢查；
+\texttt{assert} 抓程式錯誤、可被 \texttt{NDEBUG} 關掉，使用者輸入錯誤
+不能靠 \texttt{assert}。
+（第~\ref{sec:sl-errors}~節）
+\item \texttt{exit}／\texttt{\_Exit}／\texttt{abort} 清理程度不同：
+\texttt{exit} 沖緩衝區＋呼叫 \texttt{atexit}，\texttt{\_Exit} 都跳過，
+\texttt{abort} 也跳過 \texttt{atexit} 且直接送出中止訊號。
+（第~\ref{sec:sl-startend}~節）
+\item \texttt{atoi} 分不出失敗與轉出 0；\texttt{strtol} 要四個檢查（沒
+吃到、有殘留、long 溢位、縮小溢位）才算安全。
+（第~\ref{sec:sl-strtol}~節）
+\item 整數比較函式用 \texttt{(x>y)-(x<y)} 避免溢位；\texttt{char *arr[]}
+與 \texttt{char arr[][N]} 的比較函式不能互換；\texttt{qsort} 不保證穩
+定。
+（第~\ref{sec:sl-qsort}~節）
+\item \texttt{bsearch} 前提是已排序、比較函式一致；做不到插入位置，要
+自己手寫二分搜尋。
+（第~\ref{sec:sl-bsearch}~節）
+\item \texttt{rand() \% n} 有模偏差；\texttt{rand} 不能用在安全相關場
+合。
+（第~\ref{sec:sl-rand}~節）
+\item \texttt{ctype.h} 參數要先轉 \texttt{unsigned char}；\\
+\texttt{strtok} 的靜態狀態巢狀呼叫會互相干擾。
+（第~\ref{sec:sl-charstring}~節）
+\item \texttt{math.h} 錯誤可能只走浮點例外，不一定設 \texttt{errno}；
+\texttt{fabs} 處理 \texttt{double}，\texttt{abs} 處理 \texttt{int}。
+（第~\ref{sec:sl-math}~節）
+\item \texttt{tm\_year} 是距 1900 年差值，\texttt{tm\_mon} 是
+\texttt{0}-\texttt{11}。
+（第~\ref{sec:sl-time}~節）
+\item \texttt{strlen} 數位元組不是字元數，UTF-8 中文字通常占 3 個位元組。\\
+（第~\ref{sec:sl-i18n}~節）
+\end{itemize}
+
+\begin{drills}[label=drills:sl-checklist]
+\item 下面這段有三個錯，請全部標出。
+\begin{verbatim}
+int compare_int_bad(const void *a, const void *b) {
+    return *(const int *)a - *(const int *)b;
+}
+char *words[] = {"b", "a"};
+qsort(words, 2, sizeof(char *), compare_string_arr); /* 用了 char arr[][N] 版 */
+char c = -1;
+isalpha(c);
+\end{verbatim}
+\item 指出錯誤：檢查 \texttt{errno} 之前沒有先清零。
+\item 指出錯誤：對使用者輸入的檔名用 \texttt{assert(file\_exists(name))}。
+\end{drills}
+
+\phantomsection
+\addcontentsline{toc}{section}{練習解答}
+\section*{練習解答}
+
+各節練習的答案收在這裡。 完整程式見正文片語／範例。
+
+\paragraph{第~\ref{sec:sl-what}~節}
+\begin{enumerate}
+\item 標頭檔只有宣告，前置處理與編譯階段只需要知道函式的樣子就能通
+過；\texttt{sqrt} 的本體在 \texttt{libm} 裡，要到連結階段把目的檔跟函
+式庫接起來時，缺少 \texttt{-lm} 才會找不到本體。
+\item \texttt{\_} 開頭的識別字整批保留給編譯器與函式庫實作使用，跟未
+來標準或編譯器內部機制撞名的風險較高。
+\item 巨集展開要求名字後面直接跟著左括號，\texttt{(getchar)} 中間被括
+號隔開，不符合展開樣式，所以一定被當成普通函式呼叫。
+\item \texttt{\#undef}。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:sl-spec}~節}
+\begin{enumerate}
+\item 因為函式要透過這個參數「回傳」另一個資訊——解析停在哪個字元，
+呼叫端傳一個 \texttt{char *} 變數的位址進去，函式才能修改那個變數本
+身，讓它指向正確的位置。
+\item 因為轉換出來的數字可能超過 \texttt{int} 能裝的範圍，用更大的型
+別接住，讓呼叫端自己決定要不要檢查縮小到 \texttt{int} 會不會溢位。
+\item \texttt{fopen} 屬於「指標或 NULL」家族；\texttt{fread} 屬於「計
+數」家族。
+\item 轉換失敗（完全沒吃到合法的數字）；\texttt{endptr} 有沒有前進（是
+不是還等於原始的字串起點）。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:sl-errors}~節}
+\begin{enumerate}
+\item 因為 \texttt{errno} 不會在函式成功時自動清成 \texttt{0}，上一次
+呼叫留下的非零舊值可能還在，沒有先清零就檢查會誤判。
+\item 兩者印出的內容是同一句話；\texttt{perror} 直接把訊息印到
+\texttt{stderr}，\texttt{strerror} 只回傳字串，印在哪裡自己決定。
+\item 回傳值處理。 使用者輸入錯誤在發布版也要能正確反應給使用者，不
+能被 \texttt{NDEBUG} 關掉檢查。
+\item 編譯；執行。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:sl-startend}~節}
+\begin{enumerate}
+\item \texttt{cleanup2} 先呼叫，\texttt{cleanup1} 後呼叫（反序）。
+\item \texttt{exit} 版本結束前會沖出緩衝區，沒換行的內容也會寫進檔
+案；\texttt{\_Exit} 版本直接跳過沖出這一步，緩衝區內容被丟棄，檔案是
+空的。
+\item 不會。 \texttt{abort} 直接送出中止訊號，跳過 \texttt{atexit}。
+\item \texttt{exit(status)}。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:sl-strtol}~節}
+\begin{enumerate}
+\item 用 \texttt{atoi} 分辨不出來；要換成 \texttt{strtol} 搭配
+\texttt{endptr} 檢查（\texttt{endptr == s} 代表完全沒轉成功）。
+\item \texttt{*endptr != '\textbackslash 0'} 抓到的：\texttt{42} 後面
+還留著沒被解析的 \texttt{"abc"}。
+\item 是縮小成 \texttt{int} 才失敗：\texttt{strtol} 本身用
+\texttt{long} 接，\texttt{2147483648} 沒有超過 \texttt{long} 的範圍
+（在常見的 64 位元平台上），但超過了 \texttt{INT\_MAX}，被範圍檢查那
+一行擋下來。
+\item 十六（16）。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:sl-qsort}~節}
+\begin{enumerate}
+\item 在 \texttt{INT\_MAX} 與 \texttt{INT\_MIN} 這類極端值上，兩者相減
+會超出 \texttt{int} 能表示的範圍，是未定義行為；
+\texttt{(x>y)-(x<y)} 完全不做減法，兩個布林值相減永遠落在
+\texttt{-1}/\texttt{0}/\texttt{1}，不會溢位。
+\item 因為 \texttt{qsort} 傳進來的位址型別意義不同：\texttt{char *arr[]}
+每個元素是指標，比較函式收到的是「指向指標的位址」，要解兩次參考；
+\texttt{char arr[][N]} 每個元素是字元陣列本身，只需解一次。 互換不會
+讓編譯器報錯（兩邊參數型別都是 \texttt{const void *}），但比較結果是
+未定義行為。
+\item 因為年不同就已經足以分出兩個日期的先後順序，後面的月、日完全
+不影響這個判斷結果，所以可以直接回傳、不用再往下比。
+\item 穩定（stable）。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:sl-bsearch}~節}
+\begin{enumerate}
+\item 陣列沒排序：二分搜尋的前提被破壞，結果不可靠、可能漏找。 比較
+函式跟排序時不一致：語意錯位，一樣找不到本該找到的元素。
+\item 第一個參數是 \texttt{key} 的位址；第二個才是陣列裡某個元素的位
+址。 兩者角色不同：一個是外部提供的搜尋目標，一個是陣列裡實際存在的
+資料。
+\item 因為兩者的排序（也就是「順序」的定義）是同一套語意，寫一次比
+較函式，排序跟搜尋都能用；這正是把演算法跟資料型別拆開的好處。
+\item 手寫二分搜尋（例如 lower\_bound 的半開區間寫法）。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:sl-rand}~節}
+\begin{enumerate}
+\item 兩串結果一樣；這個特性讓測試可以用固定 seed 重現同一組「隨機」
+輸入，方便除錯與比對。
+\item 因為 \texttt{RAND\_MAX + 1} 除以 \texttt{3} 如果除不盡，靠近
+\texttt{RAND\_MAX} 的那一小段餘數對應的原始值比其他餘數少，取餘數後
+這些餘數出現的機率會略低於其他餘數。
+\item 因為如果直接對 \texttt{limit} 取餘數，被丟棄範圍原本對應的那些
+餘數會被硬塞進去，一樣造成不均勻；丟掉重抽才能保證只在真正均勻的範
+圍裡取餘數。
+\item $O(1/\sqrt{N})$；\texttt{100}。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:sl-charstring}~節}
+\begin{enumerate}
+\item 因為這些函式常見的實作是查表，用參數值當索引；有號 \texttt{char}
+的負值當索引會存取到表格邊界之前，標準沒保證這樣安全。 這台機器沒出
+事只是這個平台的表格剛好多留了緩衝，換一個平台可能真的出事，不能當
+成「這樣寫沒問題」的證據。
+\item 都回傳 \texttt{NULL}。
+\item 因為外層 \texttt{strtok(lines, "\textbackslash n")} 跟內層
+\texttt{process\_line} 裡的 \texttt{strtok(line, " ")} 共用同一份靜態
+狀態，內層呼叫把狀態改成「已經切完」，外層接著呼叫時讀到被弄亂的狀
+態，直接回傳 \texttt{NULL}。
+\item \texttt{strtok\_r}（或 C11 的 \texttt{strtok\_s}）。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:sl-math}~節}
+\begin{enumerate}
+\item 因為這個平台的 \texttt{math\_errhandling} 只用浮點例外
+（\texttt{MATH\_ERREXCEPT}），沒有用 \texttt{errno}；該檢查
+\texttt{isnan}。
+\item 會先被截斷成整數，得到完全不是本意的結果（例如小數部分整個消
+失）。
+\item \texttt{FLT\_EPSILON} 是 \texttt{float} 能分辨的最小差距；
+\texttt{DBL\_MAX} 是 \texttt{double} 能表示的最大值。
+\item \texttt{isnan}（配合 \texttt{isinf} 檢查無限大）。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:sl-time}~節}
+\begin{enumerate}
+\item \texttt{124}（\texttt{2024 - 1900}）；三月的 \texttt{tm\_mon}
+填 \texttt{2}（\texttt{0} 起算，一月是 \texttt{0}）。
+\item 因為呼叫 \texttt{mktime} 時，它會依其他欄位重新計算並正規化整
+個 \texttt{struct tm}，順便補上正確的 \texttt{tm\_wday}。
+\item 秒；除以 \texttt{86400}（\texttt{60*60*24}）。
+\item 閏年、每個月天數不同。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:sl-variadic}~節}
+\begin{enumerate}
+\item 因為 \texttt{va\_start} 要知道從哪個位置開始接著找可變參數，那
+個位置就是最後一個有名字的參數之後。
+\item \texttt{fprintf} 直接接可變參數列（\texttt{...}）；
+\texttt{vfprintf} 接的是已經包好的 \texttt{va\_list}。
+\texttt{log\_printf} 收到的 \texttt{args} 已經是 \texttt{va\_list}，沒
+辦法直接攤開成 \texttt{...} 再交給 \texttt{fprintf}，只能用
+\texttt{vfprintf} 轉手傳遞。
+\item 因為 \texttt{\_\_FILE\_\_}／\texttt{\_\_LINE\_\_} 是預定義巨集，
+永遠展開成「目前這一行程式碼」的檔名與行號；如果搬進
+\texttt{log\_printf} 函式內部使用，展開出來的會是
+\texttt{log\_printf} 定義所在那一行的檔名行號，不是呼叫端真正呼叫
+\texttt{LOG} 的那一行。
+\item \texttt{\_\_VA\_ARGS\_\_}；前置處理；\texttt{va\_list}；執行。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:sl-i18n}~節}
+\begin{enumerate}
+\item 位元組數。
+\item \texttt{"C"} locale；不認得，只認得 ASCII 範圍的字元。
+\item \texttt{mbs} 是 multi-byte string（多位元組字串，也就是一般的
+\texttt{char} 字串）；\texttt{wcs} 是 wide-character string（寬字元字
+串）。
+\item \texttt{setlocale} 加 \texttt{mbstowcs}。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:sl-checklist}~節}
+\begin{enumerate}
+\item 三個錯：\texttt{compare\_int\_bad} 用減法比較整數，極端值會溢
+位；\texttt{words} 是 \texttt{char *arr[]} 佈局卻用了
+\texttt{char arr[][N]} 版的比較函式；\texttt{isalpha(c)} 傳進去的是有
+號 \texttt{char}，沒有先轉成 \texttt{unsigned char}。
+\item 上一次呼叫留下的非零 \texttt{errno} 可能還在，沒清零就檢查會誤
+判成「這次呼叫失敗」。
+\item 錯：使用者輸入的檔名不存在，是執行期會發生、需要處理的正常情
+況，不是程式設計者的邏輯錯誤；用 \texttt{assert} 會導致這個檢查在
+\texttt{-DNDEBUG} 的發布版裡直接消失，應該用回傳值／錯誤訊息處理。
+\end{enumerate}

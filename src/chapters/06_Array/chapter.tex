@@ -1,0 +1,1618 @@
+\chapter{陣列}
+\label{ch:array}
+
+陣列（array）讓我們可以用一個名字，儲存一整排相同型別的資料，並用索引
+（index）存取其中的每一個元素。 在這之前，我們只能宣告一個一個獨立的變數，
+如果要處理 $100$ 個數字，就得寫 $100$ 個變數名稱，非常不切實際。 更麻煩
+的是，變數的數量在寫程式的當下就要決定好；如果題目說「$n$ 個數字，$n$
+由輸入決定」，我們根本沒辦法事先知道要宣告幾個變數。
+
+有了陣列，我們只需要一個名字，再搭配迴圈，就能有系統地處理一整排資料，
+不管 $n$ 實際上是多少，程式的寫法都一樣。 這也是陣列跟迴圈幾乎總是成對
+出現的原因：陣列負責「存」，迴圈負責「一個一個處理」。
+
+這一章分三段推進：先把宣告、初始化、越界與「什麼時候其實不需要陣列」講
+清楚，再進入一維陣列的核心解題模式（兩次掃描、雙指標、分流、查表、分桶、
+滑動視窗），最後才談二維陣列在記憶體裡怎麼排列、怎麼走訪與建構。 沿路上
+我們也會開始接觸一些跟記憶體本身有關的細節。 陣列的大小為什麼要先決定、
+索引為什麼從 $0$ 開始、資料實際上是怎麼一塊一塊排列的。 這些細節在陣列
+這一章可能只是小提醒，但到了指標那一章會變成核心觀念。
+
+\section{宣告與讀入陣列}
+\label{sec:array-declare-read}
+
+要使用陣列，我們必須先宣告陣列的型別與大小，再用迴圈把資料一個一個讀進去。
+我們先看一個很小、很具體的例子：宣告一個只能放 $5$ 個整數的陣列，把 $5$
+個數字讀進去，再依序印出來。
+
+\begin{code}{c}{宣告一個大小為 5 的整數陣列並讀入、印出資料}
+int a[5];
+for (int i = 0; i < 5; i++) {
+    scanf("%d", &a[i]);
+}
+for (int i = 0; i < 5; i++) {
+    printf("%d\n", a[i]);
+}
+\end{code}
+
+\texttt{int a[5]} 跟系統要了一段連續的記憶體，剛好放得下 $5$ 個
+\texttt{int}。 這 $5$ 個位置各自有一個編號，叫做\emph{索引}（index），
+分別是 \texttt{a[0]}、\texttt{a[1]}、\texttt{a[2]}、\texttt{a[3]}、
+\texttt{a[4]}。 編號是從 $0$ 開始，不是從 $1$，所以最後一個位置是
+\texttt{a[4]} 而不是 \texttt{a[5]}（這件事很重要，我們馬上會再細講）。
+上面的程式先用一個迴圈把 $5$ 個數字依序存進 \texttt{a[0]} 到
+\texttt{a[4]}，再用另一個迴圈依序印出來；兩個迴圈裡的變數 \texttt{i}
+每一輪剛好對應到一個索引，範圍都是 $0$ 到 $4$。
+
+\keypoint{陣列的大小要在宣告時用常數決定，宣告之後就固定不變；
+\texttt{int a[5]} 有 $5$ 個位置，索引是 \texttt{a[0]} 到 \texttt{a[4]}。}
+
+但實際解題時，陣列的大小往往不能像上面這樣直接寫死成 $5$。 題目通常只
+會說「有 $n$ 筆資料」，而 $n$ 是執行期才從輸入讀進來的，寫程式的當下並
+不知道確切數字，也就沒辦法像 \texttt{a[5]} 這樣把大小寫成一個固定的字面
+值。 這時候常見的做法，是先看題目給的上限（例如「$n \le 1000$」），宣告
+一個「夠大」的陣列，再用實際讀到的 $n$ 決定要用到前面幾格。 片語
+\thechapter.3 就是這種寫法：宣告 \texttt{a[1005]}（比 $1000$ 多留一點空
+間），但實際只使用前 $n$ 格；跟剛才 \texttt{a[5]} 的例子比起來，只是把
+「讀 5 次」換成「先讀 $n$，再讀 $n$ 次」，陣列本身的用法完全一樣。
+
+\begin{code}{c}{宣告並讀入一個大小為 n 的整數陣列}
+int a[1005], n;
+scanf("%d", &n);
+for (int i = 0; i < n; i++) {
+    scanf("%d", &a[i]);
+}
+\end{code}
+
+\keypoint{陣列的大小要在宣告時用常數決定，通常會比題目上限多留一點空間
+（例如 $n \le 1000$ 就宣告 \texttt{a[1005]}）。}
+
+這裡有一個從第一天用陣列就會遇到、之後也會一直跟著我們的規則：C 語言的
+陣列索引從 $0$ 開始，不是從 $1$ 開始。 一個宣告成 \texttt{a[1005]} 的陣
+列，合法的索引是 $0$ 到 $1004$，總共 $1005$ 個位置，\texttt{a[1005]} 本
+身反而是不合法的（超出了我們要來的那塊記憶體）。 這個規則不是 C 語言隨
+意的選擇：索引其實代表的是「跟陣列開頭差了幾格」的\emph{位移量}
+（offset），而不是「這是第幾個元素」這種日常語感裡從 $1$ 算起的排名。
+陣列的第一個元素跟開頭的位移量是 $0$（因為它就是開頭本身），所以索引自
+然從 $0$ 開始；陣列的最後一個元素，跟開頭差了 $n - 1$ 格，索引就是
+$n - 1$。 這件事現在只需要記住結論，指標那一章會看到 \texttt{a[i]} 實
+際上就是「從 \texttt{a} 的位址往後移動 \texttt{i} 個元素大小」，到時候
+「索引 = 位移量」這件事會變得非常具體。
+
+\keypoint{陣列索引從 $0$ 開始，是因為索引代表的是離開頭的位移量，不是
+「第幾個」的排名；大小為 $n$ 的陣列合法索引是 $0$ 到 $n - 1$，存取
+\texttt{a[n]} 是超出範圍的錯誤，即使它「感覺」應該是最後一個元素。}
+
+\begin{center}
+\begin{tikzpicture}
+    \def\vals{1,4,8,9,10}
+    \foreach \v [count=\i from 0] in \vals {
+        \pgfmathtruncatemacro{\iprev}{\i-1}
+        \ifnum\i=0
+            \node[cell] (c\i) at (0,0) {\v};
+        \else
+            \node[cell, right=0pt of c\iprev] (c\i) {\v};
+        \fi
+        \node[idxlbl, below=2pt of c\i] {\i};
+    }
+\end{tikzpicture}
+\diagcaption{陣列 \texttt{a} 的內容與索引；灰色小字是索引，索引從 $0$
+開始，最後一個元素 \texttt{10} 的索引是 $n - 1 = 4$，不是 $5$。}
+\label{fig:ch06-array-basic}
+\end{center}
+
+有了陣列之後，我們不只可以照原順序把資料印出來，也可以用任何順序走訪它
+。 陣列存在記憶體裡的順序，跟我們讀取／使用它的順序，兩者是獨立的。
+範例 \thechapter.3 讀入 $n$ 個整數後，反向印出整個序列：讀進來的順序是
+從第一個到最後一個，但輸出的迴圈刻意從索引 $n - 1$ 開始往回跑到
+$0$，資料本身完全沒有搬動位置，改變的只是我們走訪它的方向。
+
+\begin{example}{c}{(print-reverse.c) 反向輸出序列}
+#include <stdio.h>
+
+int main(void) {
+    int a[1005], n;
+
+    // 讀入 n 個整數
+    scanf("%d", &n);
+    for (int i = 0; i < n; i++) {
+        scanf("%d", &a[i]);
+    }
+
+    // 反向印出，元素之間留一個空白
+    for (int i = n - 1; i >= 0; i--) {
+        printf("%d", a[i]);
+        if (i) {
+            printf(" ");
+        }
+    }
+}
+\end{example}
+
+\iosample{
+5 \\
+1 4 8 9 10 \\
+}{
+10 9 8 4 1 \\
+}
+
+以範例 \thechapter.3 的輸入為例：$n = 5$，陣列依序存了
+$a[0]=1, a[1]=4, a[2]=8, a[3]=9, a[4]=10$。 反向迴圈第一次執行時
+$i = 4$，印出 $a[4] = 10$；接著 $i = 3$，印出 $a[3] = 9$；依此類推，直
+到 $i = 0$ 印出 $a[0] = 1$ 之後迴圈結束。 每次印完一個數字，程式都要判
+斷「這是不是最後一個要印的元素」，決定要不要在後面補一個空白。
+
+\stylepoint{輸出一整排以空白分隔的數字時，最後一個元素後面不要印多餘的
+空白；範例 \thechapter.3 用 \texttt{if (i)} 判斷還沒印到最後一個元素才印
+空白。}
+
+\begin{drills}[label=drills:array-declare-read]
+\item \texttt{int a[1005];} 宣告後，合法的索引範圍是多少？
+\texttt{a[1005]} 本身合法嗎？
+\item 陣列索引為什麼從 $0$ 開始，而不是從 $1$ 開始？
+\item 範例 print-reverse.c 反向印出陣列時，陣列本身存的資料有沒有被
+搬動或改變？
+\item 把 $5$ 個數字讀進陣列、再依序印出來，需要幾個迴圈？各自的用途
+是什麼？
+\end{drills}
+
+\section{陣列的初始化與限制}
+\label{sec:array-init-limits}
+
+到目前為止，我們的陣列都是先宣告、再用迴圈把值一個一個讀進去。 但如果
+陣列的內容在寫程式的當下就已經知道（例如一份固定的對照表），可以直接用
+\emph{初始化}（initializer）在宣告的同時填進去，不用等到執行期才填。
+
+\begin{code}{c}{陣列初始化的幾種寫法}
+int a[5] = {1, 2, 3, 4, 5};   // 完整初始化
+
+int b[5] = {1, 2};            // 只給前兩個值，其餘自動補 0
+                               // b 的內容是 {1, 2, 0, 0, 0}
+
+int c[5] = {0};                // 把整個陣列歸零的慣用寫法
+
+int d[] = {1, 2, 3, 4, 5};    // 省略長度，編譯器依初始值數量算出長度 5
+\end{code}
+
+\keypoint{\texttt{int c[5] = \{0\};} 是把整個陣列歸零最常見的寫法：初
+始化值的數量比陣列小時，剩下的元素會自動補 $0$，不用一個一個列出來。}
+
+範例 \thechapter.5 用初始化建立一個「每個月天數」的對照表，並示範另一個
+好用的技巧：用 \texttt{sizeof} 自動算出陣列長度，不用另外記或手動數。
+
+\begin{example}{c}{(days-in-month.c) 用初始化建立對照表}
+#include <stdio.h>
+
+// 平年每個月的天數（1 月到 12 月）
+const int daysInMonth[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+
+int main(void) {
+    int month;
+    scanf("%d", &month);
+    printf("%d\n", daysInMonth[month - 1]);
+
+    // 用 sizeof 算出陣列長度，不用手動數有幾個月
+    int numMonths = sizeof(daysInMonth) / sizeof(daysInMonth[0]);
+    int totalDays = 0;
+    for (int i = 0; i < numMonths; i++) {
+        totalDays += daysInMonth[i];
+    }
+    printf("%d\n", totalDays);
+}
+\end{example}
+
+\iosample{
+2 \\
+}{
+28 \\
+365 \\
+}
+
+\texttt{sizeof(daysInMonth)} 是整個陣列佔用的位元組數，
+\texttt{sizeof(daysInMonth[0])} 是單一個元素佔用的位元組數，兩者相除就
+是元素個數。 這個寫法的好處是：就算之後把對照表的內容改長或改短，這一
+行完全不用跟著修改。
+
+\keypoint{\texttt{sizeof(a) / sizeof(a[0])} 是計算陣列長度的經典寫法；
+陣列前面加上 \texttt{const} 則是告訴編譯器「這個陣列的內容不會被修
+改」，編譯器會在我們不小心寫壞它時直接報錯，對像對照表這種本來就不該
+被更動的資料很有幫助。}
+
+陣列雖然可以用初始化「一次填好」，但\textbf{不能}在宣告之後用
+\texttt{=} 把一整個陣列指定給另一個陣列。 這是宣告時初始化用的
+\texttt{=} 和一般賦值運算子看起來一樣、但規則完全不同的地方。
+
+\begin{code}{c}{陣列不能整個賦值}
+int a[5] = {1, 2, 3, 4, 5};
+int b[5];
+
+b = a;   // 錯誤：無法通過編譯，陣列不能整個賦值
+
+for (int i = 0; i < 5; i++) {
+    b[i] = a[i];   // 正確：一個元素一個元素複製
+}
+\end{code}
+
+\keypoint{要把一個陣列的內容複製到另一個陣列，只能用迴圈逐一複製元素
+（或之後會遇到的 \texttt{memcpy} 函式），不能直接寫
+\texttt{b = a;}。 這跟一般變數的賦值行為不一樣，是陣列作為一個「整
+體」時少數不能直接操作的地方之一。}
+
+\begin{drills}[label=drills:array-init-limits]
+\item \texttt{int c[5] = \{0\};} 之後，陣列裡每個元素分別是多少？
+\item \texttt{int b[5] = \{1, 2\};} 之後，\texttt{b[2]}、\texttt{b[3]}、
+\texttt{b[4]} 分別是多少？
+\item 為什麼不能寫 \texttt{b = a;} 來複製整個陣列？該怎麼做才對？
+\item \texttt{sizeof(a) / sizeof(a[0])} 算出來的是什麼？
+\end{drills}
+
+\section{越界存取：一個真實的當機示範}
+\label{sec:array-out-of-bounds}
+
+C 語言完全不會在執行期檢查陣列索引有沒有超出範圍。 這不是「編譯器比較
+寬鬆」而已。 存取一個超出範圍的索引，屬於\textbf{未定義行為}
+（undefined behavior）：語言標準完全沒有規定會發生什麼事，程式可能正常
+跑完、可能印出亂七八糟的數字、可能當掉，結果完全取決於編譯器、作業系統，
+甚至那一次執行當下的記憶體狀態。
+
+範例 \thechapter.7 故意把迴圈條件寫錯（\texttt{i <= 5} 而不是
+\texttt{i < 5}），對一個宣告成 \texttt{a[5]} 的陣列多存取了一格。
+
+\begin{example}{c}{(out-of-bounds-demo.c) 索引寫錯範圍的示範（請勿模仿）}
+#include <stdio.h>
+
+int main(void) {
+    int a[5];
+
+    // 錯誤：迴圈多跑了一次，i 會等於 5，超出 a[5] 的合法範圍
+    for (int i = 0; i <= 5; i++) {
+        a[i] = i * i;
+    }
+
+    for (int i = 0; i < 5; i++) {
+        printf("%d\n", a[i]);
+    }
+}
+\end{example}
+
+我們實際編譯並執行了這段程式：\texttt{gcc} 用預設選項編譯完全沒有任何
+警告，但一執行，程式就非正常終止（收到 SIGABRT 訊號），\emph{連原本應
+該印出來的五個數字都沒有顯示}。 因為程式在把緩衝區裡的輸出真正寫到畫面
+上之前就已經被中止了。 這正是未定義行為可怕的地方：它不會給你一個乾淨
+明確的錯誤訊息。 K.N. King 的教科書裡示範同一種錯誤時，觀察到的是另一種
+症狀。 變數 \texttt{i} 剛好被安排在陣列後面的記憶體，多寫的那一格意外
+把 \texttt{i} 重設成 $0$，造成迴圈整個變成無窮迴圈。 兩種現象、兩種系統，
+但共同的教訓只有一個：陣列的索引範圍必須自己顧好，編譯器不會替你檢查。
+
+\keypoint{陣列索引超出範圍是未定義行為，不是「執行時會跳出一個錯誤訊
+息」這種可預期的結果；不同編譯器、不同系統上，同一段越界的程式碼可能
+表現出完全不同、甚至看起來「正常」的行為，這也是為什麼不能靠「反正沒
+出事」來判斷程式是否正確。}
+
+除了索引本身不能超出範圍，索引\emph{運算式}裡如果帶有副作用（例如
+\texttt{++}、\texttt{--}），也要特別小心：
+
+\begin{code}{c}{危險寫法：下標運算式裡帶有副作用}
+int i = 0;
+while (i < n) {
+    a[i] = b[i++];   // 未定義行為：i 在同一運算式裡被讀取又被修改
+}
+\end{code}
+
+\texttt{a[i] = b[i++]} 這一行，C 語言沒有規定「先算左邊的 \texttt{i}
+還是先算右邊的 \texttt{i++}」，同一個變數在同一運算式裡被讀取又被修改，
+結果同樣是未定義行為。 想避免這個問題，把遞增獨立成一行就好：
+
+\begin{code}{c}{安全寫法：把遞增拆成獨立的一行，或直接用 for 迴圈}
+for (int i = 0; i < n; i++) {
+    a[i] = b[i];
+}
+\end{code}
+
+\stylepoint{下標運算式裡不要同時做「讀取」跟「有副作用的修改」；把遞增
+或遞減獨立成一行，或直接改用 \texttt{for} 迴圈管理索引，兩者都能避免
+這類難以察覺的未定義行為。}
+
+\begin{drills}[label=drills:array-out-of-bounds]
+\item 陣列索引超出範圍時，C 語言會不會在執行期幫忙檢查、報錯？
+\item 為什麼「這次執行沒有出事」不能證明一段越界存取的程式碼是對的？
+\item \texttt{a[i] = b[i++];} 這一行為什麼是未定義行為？該怎麼改寫比
+較安全？
+\end{drills}
+
+\section{串流處理：不是每次都需要陣列}
+\label{sec:array-stream-no-array}
+
+前面幾個範例都需要先把整排資料存進陣列，才能重複走訪它。 但不是每個
+「看起來需要處理一整排數字」的題目都真的需要陣列。 如果題目只要一個
+最終的統計值（例如總和、最大值），而不需要事後回頭看某一筆舊資料，那麼
+邊讀邊用幾個變數累加，可能就已經足夠，完全不用開陣列。
+
+範例 \thechapter.10 讀入 $n$ 個整數，只需要印出總和與最大值。 這類題目完全不需要事後回頭比較任何一筆舊資料，所以只用兩個變數 \texttt{sum} 和 \texttt{maxVal} 邊讀邊更新就
+夠了。
+
+\begin{example}{c}{(stream-sum-max.c) 不存陣列，邊讀邊算總和與最大值}
+#include <stdio.h>
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+
+    // 不用陣列，只靠兩個變數邊讀邊更新
+    long long sum = 0;
+    int maxVal = -2000000000;
+    for (int i = 0; i < n; i++) {
+        int x;
+        scanf("%d", &x);
+        sum += x;
+        if (x > maxVal) {
+            maxVal = x;
+        }
+    }
+
+    printf("%lld %d\n", sum, maxVal);
+}
+\end{example}
+
+\iosample{
+5 \\
+1 4 8 9 10 \\
+}{
+32 10 \\
+}
+
+這個判斷值得養成習慣：拿到一個處理一整排數字的題目時，先問自己「這題到
+底需不需要事後回頭看某一筆舊資料？」如果答案是否定的，通常代表不需要陣
+列，改用幾個變數邊讀邊算，程式更短、用的記憶體也更少。 當 $n$ 大到陣列
+可能裝不下時（題庫裡常見的提示是 MLE，記憶體超出限制），這往往是唯一
+可行的做法。
+
+\keypoint{陣列不是處理「一整排數字」的必要條件；只有在需要事後回頭走訪
+或重複使用舊資料時，才真的需要把資料存起來。}
+
+\begin{drills}[label=drills:array-stream-no-array]
+\item 判斷「這題到底需不需要陣列」的關鍵問題是什麼？
+\item 範例 stream-sum-max.c 只用兩個變數就算出總和跟最大值，為什麼
+不需要陣列？
+\item 當 $n$ 大到陣列可能裝不下時（常見的提示是 MLE），為什麼「不用
+陣列」往往是唯一可行的做法？
+\end{drills}
+
+\section{用陣列做兩次計算：找出第二大的值}
+\label{sec:array-second-largest}
+
+上一節的總和與最大值，邊讀邊用兩個變數就算完了。 但有些題目沒
+辦法只掃一次就得到答案，需要先掃一遍拿到某個資訊（例如整排資料的最大值），
+再掃第二遍利用這個資訊算出真正要的答案。 如果一邊讀輸入一邊處理、又沒
+有把資料存下來，讀到第二遍的時候，原始資料早就不見了。 資料已經存在
+陣列裡，我們可以照需要的順序、甚至重複走訪它，這是陣列比起單一變數好用
+的地方。
+
+範例 \thechapter.11 讀入 $n$ 個整數（保證至少有兩個相異值），印出其中「第二
+大」的值。 也就是比最大值小、但在所有數值中最大的那一個。 這個定義聽
+起來直覺，但直接動手寫的時候有一個陷阱：如果資料裡有重複的最大值，「第
+二大」指的還是要比最大值\emph{嚴格小}的那個值，不是「陣列裡由大到小數
+過來的第二個位置」。
+
+\begin{example}{c}{(second-largest.c) 找出第二大的相異值}
+#include <stdio.h>
+
+int main(void) {
+    int a[1005], n;
+
+    // 讀入 n 個整數
+    scanf("%d", &n);
+    for (int i = 0; i < n; i++) {
+        scanf("%d", &a[i]);
+    }
+
+    // 第一遍：找出最大值
+    int maxVal = a[0];
+    for (int i = 1; i < n; i++) {
+        if (a[i] > maxVal) {
+            maxVal = a[i];
+        }
+    }
+
+    // 第二遍：在比最大值小的數之中找最大的一個
+    int secondVal = -2000000000;
+    for (int i = 0; i < n; i++) {
+        if (a[i] > secondVal && a[i] < maxVal) {
+            secondVal = a[i];
+        }
+    }
+
+    printf("%d\n", secondVal);
+}
+\end{example}
+
+\iosample{
+6 \\
+5 5 5 3 3 1 \\
+}{
+3 \\
+}
+
+用範例的測資 \texttt{5 5 5 3 3 1} 走一遍邏輯：第一遍掃描後
+\texttt{maxVal} 是 $5$。 第二遍掃描時，三個 $5$ 都會因為
+\texttt{a[i] < maxVal} 不成立而被跳過，兩個 $3$ 會先後被記錄成目前的
+\texttt{secondVal}，最後的 $1$ 因為比 $3$ 小而不會取代它，答案是 $3$。
+如果只是單純去找「第二個位置」而不做這個判斷，很容易在有重複最大值時
+答錯。
+
+\begin{center}
+\begin{tikzpicture}
+    \node[hlcell2] (c0) {5};
+    \node[hlcell2, right=0pt of c0] (c1) {5};
+    \node[hlcell2, right=0pt of c1] (c2) {5};
+    \node[hlcell, right=0pt of c2] (c3) {3};
+    \node[hlcell, right=0pt of c3] (c4) {3};
+    \node[cell, right=0pt of c4] (c5) {1};
+    \node[idxlbl, yshift=-0.25cm] at (c1.south) {maxVal = 5};
+    \node[idxlbl, yshift=-0.25cm] at ($(c3.south)!0.5!(c4.south)$) {secondVal = 3};
+\end{tikzpicture}
+\diagcaption{粉色是等於 \texttt{maxVal} 的元素（第二遍會被跳過），橘色
+是 \texttt{secondVal} 最後鎖定的元素。}
+\label{fig:ch06-second-largest-scan}
+\end{center}
+
+\keypoint{「第二大」不是索引為 $1$ 的元素，也不是單純「第二次出現的最大
+值」；範例 \thechapter.11 特別排除等於 \texttt{maxVal} 的情形，才能在有
+重複值時正確找到 $3$ 而不是 $5$。}
+
+\begin{drills}[label=drills:array-second-largest]
+\item 為什麼求「第二大」需要掃描陣列兩次，而不能只掃一次？
+\item 陣列 \texttt{5 5 5 3 3 1} 裡，第二大的值是多少？為什麼不是 $5$？
+\item 如果只是取「陣列裡第二個位置的值」而不做額外判斷，在有重複最
+大值時會答錯什麼？
+\end{drills}
+
+\section{原地反轉陣列：交換元素}
+\label{sec:array-reverse-swap}
+
+範例 \thechapter.3 用改變走訪方向來「看起來」反向輸出，但陣列本身的內容
+完全沒變。 如果題目要求的是把陣列\emph{本身}反轉過來（之後可能還要拿反
+轉後的陣列做別的計算，不是印出來就結束），就需要真的把元素互相交換，而
+不只是換個方向讀。
+
+一個常見的手法是同時從陣列的頭尾各放一個索引，往中間逼近，每一步把兩邊
+的元素互換：左邊的索引從 $0$ 開始，右邊的索引從 $n - 1$ 開始（正好用到
+剛剛提過的「最後一個元素索引是 $n - 1$」），直到兩個索引相遇或錯身。
+
+\begin{center}
+\begin{tikzpicture}
+    \def\vals{1,4,8,9,10}
+    \foreach \v [count=\i from 0] in \vals {
+        \pgfmathtruncatemacro{\iprev}{\i-1}
+        \ifnum\i=0
+            \node[hlcell] (c\i) at (0,0) {\v};
+        \else\ifnum\i=4
+            \node[hlcell, right=0pt of c\iprev] (c\i) {\v};
+        \else
+            \node[cell, right=0pt of c\iprev] (c\i) {\v};
+        \fi\fi
+        \node[idxlbl, below=2pt of c\i] {\i};
+    }
+    \draw[diagarrow] (c0.north) to[bend left=45] node[above,font=\scriptsize] {交換} (c4.north);
+\end{tikzpicture}
+\diagcaption{\texttt{left}（索引 $0$）與 \texttt{right}（索引
+$n-1=4$）指向的元素互換，接著兩個索引各往中間靠一格，重複同樣的動作。}
+\label{fig:ch06-reverse-two-pointer}
+\end{center}
+
+\begin{example}{c}{(reverse-in-place.c) 用頭尾交換原地反轉陣列}
+#include <stdio.h>
+
+int main(void) {
+    int a[1005], n;
+    scanf("%d", &n);
+    for (int i = 0; i < n; i++) {
+        scanf("%d", &a[i]);
+    }
+
+    // 兩個指標從頭尾往中間逼近，互換元素
+    int left = 0, right = n - 1;
+    while (left < right) {
+        int temp = a[left];
+        a[left] = a[right];
+        a[right] = temp;
+        left++;
+        right--;
+    }
+
+    for (int i = 0; i < n; i++) {
+        if (i) {
+            printf(" ");
+        }
+        printf("%d", a[i]);
+    }
+    printf("\n");
+}
+\end{example}
+
+\iosample{
+5 \\
+1 4 8 9 10 \\
+}{
+10 9 8 4 1 \\
+}
+
+跟同樣的輸入走一遍：一開始 \texttt{left = 0}、\texttt{right = 4}，交換
+\texttt{a[0]} 和 \texttt{a[4]}（$1$ 和 $10$互換）；接著
+\texttt{left = 1}、\texttt{right = 3}，交換 \texttt{a[1]} 和
+\texttt{a[3]}（$4$ 和 $9$ 互換）；此時 \texttt{left = 2 = right}，迴圈
+結束（正中間的元素不用跟自己交換）。 陣列變成
+$\{10, 9, 8, 4, 1\}$，這次是真的被改寫了，不是只有印出來的順序不同。
+
+\keypoint{交換兩個變數的值一定要借助第三個暫存變數（範例裡的
+\texttt{temp}）：如果直接寫 \texttt{a[left] = a[right]; a[right] =
+a[left];}，第二行的 \texttt{a[left]} 其實已經被第一行蓋掉了，換到的會
+是同一個值。}
+
+\begin{drills}[label=drills:array-reverse-swap]
+\item 交換兩個變數的值時，為什麼需要第三個暫存變數？
+\item \texttt{left}、\texttt{right} 兩個索引分別從哪裡開始？往哪個方
+向逼近？迴圈什麼時候該停止？
+\item 範例 reverse-in-place.c 跟範例 print-reverse.c（反向印出）比起
+來，本質上差在哪裡？
+\end{drills}
+
+\section{把資料依條件分成兩個陣列}
+\label{sec:array-partition}
+
+有時候我們要的不是一個值，而是把原始資料\emph{分流}成好幾組，各自存進不
+同的陣列。 這時候陣列本身就是輸出的一部分，不只是計算過程中暫存資料
+的地方。
+
+範例 \thechapter.13 讀入 $n$ 個整數，依照奇偶把它們分別存進兩個陣列，再
+依序印出偶數陣列、奇數陣列。 兩個陣列各自有自己的計數器，記錄目前已經
+存了幾個元素。
+
+\begin{center}
+\begin{tikzpicture}
+    \foreach \v [count=\i from 0] in {1,2,3,4,5,6} {
+        \pgfmathtruncatemacro{\iprev}{\i-1}
+        \ifnum\i=0
+            \node[cell] (in0) {\v};
+        \else
+            \node[cell, right=0pt of in\iprev] (in\i) {\v};
+        \fi
+    }
+    \node[idxlbl, left=8pt of in0] {輸入};
+
+    \node[hlcell, below=0.2cm of in0] (ev0) {2};
+    \node[hlcell, right=0pt of ev0] (ev1) {4};
+    \node[hlcell, right=0pt of ev1] (ev2) {6};
+    \node[idxlbl, left=8pt of ev0] {evens};
+
+    \node[hlcell2, below=0.2cm of ev0] (od0) {1};
+    \node[hlcell2, right=0pt of od0] (od1) {3};
+    \node[hlcell2, right=0pt of od1] (od2) {5};
+    \node[idxlbl, left=8pt of od0] {oddsArr};
+\end{tikzpicture}
+\diagcaption{輸入依序掃過一次，偶數依序存進 \texttt{evens}，奇數依序存
+進 \texttt{oddsArr}，兩個陣列各自保留原本的先後順序。}
+\label{fig:ch06-partition-even-odd}
+\end{center}
+
+\begin{example}{c}{(split-by-parity.c) 依奇偶把資料分成兩個陣列}
+#include <stdio.h>
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+
+    // 依奇偶分別存進兩個陣列
+    int evens[1005], oddsArr[1005];
+    int evenCount = 0, oddCount = 0;
+    for (int i = 0; i < n; i++) {
+        int x;
+        scanf("%d", &x);
+        if (x % 2 == 0) {
+            evens[evenCount] = x;
+            evenCount++;
+        } else {
+            oddsArr[oddCount] = x;
+            oddCount++;
+        }
+    }
+
+    for (int i = 0; i < evenCount; i++) {
+        if (i) {
+            printf(" ");
+        }
+        printf("%d", evens[i]);
+    }
+    printf("\n");
+
+    for (int i = 0; i < oddCount; i++) {
+        if (i) {
+            printf(" ");
+        }
+        printf("%d", oddsArr[i]);
+    }
+    printf("\n");
+}
+\end{example}
+
+\iosample{
+6 \\
+1 2 3 4 5 6 \\
+}{
+2 4 6 \\
+1 3 5 \\
+}
+
+用範例的測資走一遍：讀到 $1$（奇）存進 \texttt{oddsArr[0]}；讀到 $2$
+（偶）存進 \texttt{evens[0]}；依此類推，掃完之後
+\texttt{evens = \{2, 4, 6\}}、\texttt{oddsArr = \{1, 3, 5\}}，各自保留
+了原本在輸入裡出現的先後順序。
+
+\keypoint{兩個陣列各自需要自己的計數器（\texttt{evenCount}、
+\texttt{oddCount}），不能共用同一個索引變數，否則其中一個陣列會出現沒
+填到值的空洞。}
+
+\begin{drills}[label=drills:array-partition]
+\item 範例 split-by-parity.c 為什麼需要兩個獨立的計數器，而不是共用同
+一個索引變數？
+\item 若輸入依序是 \texttt{1 2 3 4 5 6}，\texttt{evens} 和
+\texttt{oddsArr} 掃完之後的內容依序分別是什麼？
+\end{drills}
+
+\section{用陣列記錄有沒有看過：以值為索引的查表}
+\label{sec:array-lookup}
+
+到目前為止，陣列索引多半代表「第幾筆輸入」。 下一個關鍵跳躍是
+讓索引代表「數值本身」：宣告一個跟數值範圍一樣大的陣列，索引就是數值，
+內容只記「看過了嗎」的 0 或 1。 這種「查表」（lookup table）手法能把
+「這個值之前出現過嗎」的判斷，從一筆一筆比對，變成直接用索引存取，是陣
+列在演算法裡最常見的加速手法之一。
+
+範例 \thechapter.14 讀入 $n$ 張卡片的數值（每個數值最多到 $v$），每當某
+個數值\emph{第二次}出現，就印出它。 模擬翻牌配對遊戲裡「配到相同的牌」
+的瞬間。
+
+\begin{center}
+\begin{tikzpicture}
+    \node[hlcell] (c0) {3};
+    \node[hlcell, right=0pt of c0] (c1) {5};
+    \node[hlcell2, right=0pt of c1] (c2) {3};
+    \node[hlcell, right=0pt of c2] (c3) {7};
+    \node[hlcell2, right=0pt of c3] (c4) {5};
+    \node[hlcell2, right=0pt of c4] (c5) {7};
+    \node[idxlbl, align=left, anchor=west, above right=0pt and 8pt of c5.east] {橘色：第一次看到};
+    \node[idxlbl, align=left, anchor=west, below right=0pt and 8pt of c5.east] {粉色：第二次看到，印出};
+\end{tikzpicture}
+\diagcaption{依序讀入的六個數值；一個數值第二次出現時，\texttt{seen}
+陣列裡它的位置已經是 $1$，程式就把它印出來。}
+\label{fig:ch06-seen-array-lookup}
+\end{center}
+
+\begin{example}{c}{(seen-lookup.c) 找出第二次出現的數值}
+#include <stdio.h>
+
+int main(void) {
+    int n, v;
+    scanf("%d %d", &n, &v);
+
+    // seen[x] 記錄數值 x 有沒有出現過，索引就是數值本身
+    int seen[1005] = {0};
+    for (int i = 0; i < n; i++) {
+        int x;
+        scanf("%d", &x);
+        if (seen[x]) {
+            printf("%d\n", x);
+        }
+        seen[x] = 1;
+    }
+}
+\end{example}
+
+\iosample{
+6 10 \\
+3 5 3 7 5 7 \\
+}{
+3 \\
+5 \\
+7 \\
+}
+
+依序讀入 $3, 5, 3, 7, 5, 7$：前兩個新數字 $3$、$5$ 第一次出現，只標記
+\texttt{seen}、不印出；第三個數字又是 $3$，這時 \texttt{seen[3]} 已經
+是 $1$，所以印出 $3$；接下來 $7$ 第一次出現不印，$5$ 第二次出現印出，
+最後 $7$ 第二次出現印出，跟輸出的 $3, 5, 7$ 一致。
+
+\keypoint{查表陣列的大小要開到「數值可能的最大範圍」，而不是「資料筆數
+$n$」。 範例裡陣列大小取決於數值上限 $v$，如果 $v$ 遠大於 $n$，陣列可
+能比輸入資料本身還大很多。}
+
+\begin{drills}[label=drills:array-lookup]
+\item \texttt{seen[x]} 這種寫法裡，陣列索引 \texttt{x} 代表的是什麼？
+跟前面幾節「索引代表第幾筆輸入」有什麼不同？
+\item 查表陣列的大小該取決於資料筆數 $n$，還是數值的可能範圍 $v$？
+\item 依序讀入 \texttt{3 5 3 7 5 7}，程式會依序印出哪些數字？
+\end{drills}
+
+\section{陣列當作分類桶：用索引記錄統計資料}
+\label{sec:array-bucket}
+
+查表陣列裡存的是 0 或 1。 同一套「索引代表類別」的想法還可以
+再往前推：索引仍代表某個類別（例如除以 $m$ 的餘數），但格子裡不再只記
+有沒有看過，而是把屬於這個類別的數值累加起來。 這種用法常被稱為「桶」
+（bucket）或「計數陣列」，是查表手法在統計題上的自然擴充。
+
+範例 \thechapter.15 讀入 $n$ 個整數與一個模數 $m$，把每個數依照除以 $m$
+的餘數分類，累加進對應的桶子，最後印出每個桶子的總和。 陣列索引在這裡
+不是「第幾個輸入」，而是「餘數是多少」。
+
+\begin{center}
+\begin{tikzpicture}
+    \foreach \v/\r [count=\i from 0] in {1/1,2/2,3/0,4/1,5/2} {
+        \pgfmathtruncatemacro{\iprev}{\i-1}
+        \ifnum\i=0
+            \node[cell] (v0) {\v};
+        \else
+            \node[cell, right=0pt of v\iprev] (v\i) {\v};
+        \fi
+        \node[idxlbl, above=2pt of v\i] {餘\r};
+    }
+    \node[hlcell, below=0.5cm of v1] (b0) {3};
+    \node[hlcell, right=0pt of b0] (b1) {5};
+    \node[hlcell, right=0pt of b1] (b2) {7};
+    \node[idxlbl, below=2pt of b0] {b[0]};
+    \node[idxlbl, below=2pt of b1] {b[1]};
+    \node[idxlbl, below=2pt of b2] {b[2]};
+\end{tikzpicture}
+\diagcaption{每個輸入依照除以 $3$ 的餘數，累加進對應的桶子；例如 $1$ 和
+$4$ 餘數都是 $1$，兩者都加進 \texttt{bucketSum[1]}。}
+\label{fig:ch06-bucket-count-mod3}
+\end{center}
+
+\begin{example}{c}{(remainder-bucket-sum.c) 依餘數分桶並累加}
+#include <stdio.h>
+
+int main(void) {
+    int n, m;
+    scanf("%d %d", &n, &m);
+
+    // 用餘數當作陣列索引，直接累加進對應的桶子
+    int bucketSum[1005] = {0};
+    for (int i = 0; i < n; i++) {
+        int x;
+        scanf("%d", &x);
+        int b = x % m;
+        bucketSum[b] += x;
+    }
+
+    for (int b = 0; b < m; b++) {
+        if (b) {
+            printf(" ");
+        }
+        printf("%d", bucketSum[b]);
+    }
+    printf("\n");
+}
+\end{example}
+
+\iosample{
+5 3 \\
+1 2 3 4 5 \\
+}{
+3 5 7 \\
+}
+
+$m = 3$ 時，餘數只有 $0, 1, 2$ 三種可能：$1, 4$ 餘 $1$，$2, 5$ 餘
+$2$，$3$ 餘 $0$。 所以 \texttt{bucketSum[0] = 3}、
+\texttt{bucketSum[1] = 1 + 4 = 5}、\texttt{bucketSum[2] = 2 + 5 = 7}，
+跟輸出的 \texttt{3 5 7} 一致。
+
+\keypoint{\texttt{int bucketSum[1005] = \{0\};} 在宣告的同時把整個陣列
+初始化成 $0$；如果只宣告不初始化，陣列裡一開始的值是不確定的，直接拿
+來累加會得到錯誤的結果。}
+
+\begin{drills}[label=drills:array-bucket]
+\item 「查表」跟「分類桶」這兩種用法，陣列格子裡存的東西有什麼不同？
+\item \texttt{int bucketSum[1005] = \{0\};} 如果拿掉 \texttt{= \{0\}}
+只留宣告，會有什麼風險？
+\item $m = 3$、輸入 \texttt{1 2 3 4 5} 時，三個桶 \texttt{bucketSum[0]}、
+\texttt{bucketSum[1]}、\texttt{bucketSum[2]} 的總和分別是多少？
+\end{drills}
+
+\section{固定範圍的滑動視窗：區塊最大值}
+\label{sec:array-sliding-window}
+
+有些題目要求把陣列切成很多個固定大小的區塊，分別對每個區塊做統計。 這
+跟前面「桶」的差別在於：桶是依\emph{值}分類，區塊則是依\emph{位置}切
+段。 用索引的範圍（而不是索引本身）來決定資料屬於哪一組。
+
+範例 \thechapter.16 讀入 $n$ 個整數與區塊大小 $k$，從頭開始每 $k$ 個分成
+一組，對每個「完整」的區塊印出最大值；如果 $n$ 不是 $k$ 的倍數，最後會
+剩下一個不足 $k$ 個元素的區塊，這個不完整的區塊改成印最小值，藉此練習
+「最後一組要不要特別處理」這個陣列題目常見的邊界情形。
+
+\begin{center}
+\begin{tikzpicture}
+    \foreach \v [count=\i from 0] in {5,2,9,1,8,3,4,7} {
+        \pgfmathtruncatemacro{\iprev}{\i-1}
+        \ifnum\i=0
+            \node[cell] (c0) {\v};
+        \else
+            \node[cell, right=0pt of c\iprev] (c\i) {\v};
+        \fi
+    }
+    \draw[decorate,decoration={brace,amplitude=4pt,mirror}] (c0.south west) -- (c2.south east)
+        node[midway,below,font=\scriptsize,yshift=-2pt] {最大值 9};
+    \draw[decorate,decoration={brace,amplitude=4pt,mirror}] (c3.south west) -- (c5.south east)
+        node[midway,below,font=\scriptsize,yshift=-2pt] {最大值 8};
+    \draw[decorate,decoration={brace,amplitude=4pt,mirror}] (c6.south west) -- (c7.south east)
+        node[midway,below,font=\scriptsize,yshift=-2pt] {不足額，最小值 4};
+\end{tikzpicture}
+\diagcaption{$n=8$、$k=3$：前兩個區塊剛好 $3$ 個元素，各自報最大值；最
+後一個區塊只剩 $2$ 個元素，改報最小值。}
+\label{fig:ch06-sliding-window-block-max}
+\end{center}
+
+\begin{example}{c}{(block-extremes.c) 逐區塊統計最大值，最後不足額區塊統計最小值}
+#include <stdio.h>
+
+int main(void) {
+    int n, k;
+    scanf("%d %d", &n, &k);
+
+    int a[100005];
+    for (int i = 0; i < n; i++) {
+        scanf("%d", &a[i]);
+    }
+
+    // 每 k 個一組，逐區塊掃描
+    for (int start = 0; start < n; start += k) {
+        int end = start + k;
+        if (end > n) {
+            end = n;
+        }
+
+        int blockSize = end - start;
+        int best = a[start];
+        for (int i = start + 1; i < end; i++) {
+            if (blockSize == k) {
+                if (a[i] > best) {
+                    best = a[i];
+                }
+            } else {
+                if (a[i] < best) {
+                    best = a[i];
+                }
+            }
+        }
+        printf("%d\n", best);
+    }
+}
+\end{example}
+
+\iosample{
+8 3 \\
+5 2 9 1 8 3 4 7 \\
+}{
+9 \\
+8 \\
+4 \\
+}
+
+$n = 8$、$k = 3$ 時，區塊依序是 $\{5,2,9\}$（完整，最大值 $9$）、
+$\{1,8,3\}$（完整，最大值 $8$）、$\{4,7\}$（只剩 $2$ 個，不完整，改報
+最小值 $4$）。 \texttt{start} 每次跳 $k$ 格，\texttt{end} 用
+\texttt{if (end > n)} 修正成不超出陣列範圍，這正是區塊型陣列題目最容易
+出錯、也最需要小心處理的邊界。
+
+\stylepoint{迴圈裡先算出 \texttt{end} 再修正上限，比每次存取元素時都判
+斷「是不是超出範圍」更清楚：邊界只需要處理一次，後面的迴圈本體完全不用
+再操心。}
+
+\begin{drills}[label=drills:array-sliding-window]
+\item 「桶」跟這一節的「區塊」，兩種分組方式的依據有什麼不同？
+\item $n = 8$、$k = 3$ 時，一共分成幾組？最後一組有幾個元素？
+\item 為什麼最後一個不足額的區塊，程式改成統計最小值而不是最大值？
+\end{drills}
+
+\section{二維陣列與矩陣：從記憶體的真實排列說起}
+\label{sec:array-2d-memory}
+
+有些問題本身的資料就是二維的，例如棋盤、表格、或是數學上的矩陣。 這時候
+可以宣告二維陣列，用兩個索引 \texttt{grid[row][col]} 分別代表
+「第幾列」與「第幾行」。 可以把二維陣列想成「陣列的陣列」：外層索引先
+選出第幾列，內層索引再選出那一列裡的第幾格；宣告時兩個維度的大小都要
+先用常數決定，跟一維陣列的道理一樣。
+
+\begin{code}{c}{宣告並填滿一個 NxN 的二維整數陣列}
+int grid[1000][1000];
+for (int r = 0; r < N; r++) {
+    for (int c = 0; c < N; c++) {
+        grid[r][c] = 0;
+    }
+}
+\end{code}
+
+我們習慣把二維陣列畫成一張表格，但電腦的記憶體本質上是一長條、一維的
+空間，沒有「第二維」這種東西。 C 語言處理這個落差的方式，是把二維陣列
+按照「先排完第 $0$ 列，再排第 $1$ 列⋯」的順序，攤平成一長條連續的記憶
+體，稱為\textbf{列優先}（row-major）排列。
+
+\begin{center}
+\begin{tikzpicture}
+    \node[hlcell] (r0c0) {1};
+    \node[hlcell, right=0pt of r0c0] (r0c1) {2};
+    \node[hlcell, right=0pt of r0c1] (r0c2) {3};
+    \node[hlcell2, below=0pt of r0c0] (r1c0) {4};
+    \node[hlcell2, right=0pt of r1c0] (r1c1) {5};
+    \node[hlcell2, right=0pt of r1c1] (r1c2) {6};
+    \node[idxlbl, left=8pt of r0c0] {列 0};
+    \node[idxlbl, left=8pt of r1c0] {列 1};
+
+    \node[hlcell, below=0.5cm of r1c0] (mem0) {1};
+    \node[hlcell, right=0pt of mem0] (mem1) {2};
+    \node[hlcell, right=0pt of mem1] (mem2) {3};
+    \node[hlcell2, right=0pt of mem2] (mem3) {4};
+    \node[hlcell2, right=0pt of mem3] (mem4) {5};
+    \node[hlcell2, right=0pt of mem4] (mem5) {6};
+    \foreach \i in {0,1,2,3,4,5} {
+        \node[idxlbl, below=2pt of mem\i] {\i};
+    }
+    \node[idxlbl, left=8pt of mem0] {記憶體};
+
+    \draw[diagarrow, black!45] (r0c1.south) to[out=270,in=90] (mem1.north);
+    \draw[diagarrow, black!45] (r1c1.south) to[out=270,in=90] (mem4.north);
+\end{tikzpicture}
+\diagcaption{同一份資料的兩種畫法：上面是我們習慣的二維表格畫法，下面是
+它在記憶體裡實際的樣子。 列 $0$ 的三格排完，緊接著才是列 $1$。 顏色對應
+同一列：橘色是列 $0$，粉色是列 $1$。}
+\label{fig:ch06-2d-array-two-views}
+\end{center}
+
+知道這件事之後，我們可以精確算出 \texttt{grid[i][j]} 在這條攤平記憶體
+裡的位移量：先跳過前面 $i$ 整列（每列 $C$ 格），再往右走 $j$ 格，也就是
+$i \times C + j$。
+
+\begin{center}
+\begin{tikzpicture}
+    \node[hlcell] (g0c0) {1};
+    \node[cell, right=0pt of g0c0] (g0c1) {2};
+    \node[cell, right=0pt of g0c1] (g0c2) {3};
+    \node[cell, below=0pt of g0c0] (g1c0) {4};
+    \node[cell, right=0pt of g1c0] (g1c1) {5};
+    \node[hlcell2, right=0pt of g1c1] (g1c2) {6};
+
+    \node[hlcell, below=0.5cm of g1c0] (m0) {1};
+    \node[cell, right=0pt of m0] (m1) {2};
+    \node[cell, right=0pt of m1] (m2) {3};
+    \node[cell, right=0pt of m2] (m3) {4};
+    \node[cell, right=0pt of m3] (m4) {5};
+    \node[hlcell2, right=0pt of m4] (m5) {6};
+    \node[idxlbl, below=2pt of m0] {0};
+    \node[idxlbl, below=2pt of m5] {5};
+
+    \node[idxlbl, align=left, right=4.3cm of g0c2] {grid[0][0]\\位移量 $= 0 \times 3 + 0 = 0$};
+    \node[idxlbl, align=left, right=4.3cm of g1c2] {grid[1][2]\\位移量 $= 1 \times 3 + 2 = 5$};
+\end{tikzpicture}
+\diagcaption{一個 $R \times C$ 的二維陣列，\texttt{grid[i][j]} 在記憶體
+裡的位移量是 $i \times C + j$；這裡 $C = 3$，所以 \texttt{grid[1][2]}
+落在位移量 $5$ 的位置，正好是整個陣列的最後一格。}
+\label{fig:ch06-2d-array-memory-layout}
+\end{center}
+
+這個「列優先」的事實，會實際影響程式跑起來的快慢。 存取記憶體裡\emph{
+緊鄰}的位置，通常比大幅度跳動快得多（這跟 CPU 的快取記憶體 cache 有
+關：緊鄰的資料常常會一起被載入，跳著存取則常常要重新載入）。 走訪二維
+陣列時，如果內層迴圈跟著「列優先」的方向走（固定列、讓行的索引連續變
+化），每一步都剛好移到記憶體裡緊鄰的下一格；反過來，如果內層迴圈固定
+行、讓列的索引變化，每一步都要在記憶體裡大幅度跳動。
+
+\begin{center}
+\begin{tikzpicture}
+    \node[cell] (c0) {1};
+    \node[cell, right=0pt of c0] (c1) {2};
+    \node[cell, right=0pt of c1] (c2) {3};
+    \node[cell, right=0pt of c2] (c3) {4};
+    \node[cell, right=0pt of c3] (c4) {5};
+    \node[cell, right=0pt of c4] (c5) {6};
+
+    \draw[diagarrow] ([yshift=-0.25cm]c0.south) -- ([yshift=-0.25cm]c1.south) --
+        ([yshift=-0.25cm]c2.south) -- ([yshift=-0.25cm]c3.south) --
+        ([yshift=-0.25cm]c4.south) -- ([yshift=-0.25cm]c5.south);
+    \node[idxlbl, anchor=west] at ([xshift=6pt,yshift=-0.25cm]c5.east) {列優先：依序移動};
+
+    \draw[diagarrow, black!45] ([yshift=0.35cm]c0.north) to[out=45,in=135] ([yshift=0.35cm]c3.north);
+    \draw[diagarrow, black!45] ([yshift=0.45cm]c3.north) to[out=45,in=135] ([yshift=0.45cm]c1.north);
+    \draw[diagarrow, black!45] ([yshift=0.55cm]c1.north) to[out=45,in=135] ([yshift=0.55cm]c4.north);
+    \node[idxlbl, anchor=west] at ([xshift=6pt,yshift=0.4cm]c5.east) {行優先：來回跳著移動};
+\end{tikzpicture}
+\diagcaption{對同一段記憶體，列優先走訪（下方箭頭）每一步都移到緊鄰的下
+一格；行優先走訪（上方箭頭）卻要在記憶體裡大幅度來回跳動。 前者對
+cache 更友善，通常也跑得比較快。}
+\label{fig:ch06-row-major-traversal}
+\end{center}
+
+\keypoint{二維陣列在記憶體裡是列優先排列的：同一列的元素彼此緊鄰，不同
+列之間則相隔一整列的距離。 走訪二維陣列時，讓內層迴圈跟著「列優先」的
+方向（也就是讓行的索引 \texttt{j} 在內層變化）走訪，通常比反過來更有效
+率。}
+
+存取二維陣列元素時，另一個常見的手誤是把 \texttt{grid[i][j]} 誤寫成
+\texttt{grid[i,j]}。 這行仍然可以編譯通過，但意思完全不對：
+
+\begin{code}{c}{常見手誤：把 [i][j] 誤寫成 [i,j]}
+grid[i][j] = 0;   // 正確：存取第 i 列第 j 行
+
+grid[i, j] = 0;   // 可以編譯，但等同 grid[j] = 0
+                  // 逗號運算子會先算 i、丟棄結果，再算 j
+\end{code}
+
+\stylepoint{\texttt{grid[i, j]} 在 C 裡會被逗號運算子解讀成「先算
+\texttt{i}、丟棄結果，再算 \texttt{j}」，整句等同 \texttt{grid[j]}。 
+這不是語法錯誤，編譯器通常也不會警告，是二維陣列最容易被忽略的手誤，一
+定要記得寫成兩個獨立的中括號 \texttt{grid[i][j]}。}
+
+二維陣列的初始化可以用巢狀大括號，每一層對應一個維度：
+
+\begin{code}{c}{二維陣列的初始化}
+int grid[2][3] = {
+    {1, 2, 3},
+    {4, 5, 6},
+};
+\end{code}
+
+前面幾個範例裡，我們都把二維陣列開成固定的最大尺寸（例如
+\texttt{grid[105][105]}），即使實際的 $R$、$C$ 遠小於這個上限。 C99 其
+實也允許用執行期才知道的變數當作陣列大小（稱為\emph{可變長度陣列}，
+variable-length array，簡稱 VLA），例如直接宣告
+\texttt{int grid[R][C];}；但 VLA 不能是全域變數、也不能在宣告時給初始
+值，限制不少，所以題庫裡的範例多半還是選擇開一個夠大的固定陣列，用實際
+的 $R$、$C$ 決定要用到多少。
+
+\texttt{grid[i][j]} 這種「列、行」兩個索引的寫法，剛好跟數學上矩陣的記
+號 $a_{ij}$（第 $i$ 列第 $j$ 行）幾乎一模一樣，所以二維陣列很自然地拿
+來表示矩陣。 範例 \thechapter.20 計算一個 $R \times C$ 矩陣的\emph{轉
+置}（transpose）：轉置後的矩陣是 $C \times R$，原本第 $i$ 列第 $j$ 行
+的值，變成新矩陣的第 $j$ 列第 $i$ 行。
+
+\begin{example}{c}{(matrix-transpose.c) 計算矩陣的轉置}
+#include <stdio.h>
+
+int main(void) {
+    int R, C;
+    scanf("%d %d", &R, &C);
+
+    int grid[105][105];
+    for (int i = 0; i < R; i++) {
+        for (int j = 0; j < C; j++) {
+            scanf("%d", &grid[i][j]);
+        }
+    }
+
+    // 轉置：輸出的第 j 列第 i 行 = 原本的第 i 列第 j 行
+    for (int j = 0; j < C; j++) {
+        for (int i = 0; i < R; i++) {
+            if (i) {
+                printf(" ");
+            }
+            printf("%d", grid[i][j]);
+        }
+        printf("\n");
+    }
+}
+\end{example}
+
+\iosample{
+2 3 \\
+1 2 3 \\
+4 5 6 \\
+}{
+1 4 \\
+2 5 \\
+3 6 \\
+}
+
+這段程式跟本章稍早「逐行加總」的迴圈順序完全一樣。 外層固定
+\texttt{j}、內層才走訪 \texttt{i}。 只是這次不是拿來加總，而是直接把
+讀到的值印到新的位置。 兩個例子背後是同一件事：只要想清楚「要用什麼順
+序走訪二維陣列」，很多看似不同的題目其實只是同一套走訪順序的不同應用。
+
+\keypoint{\texttt{grid[i][j]} 的兩個索引對應數學矩陣的「列、行」記號；
+一旦題目描述用到「矩陣」「表格」這類詞彙，通常代表可以直接用二維陣列
+搭配列優先／行優先的走訪順序來解題，不需要另外設計新的資料結構。}
+
+\begin{drills}[label=drills:array-2d-memory]
+\item 二維陣列 \texttt{grid[R][C]} 在記憶體裡實際上是怎麼排列的？
+\item 一個 $R \times C$ 的二維陣列，\texttt{grid[i][j]} 在攤平記憶體裡
+的位移量公式是什麼？
+\item \texttt{grid[i, j]} 這樣寫會發生什麼事？跟 \texttt{grid[i][j]}
+是同一件事嗎？
+\item 走訪二維陣列時，為什麼讓內層迴圈跟著列優先的方向走，通常比反過
+來更快？
+\end{drills}
+
+\section{二維陣列的暖身：逐行加總}
+\label{sec:array-2d-column-sum}
+
+前面已經看過二維陣列在記憶體裡的真實排列方式，這裡用一個簡單的例子練習
+最基本的二維陣列讀取與逐行加總，為下一節稍微複雜一點的鄰居檢查暖身。
+
+範例 \thechapter.21 讀入一個 $R$ 列 $C$ 行的整數表格，對每一行（column）
+算出該行所有數字的整數平均。 這裡刻意選「行」而不是「列」，因為列平均
+只需要走訪陣列裡本來就連續的一段，但行平均需要在兩個維度之間跳躍讀取，
+更能練習到二維索引。 也剛好呼應上一節「列優先 vs. 行優先」的討論。
+
+\begin{center}
+\begin{tikzpicture}
+    \node[cell] (g0c0) {1};
+    \node[hlcell, right=0pt of g0c0] (g0c1) {2};
+    \node[cell, right=0pt of g0c1] (g0c2) {3};
+    \node[cell, below=0pt of g0c0] (g1c0) {5};
+    \node[hlcell, right=0pt of g1c0] (g1c1) {6};
+    \node[cell, right=0pt of g1c1] (g1c2) {7};
+    \node[hlcell, below=0.55cm of g1c1] (res) {4};
+    \draw[diagarrow] (g1c1.south) -- (res.north);
+    \node[idxlbl, anchor=west, align=left] at ([xshift=8pt]$(g1c1.south)!0.5!(res.north)$) {column 1\\加總取平均};
+\end{tikzpicture}
+\diagcaption{中間這一行（column 1）的兩個值 $2$ 和 $6$ 加總後除以列數
+$R=2$，得到平均 $4$。}
+\label{fig:ch06-2d-column-sum}
+\end{center}
+
+\begin{example}{c}{(column-average.c) 計算表格每一行的整數平均}
+#include <stdio.h>
+
+int main(void) {
+    int R, C;
+    scanf("%d %d", &R, &C);
+
+    int grid[105][105];
+    for (int i = 0; i < R; i++) {
+        for (int j = 0; j < C; j++) {
+            scanf("%d", &grid[i][j]);
+        }
+    }
+
+    // 對每一行（column）累加各列的值，再取整數平均
+    for (int j = 0; j < C; j++) {
+        int sum = 0;
+        for (int i = 0; i < R; i++) {
+            sum += grid[i][j];
+        }
+        if (j) {
+            printf(" ");
+        }
+        printf("%d", sum / R);
+    }
+    printf("\n");
+}
+\end{example}
+
+\iosample{
+2 3 \\
+1 2 3 \\
+5 6 7 \\
+}{
+3 4 5 \\
+}
+
+注意這裡兩層迴圈的順序：外層固定「第幾行」\texttt{j}，內層才走訪「第幾
+列」\texttt{i}，這跟前面填滿陣列、逐列印出的順序（外層 \texttt{i}、內層
+\texttt{j}）剛好相反。 依照上一節的討論，這個順序在記憶體裡其實是屬於
+「行優先」的跳躍走訪，只是資料量小的時候感覺不出差異。
+
+\stylepoint{兩層迴圈要處理二維陣列的哪個維度在外、哪個在內，取決於我們
+想要的走訪順序，而不是陣列宣告時兩個維度的先後順序；寫之前先想清楚「
+外層代表什麼、內層代表什麼」，比邊寫邊試更不容易搞混。}
+
+\begin{drills}[label=drills:array-2d-column-sum]
+\item 範例 column-average.c 為什麼外層固定 \texttt{j}（行）、內層走訪
+\texttt{i}（列），而不是反過來？
+\item 依上一節的討論，這種走訪順序是列優先還是行優先？
+\end{drills}
+
+\section{二維陣列的鄰居檢查}
+\label{sec:array-2d-neighbor}
+
+二維陣列除了逐列或逐行整體處理之外，很多題目要對\emph{每一格}分別檢查
+它上下左右的鄰居。 例如判斷這一格是不是區域最大值、是不是被特定的圖案
+包圍。 這類題目的共通困難點在於邊界：格子在網格邊緣時，某些方向的鄰居
+根本不存在，程式必須先判斷鄰居的座標有沒有落在網格範圍內，才能安全地去
+讀它的值。
+
+範例 \thechapter.22 讀入一個 $R \times C$ 的網格，對每一格檢查它是不是
+嚴格大於所有\emph{存在}的上下左右鄰居（邊緣或角落的格子鄰居比較少，只
+需要跟存在的比），統計這樣的「區域最大值」總共有幾格。
+
+\begin{center}
+\begin{tikzpicture}
+    \node[cell] (r0c0) {1};
+    \node[hlcell, right=0pt of r0c0] (up) {2};
+    \node[cell, right=0pt of up] (r0c2) {1};
+    \node[hlcell, below=0pt of r0c0] (left) {2};
+    \node[hlcell2, right=0pt of left] (mid) {9};
+    \node[hlcell, right=0pt of mid] (right) {2};
+    \node[cell, below=0pt of left] (r2c0) {1};
+    \node[hlcell, right=0pt of r2c0] (down) {2};
+    \node[cell, right=0pt of down] (r2c2) {1};
+    \draw[diagarrow] (mid.north) -- (up.south);
+    \draw[diagarrow] (mid.south) -- (down.north);
+    \draw[diagarrow] (mid.west) -- (left.east);
+    \draw[diagarrow] (mid.east) -- (right.west);
+\end{tikzpicture}
+\diagcaption{中央的 $9$（粉色）對照上下左右四個鄰居（橘色），全部嚴格
+比它小，所以中央是區域最大值；角落與邊緣格子鄰居較少，逐一判斷是否存
+在再比較。}
+\label{fig:ch06-2d-neighbor-check}
+\end{center}
+
+\begin{example}{c}{(local-max-2d.c) 統計網格中區域最大值的格數}
+#include <stdio.h>
+
+int main(void) {
+    int R, C;
+    scanf("%d %d", &R, &C);
+
+    int grid[105][105];
+    for (int i = 0; i < R; i++) {
+        for (int j = 0; j < C; j++) {
+            scanf("%d", &grid[i][j]);
+        }
+    }
+
+    // 上、下、左、右四個方向的座標偏移
+    int dr[4] = {-1, 1, 0, 0};
+    int dc[4] = {0, 0, -1, 1};
+
+    int count = 0;
+    for (int i = 0; i < R; i++) {
+        for (int j = 0; j < C; j++) {
+            int isLocalMax = 1;
+            for (int d = 0; d < 4; d++) {
+                int ni = i + dr[d], nj = j + dc[d];
+                if (ni >= 0 && ni < R && nj >= 0 && nj < C) {
+                    if (grid[ni][nj] >= grid[i][j]) {
+                        isLocalMax = 0;
+                    }
+                }
+            }
+            if (isLocalMax) {
+                count++;
+            }
+        }
+    }
+
+    printf("%d\n", count);
+}
+\end{example}
+
+\iosample{
+3 3 \\
+1 2 1 \\
+2 9 2 \\
+1 2 1 \\
+}{
+1 \\
+}
+
+範例輸入是一個十字形排列、中央特別高的網格。 中央的 $9$ 上下左右都是
+$2$，四個方向都嚴格比它小，是區域最大值；四個角落（例如左上角的 $1$）
+只有右邊和下面兩個鄰居存在，都是 $2 \ge 1$，所以角落都不是區域最大值；
+邊緣中點（例如上方中間的 $2$）有三個鄰居存在，其中下方的 $9 \ge 2$，也
+不是區域最大值。 整個網格只有中央這一格符合，答案是 $1$。
+
+\keypoint{用 \texttt{dr}、\texttt{dc} 兩個小陣列存四個方向的座標偏移量，
+再用一個迴圈依序套用，比為上下左右各寫一次幾乎一樣的判斷式更精簡，之後
+遇到八個方向（含斜角）的題目時，只需要把這兩個陣列换成八個方向就好，邏
+輯完全不用重寫。}
+
+\begin{drills}[label=drills:array-2d-neighbor]
+\item \texttt{dr}、\texttt{dc} 這兩個小陣列的用途是什麼？
+\item 角落格子跟中央格子相比，鄰居的數量有什麼不同？程式怎麼處理這個
+差異？
+\item 範例輸入的十字形網格裡，區域最大值總共有幾格？
+\end{drills}
+
+\section{二維陣列與座標式問題：幻方}
+\label{sec:array-2d-magic-square}
+
+有些問題需要一邊走訪二維陣列、一邊依規則\emph{建構}它的內容，而不只是
+讀取既有的資料。 這一節用一個經典的例子，把陣列的走訪、環繞索引、以及
+先前學過的化簡策略全部串起來：幻方。 幻方是一個 $N \times N$ 的矩陣，
+依下列步驟填入正整數 $1, 2, \cdots, N^2$：首先將 $1$ 填在起始位置。 之
+後每次向右上對角線方向移一格並填入下一個數字；如果那一格已經填過，就改
+為向正下方移一格，再繼續往右上填。 「向右上」或「向下」的移動超出方格
+範圍時，會環繞到最後一列、第一行或第一列。 這正是陣列索引很適合搭配
+\texttt{\%} 運算子做環繞（wrap-around）的地方，因為
+\texttt{(r + 1) \% N} 會在 $r$ 超出 $N - 1$ 時自動繞回 $0$。
+
+\begin{center}
+\begin{tikzpicture}
+    \foreach \r in {0,1,2} {
+        \foreach \c in {0,1,2} {
+            \ifnum\c=0
+                \ifnum\r=0
+                    \node[cell] (g-\r-\c) {};
+                \else
+                    \pgfmathtruncatemacro{\rprev}{\r-1}
+                    \node[cell, below=0pt of g-\rprev-0] (g-\r-\c) {};
+                \fi
+            \else
+                \pgfmathtruncatemacro{\cprev}{\c-1}
+                \node[cell, right=0pt of g-\r-\cprev] (g-\r-\c) {};
+            \fi
+        }
+    }
+    \node[hlcell] at (g-2-0.center) {1};
+    \node[hlcell] at (g-1-1.center) {2};
+    \node[hlcell] at (g-0-2.center) {3};
+    \draw[diagarrow] (g-2-0.north east) -- (g-1-1.south west);
+    \draw[diagarrow] (g-1-1.north east) -- (g-0-2.south west);
+    \node[idxlbl, yshift=0.1cm] at ($(g-0-0.north)!0.5!(g-0-1.north)$) {向右上填下一格};
+    \coordinate (wrap) at ($(g-1-2.east)+(1.25,0)$);
+    \draw[diagarrow] (g-0-2.east) to[out=15,in=90] (wrap) to[out=270,in=345] (g-2-0.south east);
+    \node[idxlbl, align=left, right=8pt of wrap] {超出範圍\\就繞回};
+\end{tikzpicture}
+\diagcaption{正常情況下每次向右上移一格；移動超出方格範圍時，環繞到對
+面繼續（這裡示範從右上角繞回左下角）。}
+\label{fig:ch06-magic-square-move}
+\end{center}
+
+\begin{center}
+\begin{tikzpicture}
+    \node[hlcell2] (cur) {6};
+    \node[hlcell, anchor=south west] (blocked) at (cur.north east) {4};
+    \node[hlcell, below=0cm of cur] (down) {7};
+    \draw[diagarrow, black!35] (cur.north east) -- (blocked.south west);
+    \node[font=\large] at ($(cur.north east)!0.5!(blocked.south west)$) {$\times$};
+    \node[idxlbl, align=left, right=8pt of blocked] {右上已填過};
+    \draw[diagarrow] (cur.south) -- (down.north);
+    \node[idxlbl, align=left, right=8pt of down] {改往下填};
+\end{tikzpicture}
+\diagcaption{向右上那一格已經填過數字時（這裡是已經填了 $4$ 的格
+子），改成往正下方移一格繼續填。}
+\label{fig:ch06-magic-square-collision}
+\end{center}
+
+把兩條規則反覆套用在一個 $3 \times 3$、從左下角開始（$k=1$）的小幻方
+上，就會得到下圖的結果：
+
+\begin{center}
+\begin{tikzpicture}
+    \node[cell] (g0c0) {5};
+    \node[cell, right=0pt of g0c0] (g0c1) {7};
+    \node[cell, right=0pt of g0c1] (g0c2) {3};
+    \node[cell, below=0pt of g0c0] (g1c0) {9};
+    \node[cell, right=0pt of g1c0] (g1c1) {2};
+    \node[cell, right=0pt of g1c1] (g1c2) {4};
+    \node[cell, below=0pt of g1c0] (g2c0) {1};
+    \node[cell, right=0pt of g2c0] (g2c1) {6};
+    \node[cell, right=0pt of g2c1] (g2c2) {8};
+\end{tikzpicture}
+\diagcaption{$3 \times 3$、從左下角開始填 $1$ 的完整結果；沿右上對角線
+走兩步（$1 \to 2 \to 3$）就碰到邊界繞回，之後遇到已填格子時改往下
+（$3 \to 4$、$6 \to 7$）。 正是前面兩張圖示範的規則。}
+\label{fig:ch06-magic-square-result}
+\end{center}
+
+範例 \thechapter.23 給定矩陣大小 $N$、以及整數 $k$（$1 \le k \le N$）所在的
+起始位置 $(x, y)$，建構整個幻方並印出來。 由於已知的是「$k$ 所在的位置」
+而不是「$1$ 所在的位置」，我們先沿著對角線反向走 $k - 1$ 步，推算出
+$1$ 應該在的起始位置，再從那裡開始，用同一套規則把整個矩陣填滿。
+
+\begin{example}{c}{(magic-square.c) 建構幻方}
+#include <stdio.h>
+
+int grid[1000][1000];
+
+int main(void) {
+    int N, k, x, y;
+    scanf("%d %d %d %d", &N, &k, &x, &y);
+
+    // 從「k 的位置」沿對角線反推「1 應該在的位置」
+    int r = x, c = y;
+    for (int i = 0; i < k - 1; i++) {
+        r = (r + 1) % N;
+        c = (c - 1 + N) % N;
+    }
+
+    // 從 1 開始依規則把整個矩陣填滿
+    for (int v = 1; v <= N * N; v++) {
+        grid[r][c] = v;
+
+        int nr = (r - 1 + N) % N, nc = (c + 1) % N;
+        if (grid[nr][nc] != 0) {
+            nr = (r + 1) % N;
+            nc = c;
+        }
+        r = nr;
+        c = nc;
+    }
+
+    // 輸出整個矩陣
+    for (int i = 0; i < N; i++) {
+        for (int j = 0; j < N; j++) {
+            if (j) {
+                printf(" ");
+            }
+            printf("%d", grid[i][j]);
+        }
+        printf("\n");
+    }
+}
+\end{example}
+
+\iosample{
+5 1 1 2 \\
+}{
+11 18 25 2 9 \\
+17 24 1 8 15 \\
+23 5 7 14 16 \\
+4 6 13 20 22 \\
+10 12 19 21 3 \\
+}
+
+程式先用一個獨立的迴圈把起始位置反推回去，得到「$1$ 應該在的位置」之後，
+才進入真正填數字的主迴圈；這個主迴圈每一步都會檢查「向右上那一格是不
+是已經填過」，填過的話才改成向下移動，這正好對應到題目描述的規則。
+
+\keypoint{用 \texttt{(r - 1 + N) \% N} 而不是 \texttt{(r - 1) \% N} 處
+理環繞，是因為 C 裡負數取餘數可能是負的（例如 \texttt{-1 \% 5} 是
+\texttt{-1}，不是 \texttt{4}）。}
+
+範例 \thechapter.23 示範的是一個常見的解題策略：與其直接處理「已知 $k$ 的
+位置」這個比較複雜的情形，不如先想清楚「已知 $1$ 的位置」這個最簡單的情
+形要怎麼解，再把複雜的情形\emph{化簡}成簡單的情形。 這裡能這樣做的
+關鍵觀察是：只要 $k \le N$，起始位置到 $1$ 的位置之間就只會發生「向右上」
+的移動、不會發生「向下」的移動，所以反向走 $k - 1$ 步一定能精確地推回
+$1$ 的位置。 如果 $k$ 可以大於 $N$，這個反推的技巧就不一定成立了，因為
+「向右上」的路徑上有可能已經發生過填滿而改向下的情形，反推時就不能只
+單純地走對角線。 這也是為什麼許多這類題目會把 $k \le N$ 設計成一個難度
+較低的子題。
+
+\keypoint{先確認一個問題的簡化情形要怎麼解，再想辦法把一般情形化簡成簡化
+情形，往往比一開始就想著同時處理所有情形更容易寫對。}
+
+\begin{drills}[label=drills:array-2d-magic-square]
+\item 為什麼要用 \texttt{(r + 1) \% N} 而不是直接寫 \texttt{r + 1}？
+\item 為什麼要寫成 \texttt{(r - 1 + N) \% N} 而不是 \texttt{(r - 1) \% N}？
+\item 幻方規則裡，「向右上填」跟「改往下填」是根據什麼條件切換的？
+\end{drills}
+
+\addcontentsline{toc}{section}{練習解答}
+\section*{練習解答}
+
+各節練習的答案收在這裡。 短題只給能一句話核對的結果。
+
+\paragraph{第~\ref{sec:array-declare-read}~節}
+\begin{enumerate}
+\item 合法索引是 $0$ 到 $1004$，總共 $1005$ 個位置；\texttt{a[1005]}
+本身不合法，是超出範圍的存取。
+\item 因為索引代表的是離陣列開頭的\emph{位移量}，不是「第幾個」的排
+名；第一個元素跟開頭的位移量是 $0$，所以索引從 $0$ 開始。
+\item 沒有。 反向印出只是改變走訪的方向，陣列裡的資料完全沒有被搬動
+或修改。
+\item 兩個迴圈：第一個負責把 $5$ 個數字讀進陣列，第二個負責依序把陣
+列內容印出來。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:array-init-limits}~節}
+\begin{enumerate}
+\item 全部是 $0$：\texttt{\{0, 0, 0, 0, 0\}}。
+\item 三者都是 $0$（初始化值不足時，剩下的元素自動補 $0$）。
+\item 陣列不能整個賦值；必須用迴圈逐一複製每個元素（\texttt{b[i] =
+a[i];}），或使用 \texttt{memcpy}。
+\item 陣列的元素個數（整個陣列的位元組數除以單一元素的位元組數）。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:array-out-of-bounds}~節}
+\begin{enumerate}
+\item 不會。 C 語言完全不在執行期檢查陣列索引，越界存取是未定義行為。
+\item 因為未定義行為的表現因編譯器、系統、甚至該次執行當下的記憶體
+狀態而異；這次沒出事不代表下次、換一台機器也不會出事。
+\item 因為 C 沒有規定「先算左邊被讀取的 \texttt{i} 還是先算右邊
+\texttt{i++} 的副作用」；把遞增獨立成一行，或直接用 \texttt{for} 管
+理索引，就能避免。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:array-stream-no-array}~節}
+\begin{enumerate}
+\item 這題到底需不需要事後回頭看某一筆舊資料。
+\item 因為總和與最大值都只需要邊讀邊更新，不需要回頭比較任何一筆舊
+資料，所以兩個變數就夠了。
+\item 當 $n$ 大到陣列可能裝不下（MLE）時，邊讀邊算往往是唯一可行的
+做法。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:array-second-largest}~節}
+\begin{enumerate}
+\item 因為要先確定最大值是誰，才能在第二遍裡正確排除它，找出比它嚴
+格小的最大值；只掃一次沒辦法同時做到這兩件事。
+\item 是 $3$。 三個 $5$ 都等於最大值本身，必須排除，剩下最大的是 $3$。
+\item 會誤把「第二次出現的最大值」（例如另一個 $5$）當成答案，而不是
+真正嚴格小於最大值的那個值。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:array-reverse-swap}~節}
+\begin{enumerate}
+\item 因為 \texttt{a[left] = a[right];} 執行後，\texttt{a[left]} 原本
+的值已經被蓋掉，若沒先存起來，第二行就換不回正確的值。
+\item \texttt{left} 從 $0$ 開始，\texttt{right} 從 $n - 1$ 開始，往中
+間逼近；當 \texttt{left >= right} 時迴圈結束。
+\item print-reverse.c 只是改變印出的順序，陣列內容不變；
+reverse-in-place.c 是真的把陣列元素互換，陣列本身被改寫了。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:array-partition}~節}
+\begin{enumerate}
+\item 因為兩個陣列各自累積的資料筆數不同步；共用一個索引會讓其中一
+個陣列出現沒填到值的空洞。
+\item \texttt{evens = \{2, 4, 6\}}、\texttt{oddsArr = \{1, 3, 5\}}，
+各自保留原本在輸入裡出現的先後順序。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:array-lookup}~節}
+\begin{enumerate}
+\item \texttt{x} 代表的是數值本身；前面幾節的索引多半代表「第幾筆輸
+入」，這裡索引直接就是要查詢的那個值。
+\item 數值的可能範圍 $v$；陣列要開到能涵蓋所有可能出現的數值。
+\item 依序印出 $3, 5, 7$（各自第二次出現時被印出）。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:array-bucket}~節}
+\begin{enumerate}
+\item 查表存的是「有沒有看過」的 $0$／$1$；分類桶存的是累加起來的統
+計值。
+\item 陣列初始內容不確定，直接拿來累加會得到無法預期的錯誤結果。
+\item \texttt{bucketSum[0] = 3}、\texttt{bucketSum[1] = 5}、
+\texttt{bucketSum[2] = 7}。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:array-sliding-window}~節}
+\begin{enumerate}
+\item 桶依\emph{值}分類；區塊依\emph{位置}切段，用索引的範圍決定資料
+屬於哪一組。
+\item 分成 $3$ 組；最後一組只剩 $2$ 個元素。
+\item 因為題目刻意設計成「最後一組要不要特別處理」的邊界練習：不足額
+的區塊改統計最小值，藉此練習邊界情形跟完整區塊分開處理。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:array-2d-memory}~節}
+\begin{enumerate}
+\item 列優先排列：先排完第 $0$ 列，再排第 $1$ 列，依此類推，攤平成一
+長條連續記憶體。
+\item $i \times C + j$（$C$ 是每列的行數）。
+\item \texttt{grid[i, j]} 會被逗號運算子解讀成「先算 \texttt{i}、丟棄
+結果，再算 \texttt{j}」，等同 \texttt{grid[j]}，跟 \texttt{grid[i][j]}
+完全不是同一件事，但可以編譯通過。
+\item 因為列優先走訪時，內層迴圈每一步都移到記憶體裡緊鄰的下一格，對
+CPU 快取更友善；反過來則要在記憶體裡大幅度跳動。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:array-2d-column-sum}~節}
+\begin{enumerate}
+\item 因為要對每一\emph{行}分別加總，所以外層固定行 \texttt{j}，內層
+才走訪列 \texttt{i} 把同一行的各列值加起來。
+\item 是行優先：內層迴圈的 \texttt{i} 每次都要在記憶體裡跳一整列的距
+離，不是緊鄰的下一格。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:array-2d-neighbor}~節}
+\begin{enumerate}
+\item 存四個方向（上下左右）相對於目前格子的座標偏移量，搭配一個迴
+圈依序套用，取代四段幾乎一樣的判斷式。
+\item 角落格子只有兩個鄰居存在，邊緣格子有三個，中央格子有四個；程式
+用座標範圍判斷（\texttt{ni}、\texttt{nj} 是否落在 $0$ 到 $R-1$／
+$C-1$ 之間）決定鄰居是否存在，只跟存在的鄰居比較。
+\item $1$ 格（十字中央的 $9$）。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:array-2d-magic-square}~節}
+\begin{enumerate}
+\item 因為 \texttt{r + 1} 可能等於 $N$、超出合法的列索引範圍；
+\texttt{\% N} 讓它在超出時自動環繞回 $0$。
+\item 因為 C 語言裡負數取餘數可能是負的（例如 \texttt{-1 \% 5} 是
+\texttt{-1}，不是 \texttt{4}）；先加上 $N$ 再取餘數，才能保證結果落
+在 $0$ 到 $N-1$ 之間。
+\item 根據「向右上那一格是否已經填過數字」切換：還沒填過就繼續往右
+上，已經填過就改往正下方移動。
+\end{enumerate}

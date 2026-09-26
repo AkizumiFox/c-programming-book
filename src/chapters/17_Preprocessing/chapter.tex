@@ -1,0 +1,1688 @@
+\chapter{前置處理}
+\label{ch:preprocessing}
+
+前置處理器（preprocessor）在編譯最前面工作，做的事情只有一種：把原始碼裡符
+合特定樣式的文字，換成另一段文字。 它不管型別、不管運算子優先度、不管變數
+的作用域——那些是編譯器的工作，前置處理器根本看不到。
+
+這一章從頭到尾只靠三句話撐起來：
+
+\begin{itemize}
+\item \textbf{前置處理器不懂 C。} 它認得的只有一行一行的指令、以及一個一
+個的 token；後面每一個陷阱，都是這句話的推論。
+\item \textbf{展開是可觀察的。} \texttt{gcc -E} 讓前置處理器的輸出直接被
+看見。 這一章每個坑都遵守同一個順序：先自己手寫展開結果、再用
+\texttt{gcc -E} 核對——「精熟」跟「背過規則」的分界，就在這裡。
+\item \textbf{巨集是最後手段。} 常數優先用 \texttt{enum}，邏輯優先用
+\texttt{static inline} 函式；巨集只留給它們做不到的事。
+\end{itemize}
+
+章節安排跟著這三句話走：先弄懂前置處理器實際做的事、指令的通用語法規則，
+再接上第一個真正用得到的指令 \texttt{\#include}；接著進物件式與函式式巨
+集，中段插入「巨集還是函式」的判準，再教兩個進階運算子與可變參數巨集；然
+後是條件編譯與命令列開關；最後把所有零件收攏成一組讀者自己寫得出來的
+\texttt{LOG} 與 \texttt{assert}。 節末練習的答案收在章末。
+
+\section{翻譯的第一階段}
+\label{sec:pp-what}
+
+一支 \texttt{.c} 檔要變成執行檔，中間經過好幾個階段：前置處理、編譯（翻譯
+成組合語言）、組譯（組合語言變成目的檔）、連結（把目的檔和函式庫接起來）。
+每個階段都有自己的輸出：前置處理器的輸出叫\textbf{翻譯單元}
+（translation unit）——它仍然是純文字的 C 原始碼，不是二進位，也不是什麼
+特殊格式，會直接餵給下一站的編譯器；編譯器把翻譯單元變成組合語言；組譯器
+把組合語言變成\textbf{目的檔}（object file，\texttt{.o}）——這時候才第一
+次出現二進位；連結器把一個或多個目的檔、加上函式庫，接成最終的執行檔。
+
+\begin{center}
+\begin{tikzpicture}[node distance=1.2cm and 1.0cm]
+    \node[startend, minimum width=1.9cm, font=\small\sffamily] (src) {原始碼\\\texttt{.c}};
+    \node[process, right=of src, minimum width=2.6cm, font=\small\sffamily] (cpp) {前置處理器};
+    \node[startend, right=of cpp, minimum width=2.4cm, font=\small\sffamily] (tu) {翻譯單元\\（仍是文字）};
+    \node[process, right=of tu, minimum width=3.3cm, font=\small\sffamily] (exe) {編譯器／組譯器\\／連結器};
+    \draw[flowarrow] (src) -- (cpp);
+    \draw[flowarrow] (cpp) -- (tu);
+    \draw[flowarrow] (tu) -- (exe);
+\end{tikzpicture}
+\diagcaption{前置處理是編譯流程的第一站，輸出（翻譯單元）還是文字形式的
+C 原始碼，不是二進位。 這一章只管第一站；後面三站在函式那幾章已經摸過邊。}
+\label{fig:pp-pipeline}
+\end{center}
+
+眼見為憑最有效。 下面這支程式定義了一個常數字串巨集：
+
+\begin{example}{c}{(hello.c) 讓前置處理器做一次文字替換}
+#include <stdio.h>
+
+#define GREETING "Hello, preprocessor!"
+
+int main(void) {
+    printf("%s\n", GREETING);
+    return 0;
+}
+\end{example}
+
+用 \texttt{-E} 旗標讓 \texttt{gcc} 只跑到前置處理這一站就停，把結果印到標
+準輸出：
+
+\begin{code}{bash}{gcc -E}
+gcc -E hello.c | wc -l      # 幾百行，因平台與函式庫版本而異
+gcc -E hello.c | tail -6    # 看最後幾行
+\end{code}
+
+\begin{code}{text}{gcc -E 輸出（節錄最後幾行）}
+int main(void) {
+    printf("%s\n", "Hello, preprocessor!");
+    return 0;
+}
+\end{code}
+
+前面幾百行是 \texttt{\#include <stdio.h>} 展開出來的宣告——\texttt{printf}
+的原型、一堆型別定義、其他標頭檔又 \texttt{\#include} 進來的東西，全部攤平
+變成一份巨大的純文字檔，這正是翻譯單元的樣子。 最後幾行才是我們自己寫的
+\texttt{main}，而且 \texttt{GREETING} 已經被換成它展開後的樣子：字面上的
+字串常數，跟我們直接寫 \texttt{"Hello, preprocessor!"} 沒有任何差別。 前
+置處理器不知道 \texttt{GREETING} 「是」字串——它只知道看到這個 token 就換
+成另一串 token。
+
+\keypoint{前置處理器的輸出（翻譯單元）仍是合法的 C 原始碼，會原封不動送進
+編譯器。 \texttt{\#define} 只是純文字替換，替換之後，替換前的名字就不存在
+了。}
+
+\begin{drills}[label=drills:pp-what]
+\item \texttt{gcc -E hello.c} 印出的行數，跟 \texttt{printf(...)} 那一行
+比起來，誰佔的行數多？多出來的內容從哪裡來？
+\item 前置處理器的輸出（翻譯單元）還是不是合法的 C 程式？會不會被拿去繼
+續編譯？
+\item 如果把 \texttt{\#include <stdio.h>} 整行刪掉，只留
+\texttt{\#define GREETING ...} 和呼叫 \texttt{printf} 的那一行，會在前置
+處理、編譯、連結哪一個階段出錯？
+\item 手寫：\texttt{\#define TWICE(x) x+x}，呼叫 \texttt{TWICE(3)} 展開成
+什麼？先自己寫，再用 \texttt{gcc -E} 核對。
+\end{drills}
+
+\section{指令的通用規則}
+\label{sec:pp-syntax}
+
+在教第一個真正用得到的指令之前，先把所有前置處理指令共用的語法規則講清
+楚，之後每一節都會直接用到，不再重複解釋。
+
+\subsection{一行一個指令，到換行為止}
+
+前置處理指令一定以 \texttt{\#} 開頭。 \texttt{\#} 前面只能有空白字元（用
+來縮排），不能有其他程式碼；指令從 \texttt{\#} 開始，一路到這一行的換行字
+元為止，中間不用分號結尾（這跟一般 C 陳述式不一樣）：
+
+\begin{example}{c}{(continuation-demo.c) \# 前面可以有空白}
+#include <stdio.h>
+
+#define BIG_NUMBER \
+    123456
+
+int main(void) {
+    #define LOCAL_VALUE 5   /* 縮排的 #，合法 */
+    printf("%d\n", BIG_NUMBER);
+    printf("%d\n", LOCAL_VALUE);
+    return 0;
+}
+\end{example}
+
+\iosample{}{123456\\5}
+
+\texttt{\#define LOCAL\_VALUE 5} 前面有四個空白，這是合法的——縮排跟指令
+本身無關，前置處理器只在乎 \texttt{\#} 前面除了空白之外沒有別的東西。
+
+\subsection{反斜線續行}
+
+一個指令原則上要寫在同一個實體行裡，但如果這一行的最後一個字元是反斜線
+\texttt{\textbackslash}（後面緊接著換行字元，中間不能有空白，否則續行失
+敗），前置處理器會把這一行和下一行接成邏輯上的同一行，再當成同一個指令處
+理。 上面範例裡的 \texttt{BIG\_NUMBER} 就是這樣定義的：
+
+\begin{code}{c}{反斜線續行}
+#define BIG_NUMBER \
+    123456
+\end{code}
+
+這等價於把兩行接成一行寫：\texttt{\#define BIG\_NUMBER 123456}。 反斜線續
+行不是巨集專屬的語法——它是前置處理器對「一行」的定義，任何指令都能用；後
+面函式式巨集展開成好幾個陳述式時，會大量用到這個語法把巨集寫成好幾個實體
+行、但邏輯上仍是同一個 \texttt{\#define}。
+
+\subsection{token：前置處理器真正比對的單位}
+
+前置處理器做替換時，比對的單位是\textbf{token}（識別字、關鍵字、數字常
+數、字串常數、運算子這些不可再分割的最小單元），不是子字串：
+
+\begin{example}{c}{(token-demo.c) N100 與 "N" 不會被 \#define N 換掉}
+#include <stdio.h>
+
+#define N 100
+
+int main(void) {
+    int N100 = 1;       /* N100 是單一個 token，不是 N 後面接 100 */
+    char *s = "N";       /* 整個 "N" 是一個字串常數 token，不會被拆開比對 */
+    printf("%d\n", N100);
+    printf("%s\n", s);
+    printf("%d\n", N);
+    return 0;
+}
+\end{example}
+
+\iosample{}{1\\N\\100}
+
+\texttt{N100} 這五個字元對編譯器和前置處理器來說是同一個識別字 token，跟
+\texttt{N} 完全無關，所以不會被換成 \texttt{100100}；\texttt{"N"} 整體是
+一個字串常數 token，前置處理器不會鑽進字串內部去比對裡面的字元，所以引號
+裡的 \texttt{N} 不會被換掉。 只有真正單獨出現、跟 \texttt{N} 這個識別字
+token 完全相等的地方，才會被替換——最後一行的 \texttt{N} 就是這種情況，換
+成了 \texttt{100}。
+
+\texttt{\#define} 的名字後面如果緊接著 \texttt{(}（中間沒有空白），前置
+處理器會把它當成函式式巨集；名字後面如果先隔了空白才出現
+\texttt{(}，反而會被當成物件式巨集，這個空白引發的陷阱留到第
+\ref{sec:pp-funcmacro}~節函式式巨集一開始示範。
+
+\keypoint{指令從 \texttt{\#} 開始，到這一行的換行字元結束；反斜線
+\texttt{\textbackslash} 後面緊接換行，能讓指令跨實體行接續。 巨集替換比
+對的單位是 token，不是子字串——\texttt{N100} 不是 \texttt{N} 加
+\texttt{100}，字串常數裡的文字也不會被鑽進去替換。}
+
+\begin{drills}[label=drills:pp-syntax]
+\item 手寫：把 \texttt{BIG\_NUMBER} 的定義拿掉反斜線、直接分成兩行寫
+（不續行），\texttt{BIG\_NUMBER} 會變成什麼內容？下一行的
+\texttt{123456} 會發生什麼事？
+\item 為什麼 \texttt{\#} 前面可以有空白（像縮排在 \texttt{if} 區塊裡的
+\texttt{\#define}），但 \texttt{\#} 後面不能先出現其他程式碼？
+\item \texttt{\#define N 100} 之後，\texttt{N100} 和 \texttt{"N"} 會不會
+被換成別的東西？為什麼？
+\item 補空：一個前置處理指令從 \texttt{\#} 開始，到 \underline{\hspace{2em}}
+為止；除非用 \underline{\hspace{2em}} 續行。
+\end{drills}
+
+\section{\#include}
+\label{sec:pp-include}
+
+\texttt{\#include} 是最簡單、也最先用到的前置處理指令：把某個檔案的內容原
+封不動貼進來，取代掉這一行。 兩種寫法找檔案的位置不同：
+
+\begin{code}{c}{include 的兩種形式}
+#include <stdio.h>     // 先找系統／編譯器內建的標頭檔路徑
+#include "myheader.h"  // 先找目前檔案所在的目錄，找不到才退到系統路徑
+\end{code}
+
+\texttt{<>} 用在標準函式庫或第三方函式庫的標頭檔；\texttt{""} 用在自己專案
+裡的標頭檔。
+
+\subsection{標頭檔放宣告，不放定義}
+
+標頭檔該放的是\textbf{宣告}——「這個函式存在、長這個樣子」；函式的本體（\textbf{定義}）
+留在對應的 \texttt{.c} 檔裡。 原因不是風格問題，是連結器的規則：同一個函式
+的本體在整個程式裡只能出現一次。 如果標頭檔裡放了定義，兩個 \texttt{.c} 檔
+各自 \texttt{\#include} 它，各自編譯出的目的檔裡都會有一份函式本體，連結時
+就會撞名：
+
+\begin{code}{c}{baddefs.h（錯誤示範：標頭檔裡放了定義）}
+int square(int x) {   /* 不該放在標頭檔 */
+    return x * x;
+}
+\end{code}
+
+\texttt{a.c} 與 \texttt{b.c} 都 \texttt{\#include "baddefs.h"}，個別編譯都
+不會出錯——前置處理器只是把這三行貼進兩個檔案，編譯器看到的也都是合法的
+函式定義。 錯誤要到連結那一站才會現形：
+
+\begin{code}{text}{連結器的錯誤}
+duplicate symbol '_square' in:
+    a.o
+    b.o
+ld: 1 duplicate symbols
+\end{code}
+
+（不同平台的連結器訊息不一樣，Linux 上常見的是「multiple definition of
+\texttt{square}」，意思相同。）
+
+改成標頭檔只放宣告、實作放進各自的 \texttt{.c} 檔，才是正確的分工：
+
+\begin{example}{c}{(mathutils.h / mathutils.c / main.c) 標頭檔放宣告，實作放 .c 檔}
+/* mathutils.h：只有宣告 */
+int max_int(int a, int b);
+int min_int(int a, int b);
+
+/* mathutils.c：真正的定義 */
+#include "mathutils.h"
+
+int max_int(int a, int b) {
+    return a > b ? a : b;
+}
+
+int min_int(int a, int b) {
+    return a < b ? a : b;
+}
+
+/* main.c：只需要知道函式的樣子，不需要看到本體 */
+#include <stdio.h>
+#include "mathutils.h"
+
+int main(void) {
+    printf("%d %d\n", max_int(3, 7), min_int(3, 7));
+    return 0;
+}
+\end{example}
+
+\iosample{}{7 3}
+
+編譯時把兩個 \texttt{.c} 檔一起交給編譯器：\texttt{gcc main.c mathutils.c
+-o main}。 \texttt{main.c} 完全不需要知道 \texttt{max\_int} 怎麼實作，只
+要看過標頭檔裡的宣告，就知道怎麼呼叫它。
+
+\subsection[重複引入的問題]{重複引入的問題（先看問題，第~\ref{sec:pp-cond}~節見真章）}
+
+標頭檔常常互相 \texttt{\#include}——例如 \texttt{A.h} 和 \texttt{B.h} 都
+\texttt{\#include} 了同一個 \texttt{C.h}，而某個 \texttt{.c} 檔同時用到
+\texttt{A.h} 與 \texttt{B.h}，那麼 \texttt{C.h} 的內容就會被貼進同一個翻
+譯單元兩次。 如果 \texttt{C.h} 裡有 \texttt{struct} 或型別定義，重複貼上
+會變成重複定義，編不過。 解法要用到條件編譯——\texttt{\#ifndef} +
+\texttt{\#define} 的 include guard、或非標準但幾乎所有編譯器都支援的
+\texttt{\#pragma once}，留到第~\ref{sec:pp-cond}~節一起講。
+
+\keypoint{\texttt{\#include} 是檔案層級的文字貼上。 標頭檔放宣告不放定
+義，否則同一個函式本體出現在多個目的檔裡，連結期會撞名；同一個標頭檔被間
+接引入超過一次，也可能因為重複定義而編不過。}
+
+\begin{drills}[label=drills:pp-include]
+\item \texttt{\#include <stdio.h>} 與 \texttt{\#include "myheader.h"} 找
+檔案的路徑順序有什麼不同？
+\item \texttt{baddefs.h} 那個例子錯在哪個階段被抓到：前置處理、編譯，還是
+連結？為什麼編譯階段抓不到？
+\item \texttt{mathutils.h} 這一節的例子只被 \texttt{\#include} 一次，沒有
+出任何問題。 猜猜看：同一個標頭檔被同一個 \texttt{.c} 檔案間接
+\texttt{\#include} 兩次，會是什麼情況造成的？（第~\ref{sec:pp-cond}~節見
+真章）
+\item 補空：標頭檔裡對函式該寫 \underline{\hspace{2em}}，\texttt{.c} 檔裡
+才寫函式的 \underline{\hspace{2em}}。
+\end{drills}
+
+\section{物件式巨集 \#define}
+\label{sec:pp-define}
+
+\texttt{\#define NAME 替換內容} 定義一個\textbf{物件式巨集}（object-like
+macro）：往後原始碼裡出現的 \texttt{NAME} 這個 token，都會被換成後面那串
+內容。 最常見的用法是取代程式裡散落的魔術數字：
+
+\begin{code}{c}{define 常數}
+#define MAX_SIZE 100
+#define PI 3.14159
+
+int arr[MAX_SIZE];
+double area = PI * r * r;
+\end{code}
+
+\subsection{重新定義與 \texttt{\#undef}}
+
+同一個名字重複 \texttt{\#define} 成完全一樣的內容，合法、不會有任何警告；
+定義成不一樣的內容，會得到一個「重新定義」的警告：
+
+\begin{code}{text}{未先 \#undef 就重新定義}
+warning: 'DOUBLE' redefined
+note: this is the location of the previous definition
+\end{code}
+
+要合法地換掉一個巨集的定義，中間要先 \texttt{\#undef}：
+
+\begin{code}{c}{先 \#undef 再重新 \#define}
+#define DOUBLE(x) 2 * x
+#undef DOUBLE
+#define DOUBLE(x) (2 * (x))
+\end{code}
+
+這樣寫編譯乾淨，沒有警告。 下一節會回來解釋 \texttt{DOUBLE} 這個例子本身
+的問題。
+
+\subsection[\#define vs const vs enum]{\texttt{\#define} 與 \texttt{const} 與 \texttt{enum}：陣列大小}
+
+想要一個「編譯期常數」，C 裡至少有三個工具，行為並不相同：
+
+\begin{example}{c}{(const-vs-define.c) 三種常數在陣列大小上的差別}
+#include <stdio.h>
+
+#define MAX_SIZE 100          /* 巨集：純文字替換，隨處可當常數 */
+enum { ENUM_SIZE = 100 };     /* enum 常數：真正的整數常數表達式 */
+const int array_size = 100;   /* const 變數：有型別、有作用域，
+                                  但不是常數表達式 */
+
+int global_by_macro[MAX_SIZE]; /* OK：展開後就是字面常數 100 */
+int global_by_enum[ENUM_SIZE]; /* OK：enum 常數也是編譯期常數 */
+/* int global_by_const[array_size];  錯誤：見下方 */
+
+int main(void) {
+    int local_by_const[array_size]; /* 這裡合法，但它是 VLA */
+    printf("%zu\n", sizeof local_by_const / sizeof(int));
+    return 0;
+}
+\end{example}
+
+\iosample{}{100}
+
+把註解拿掉、讓 \texttt{global\_by\_const} 真的出現在檔案作用域，會編不過：
+
+\begin{code}{text}{檔案作用域用 const 當陣列大小}
+error: variably modified 'global_by_const' at file scope
+\end{code}
+
+\texttt{array\_size} 是一個有型別、有位址的變數，即使它是 \texttt{const}、
+即使它的值一眼就能看出來是 \texttt{100}，C 標準也不承認它是「整數常數表達
+式」——那是 C++ 的規則，C 沒有這樣放寬。 檔案作用域的陣列大小必須是真正的
+常數表達式，所以編不過。 在函式內部，\texttt{array\_size} 可以用來宣告陣
+列，但那是 C99 引入的\textbf{可變長度陣列}（VLA）：大小在執行期才決定，不
+是編譯期常數，不能有初始化列表、不能是 \texttt{static}、不能當結構成員。
+\texttt{\#define} 與 \texttt{enum} 常數兩個都保留了「隨處可用的編譯期常
+數」這個特性；\texttt{enum} 額外多了一點型別性質（它是一種列舉型別的值），
+\texttt{\#define} 則完全沒有型別、沒有作用域，也不會出現在偵錯器裡。
+
+三種工具怎麼選，用下面這個表格判斷：
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+需求 & 選擇 \\
+\midrule
+只是取代程式裡的魔術數字，不需要型別 & \texttt{enum}（偵錯器看得到名字） \\
+陣列大小、\texttt{switch case} 等需要整數常數表達式 & \texttt{\#define} 或 \texttt{enum} \\
+有型別、有值、但不需要出現在常數表達式裡 & \texttt{const} 變數 \\
+型別本身要取別名 & \texttt{typedef}（見下方，\textbf{不要}用 \texttt{\#define}）\\
+值超出 \texttt{int} 範圍（如 \texttt{1u << 31}） & \texttt{\#define}（見下方說明）\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+最後一列值得展開講：C 標準規定\textbf{列舉常數的型別是 \texttt{int}}，像
+\texttt{1u << 31}、\texttt{0xFFFFFFFFUL} 這種超出 \texttt{int} 範圍的值放
+進 \texttt{enum}，嚴格來說不可攜——GCC／Clang 在預設選項下會用擴充功能悄
+悄接受，但加上 \texttt{-pedantic} 就會看到
+
+\begin{code}{text}{-pedantic 抓到 enum 常數超出 int 範圍}
+warning: ISO C restricts enumerator values to range of 'int'
+    (2147483648 is too large)
+\end{code}
+
+這種需要塞下大範圍或位元遮罩的場合（跟位元操作那一章的 flag 常數常常一
+起出現），\texttt{enum} 裝不下，只能回頭用 \texttt{\#define}。
+
+\subsection{危險示範：\texttt{\#define} 當型別別名}
+
+\texttt{\#define} 也能拿來幫型別取別名，但這是它最不該被用在的地方：
+
+\begin{example}{c}{(intptr-demo.c) \#define 當型別別名的陷阱}
+#include <stdio.h>
+
+#define INT_PTR int * /* 危險：#define 版本 */
+
+int main(void) {
+    INT_PTR p1, p2; /* 展開成 int * p1, p2; */
+    printf("sizeof p1 = %zu (pointer)\n", sizeof(p1));
+    printf("sizeof p2 = %zu (int, not pointer!)\n", sizeof(p2));
+    return 0;
+}
+\end{example}
+
+\iosample{}{sizeof p1 = 8 (pointer)\\sizeof p2 = 4 (int, not pointer!)}
+
+（\texttt{8} 與 \texttt{4} 是常見 64 位元平臺——macOS／Linux 的
+x86-64、ARM64——上指標與 \texttt{int} 的大小，不是 C 標準保證的數字；換
+一個資料模型的平臺，這兩個數字可能不同，但「星號只黏 \texttt{p1}」這個文
+字替換的結論不會變。）
+
+\texttt{INT\_PTR p1, p2;} 展開後是 \texttt{int * p1, p2;}——星號只黏在
+\texttt{p1} 前面，\texttt{p2} 只是一個普通的 \texttt{int}。 這正是文字替換
+的後果：\texttt{\#define} 不知道自己「代表一個型別」，它只是把 \texttt{INT\_PTR}
+換成 \texttt{int *} 這三個 token，剩下的宣告語法照舊解讀，而 C 的宣告語
+法本來就是「星號跟著變數名，不是跟著型別」。 \texttt{typedef} 不會有這個問
+題，因為 \texttt{typedef} 是編譯器真正認得的型別別名，不是文字替換：
+
+\begin{code}{c}{typedef 沒有這個陷阱}
+typedef int *IntPtr;
+IntPtr p1, p2;  /* 兩個都是 int*，因為型別是 IntPtr 本身 */
+\end{code}
+
+\keypoint{\texttt{\#define} 沒有型別、沒有作用域，重複定義成不同內容要先
+\texttt{\#undef}。 陣列大小要編譯期常數，選 \texttt{\#define} 或
+\texttt{enum}，不要用 \texttt{const} 變數。 型別別名一律用
+\texttt{typedef}，不要用 \texttt{\#define}。}
+
+\begin{drills}[label=drills:pp-define]
+\item 手寫：\texttt{\#define MAX\_SIZE 100} 之後又寫一次一模一樣的
+\texttt{\#define MAX\_SIZE 100}，編譯器會抗議嗎？
+\item \texttt{int global\_by\_const[array\_size];} 在檔案作用域為什麼編不
+過？錯誤訊息在說什麼？
+\item \texttt{IntPtr} 那個例子裡，\texttt{sizeof(p1)} 和 \texttt{sizeof(p2)}
+為什麼不一樣？
+\item 補空：要在檔案最外層宣告陣列大小，除了字面常數，能用的是
+\texttt{\#define} 與 \underline{\hspace{2em}}。
+\end{drills}
+
+\section{函式式巨集}
+\label{sec:pp-funcmacro}
+
+\texttt{\#define} 也能定義帶參數的\textbf{函式式巨集}（function-like
+macro），語法看起來很像函式呼叫，但骨子裡還是文字替換：
+
+\begin{code}{c}{函式式巨集}
+#define SQUARE(x) ((x) * (x))
+#define ABS(x) ((x) < 0 ? (-(x)) : (x))
+\end{code}
+
+\subsection{名字後面那個空白，差很多}
+
+前置處理器判斷一個 \texttt{\#define} 是不是函式式巨集，規則很死板：巨集
+名字後面要\textit{緊接著}左括號，中間不能有空白。 只要多了一個空白，整個
+就變成物件式巨集，連小括號帶後面的內容全部原封不動當成替換文字：
+
+\begin{code}{c}{名字跟左括號之間多了一個空白}
+#define TWICE (x) x+x   /* 危險：TWICE 後面有空白，這是物件式巨集 */
+\end{code}
+
+\begin{code}{text}{gcc -E 的展開結果}
+int result = (x) x+x(3);
+\end{code}
+
+\texttt{TWICE} 被定義成一個物件式巨集，替換內容是\textit{整段}
+\texttt{(x) x+x}；\texttt{TWICE(3)} 裡的 \texttt{TWICE} 被換成
+\texttt{(x) x+x}，後面呼叫時多打的 \texttt{(3)} 完全沒被巨集吃進去，只是
+原封不動貼在展開結果後面，變成 \texttt{(x) x+x(3)}——一段語法上不知所云的
+文字，\texttt{x} 也從沒被定義過。 這個坑純粹是空白造成的：本章其餘函式式
+巨集的定義，名字跟左括號之間都刻意不留空白。
+
+\begin{example}{c}{(macro-basic.c) 呼叫函式式巨集}
+#include <stdio.h>
+
+#define SQUARE(x) ((x) * (x))
+#define ABS(x) ((x) < 0 ? (-(x)) : (x))
+
+int main(void) {
+    int a = 5;
+    printf("%d\n", SQUARE(a));     /* 25 */
+    printf("%d\n", ABS(-10));      /* 10 */
+    printf("%d\n", SQUARE(1 + 2)); /* 括號救了這一行：9，不是 5 */
+    return 0;
+}
+\end{example}
+
+\iosample{}{25\\10\\9}
+
+\subsection{括號規則}
+
+函式式巨集的參數，以及整個展開結果，都要用括號包起來，理由是運算子優先
+度。 沒括號的巨集會被展開位置的上下文吃掉優先度：
+
+\begin{code}{c}{沒括號的巨集}
+#define DOUBLE(x) 2 * x   /* 危險：沒括號 */
+
+DOUBLE(3 + 4)
+\end{code}
+
+\texttt{DOUBLE(3 + 4)} 展開後是 \texttt{2 * 3 + 4}——乘法先做，結果是
+\texttt{10}，不是預期的 \texttt{14}。 加上兩層括號才安全：
+
+\begin{code}{c}{加上括號}
+#define DOUBLE(x) (2 * (x))
+
+DOUBLE(3 + 4)   /* 展開成 (2 * (3 + 4))，得到 14 */
+\end{code}
+
+參數的括號防止參數本身是一串運算式時被拆散；最外層的括號防止展開結果被
+呼叫端的其他運算子拆散。 兩層都不能省。
+
+\subsection{副作用：參數被求值超過一次}
+
+文字替換還有一個後果：巨集的參數在展開結果裡出現幾次，就被求值幾次。
+如果參數帶有副作用（例如 \texttt{++}），麻煩就來了：
+
+\begin{example}{c}{(macro-side-effect.c) SQUARE(i++) 的未定義行為}
+#include <stdio.h>
+
+#define SQUARE(x) ((x) * (x))
+
+static inline int square(int x) {
+    return x * x;
+}
+
+int main(void) {
+    int i = 5;
+    printf("%d\n", SQUARE(i++)); /* i++ 被展開了兩次 */
+    printf("i = %d\n", i);
+
+    i = 5;
+    printf("%d\n", square(i++)); /* i++ 只呼叫一次 */
+    printf("i = %d\n", i);
+    return 0;
+}
+\end{example}
+
+\iosample{}{30\\i = 7\\25\\i = 6}
+
+\texttt{SQUARE(i++)} 展開成 \texttt{((i++) * (i++))}——對同一個變數 \texttt{i}
+做了兩次修改，中間沒有一個標準保證的\textbf{序列點}，這在 C 裡是\textbf{未
+定義行為}，不是「巨集固定會算出某個錯誤答案」。 這台機器、這個編譯器算出
+\texttt{30} 且 \texttt{i} 變成 \texttt{7}（編譯器甚至會主動警告
+\texttt{-Wsequence-point} 或 \texttt{-Wunsequenced}），換一顆編譯器或換一
+個優化等級，結果都可能不同。 唯一可靠的說法是：\textbf{不要把有副作用的運
+算式傳進函式式巨集}。 真正的解法是 \texttt{static inline} 函式：
+\texttt{square(i++)} 裡的 \texttt{i++} 是一個真正的函式呼叫參數，只求值一
+次，行為和一般函式呼叫完全相同、可預期。
+
+\subsection{多行展開：先埋個伏筆}
+
+函式式巨集的展開結果不一定只有一個運算式；如果需要好幾個陳述式，就要靠
+第~\ref{sec:pp-syntax}~節教過的反斜線續行把它們接成同一個 \texttt{\#define}。
+但這樣寫出來的多行巨集，直接拿去接在 \texttt{if}／\texttt{else} 後面會出
+問題——第~\ref{sec:pp-assert}~節做 \texttt{LOG} 與 \texttt{assert} 時會示
+範完整的坑與修法（\texttt{do \{ ... \} while (0)}）。
+
+\keypoint{函式式巨集是文字替換，不是函式呼叫。 參數與整個展開式都要加括
+號；參數若有副作用會被重複求值，是未定義行為，不是「巨集特性」。 需要保
+證只求值一次、又想要保留一點效能，用 \texttt{static inline} 函式。}
+
+\begin{drills}[label=drills:pp-funcmacro]
+\item \texttt{DOUBLE(3+4)} 用沒有括號的版本展開成什麼？印出來是多少？
+\item 加上括號的版本怎麼寫？驗證 \texttt{DOUBLE(3+4)} 變成 \texttt{14}。
+\item \texttt{SQUARE(i++)} 印出 \texttt{30}、\texttt{i} 變成 \texttt{7}
+——這是「巨集固定會這樣算」還是「未定義行為，這台機器剛好這樣算」？
+\item 補空：函式式巨集碰到有副作用的參數（例如 \texttt{i++}）時，最安全
+的替代方案是 \underline{\hspace{2em}}。
+\item 手寫：\texttt{\#define TWICE (x) x+x}（名字後面有空白），
+\texttt{TWICE(3)} 會展開成什麼？先自己寫，再用 \texttt{gcc -E} 核對。
+\end{drills}
+
+\section{巨集還是函式}
+\label{sec:pp-guidelines}
+
+巨集不是壞東西，但它比函式危險，原因前面兩節已經看到兩個：沒有型別檢
+查（\texttt{IntPtr}）、參數可能被重複求值（\texttt{SQUARE(i++)}）。 第三
+個理由是巨集會\textbf{隱藏控制流程}：
+
+\begin{example}{c}{(hidden-control-flow.c) 巨集裡藏著 return}
+#include <stdio.h>
+
+#define CHECK_POSITIVE(x) if ((x) <= 0) return -1
+
+int check(int a, int b) {
+    CHECK_POSITIVE(a);
+    printf("checked a\n");
+    CHECK_POSITIVE(b);
+    printf("checked b\n");
+    return 0;
+}
+
+int main(void) {
+    printf("%d\n", check(1, 2));
+    printf("%d\n", check(1, -2));
+    return 0;
+}
+\end{example}
+
+\iosample{}{checked a\\checked b\\0\\checked a\\-1}
+
+\texttt{check(1, -2)} 只印出 \texttt{checked a}，接著就直接印
+\texttt{-1}——\texttt{CHECK\_POSITIVE(b)} 那一行看起來像個普通的函式呼叫，
+但它展開出來的 \texttt{return -1;} 直接讓 \texttt{check} 提前返回，呼叫端
+完全看不出這一行「可能會讓函式結束」。 如果改成回傳 \texttt{bool} 的函
+式，呼叫端得自己寫 \texttt{if (!check\_positive(b)) return -1;}，控制流程
+一眼就看得到。
+
+\texttt{static inline} 函式速度上有沒有損失？在現代編譯器（開了最基本的
+優化）底下，\texttt{static inline} 函式幾乎一定會被展開成跟巨集一樣的內
+嵌程式碼，速度差異可以忽略；犧牲的那一點編譯期間，換來型別檢查、只求值
+一次、偵錯器可以單步進去——這筆帳幾乎總是划算。
+
+跨檔案共用的 \texttt{static inline} 函式該放哪？第~\ref{sec:pp-include}~
+節的鐵律是「標頭檔放宣告不放定義」，原因是同一個函式本體出現在多個目的
+檔裡會撞名。 但 \texttt{static inline} 是這條鐵律的正當例外：
+\texttt{static} 讓這個函式只有\textbf{內部連結}，每個 \texttt{\#include}
+它的翻譯單元各自拿到一份獨立的本體，彼此之間根本不會撞名，連結器也就不
+會抱怨。 所以跨檔案共用的 \texttt{static inline} 函式，直接整份（宣告加
+定義）寫在標頭檔裡就是正確用法，不用像一般函式那樣把定義拆到 \texttt{.c}
+檔。
+
+歸納整章的判準：
+
+\begin{itemize}
+\item 純數字常數，選 \texttt{enum} 優先於 \texttt{\#define}——多一點型別
+資訊，偵錯器也看得到名字（第~\ref{sec:pp-define}~節）。
+\item 型別別名一律用 \texttt{typedef}，不要用 \texttt{\#define}
+（第~\ref{sec:pp-define}~節）。
+\item 邏輯稍微複雜、或參數可能有副作用，優先用 \texttt{static inline}
+函式（第~\ref{sec:pp-funcmacro}~節）。
+\item 巨集會讓陳述消失或提前返回時（像 \texttt{CHECK\_POSITIVE}），寧可
+多寫幾個字，換成看得到控制流程的函式。
+\end{itemize}
+
+真正只有巨集能做到、函式完全取代不了的，只有四種場合：
+
+\begin{enumerate}
+\item \textbf{Token 操作}：字串化 \texttt{\#} 與 token 貼接 \texttt{\#\#}
+（第~\ref{sec:pp-stringize}~節）——函式的參數是值，沒辦法把參數名字變成
+字串，也沒辦法用參數拼出新的識別字。
+\item \textbf{接受不定數量的參數}：可變參數巨集 \texttt{\_\_VA\_ARGS\_\_}
+（第~\ref{sec:pp-variadic}~節）。
+\item \textbf{整段程式碼要在編譯期就消失或選擇性存在}：條件編譯
+（第~\ref{sec:pp-cond}~節）——函式呼叫至少會被編譯出符號，巨集能讓程式碼
+連編譯器都看不到。
+\item \textbf{需要呼叫端當下的原始碼位置、或需要懶惰求值}：
+\texttt{\_\_FILE\_\_}／\texttt{\_\_LINE\_\_}（第~\ref{sec:pp-cmdline}~節）、
+或條件不成立時完全不求值某個運算式——函式呼叫前，所有引數一定會先被求
+值，巨集不用。
+\end{enumerate}
+
+\keypoint{巨集沒有自己的函式呼叫框架，debugger 只看得到展開後的結果，看
+不到巨集名字本身，也不能單步跳進去。 能用 \texttt{enum}、
+\texttt{typedef}、\texttt{static inline} 解決的，就不要用巨集；真正該用
+巨集的只有 token 操作、可變參數、條件編譯、與 \texttt{\_\_FILE\_\_}／
+\texttt{\_\_LINE\_\_} 這類懶惰求值的場合。}
+
+\begin{drills}[label=drills:pp-guidelines]
+\item \texttt{CHECK\_POSITIVE(b)} 那一行看起來像函式呼叫，但實際藏了什麼
+陳述？\texttt{check(1, -2)} 為什麼在 \texttt{checked a} 之後就沒有
+\texttt{checked b}？
+\item 如果把 \texttt{CHECK\_POSITIVE} 換成一個回傳 \texttt{bool} 的函
+式，呼叫端要多寫哪一行，換來的可讀性是什麼？
+\item 這一章出現過三種「巨集比函式危險」的理由，各自配一個本章出現過的
+例子：重複求值、型別不安全、隱藏控制流程。
+\item 補空：巨集真正不可取代的四種場合是 token 操作、可變參數、
+\underline{\hspace{2em}}、與需要懶惰求值或呼叫端原始碼位置的
+\underline{\hspace{2em}}。
+\end{drills}
+
+\section{\texttt{\#} 與 \texttt{\#\#}}
+\label{sec:pp-stringize}
+
+函式式巨集還有兩個特殊運算子，只能在巨集定義裡使用。 \texttt{\#} 把參數變
+成字串常數（\textbf{字串化}）；\texttt{\#\#} 把兩個 token 黏成一個
+（\textbf{token 貼接}）。
+
+\begin{example}{c}{(stringize-paste.c) \# 與 \#\# 的效果}
+#include <stdio.h>
+
+#define STR(x) #x
+#define PRINT_VAR(v) printf(#v " = %d\n", v)
+#define CONCAT(a, b) a##b
+
+int main(void) {
+    int count = 42;
+    printf("%s\n", STR(hello));     /* "hello" */
+    printf("%s\n", STR(1 + 2));     /* "1 + 2"，不是 "3" */
+    PRINT_VAR(count);               /* count = 42 */
+
+    int CONCAT(my, Var) = 10;       /* 變成 int myVar = 10; */
+    printf("%d\n", myVar);
+    return 0;
+}
+\end{example}
+
+\iosample{}{hello\\1 + 2\\count = 42\\10}
+
+\texttt{STR(1 + 2)} 展開成字串常數 \texttt{"1 + 2"}——\texttt{\#} 只是把參
+數的原始文字包上引號，並不會先把 \texttt{1 + 2} 算出來變成 \texttt{"3"}，
+再次證明前置處理器不懂 C 的運算規則。 \texttt{PRINT\_VAR(v)} 同時用了
+\texttt{\#v}（把變數名字變成字串印出來）和 \texttt{v}（真正的變數，拿去
+求值），兩件事各用各的方式表達，缺一不可。 \texttt{CONCAT(a, b)} 用
+\texttt{\#\#} 把 \texttt{my} 和 \texttt{Var} 黏成一個新的識別字
+\texttt{myVar}——這跟只用空白隔開完全不同：
+
+\begin{code}{c}{沒有 \#\# 只用空白}
+#define CONCAT_SPACE(a, b) a b
+int CONCAT_SPACE(my, Var) = 5;  /* 展開成 int my Var = 5;，兩個 token，編不過 */
+\end{code}
+
+沒有 \texttt{\#\#} 時，\texttt{a b} 展開後仍是兩個各自獨立的 token
+\texttt{my} 和 \texttt{Var}，中間隔著一個空白，語法上變成宣告了
+\texttt{my}、後面又冒出一個不知道哪來的 \texttt{Var}，編譯器會直接報錯。
+\texttt{\#\#} 才是真正把兩個 token 熔接成一個新 token 的運算子。
+
+\subsection{陷阱：\texttt{\#}／\texttt{\#\#} 不會先展開參數}
+
+一般情況下，函式式巨集的參數在替換進去之前，如果自己也是一個巨集，會先
+被展開；但參數只要被 \texttt{\#} 或 \texttt{\#\#} 用到，就是唯一的例外
+——這兩個運算子作用到的參數\textbf{不會}先展開，是原始傳進來的文字直接
+字串化或貼接：
+
+\begin{example}{c}{(str-xstr.c) 兩層間接才能先展開再字串化}
+#include <stdio.h>
+
+#define VERSION 3
+#define STR(x) #x
+#define XSTR(x) STR(x)
+
+int main(void) {
+    printf("%s\n", STR(VERSION));   /* "VERSION" */
+    printf("%s\n", XSTR(VERSION));  /* "3" */
+    return 0;
+}
+\end{example}
+
+\iosample{}{VERSION\\3}
+
+\texttt{STR(VERSION)} 裡的 \texttt{VERSION} 直接被 \texttt{\#} 字串化，
+前置處理器不管它本身也是一個巨集，結果是字面上的 \texttt{"VERSION"}；
+\texttt{XSTR(VERSION)} 多繞一層：\texttt{XSTR} 的參數 \texttt{x} 在它的
+替換內容（\texttt{STR(x)}）裡沒有直接被 \texttt{\#} 或 \texttt{\#\#}
+用到，所以會先正常展開——\texttt{VERSION} 先變成 \texttt{3}，再把展開後
+的 \texttt{3} 傳給 \texttt{STR}，才字串化成 \texttt{"3"}。 這個「多一層
+間接讓參數先展開」的寫法（\texttt{XSTR} 包一層 \texttt{STR}）是標準慣
+用手法，任何時候想對一個「本身可能是巨集」的東西做字串化或貼接，都要先
+繞這一層。
+
+\keypoint{\texttt{\#} 把參數字串化，不會先求值；\texttt{\#\#} 把兩個 token
+黏成一個新的識別字，跟單純用空白隔開是兩件事。 這兩個運算子只在巨集定義
+裡有效，第~\ref{sec:pp-assert}~節自製 \texttt{assert} 會用到 \texttt{\#}。
+被 \texttt{\#}／\texttt{\#\#} 用到的參數不會先展開，要先展開再處理就得
+像 \texttt{XSTR} 包 \texttt{STR} 那樣多繞一層間接。}
+
+\begin{drills}[label=drills:pp-stringize]
+\item \texttt{STR(hello)} 與 \texttt{STR(1 + 2)} 分別展開成什麼字串常數？
+\item \texttt{PRINT\_VAR(count)} 為什麼可以同時印出變數名字又印出它的
+值？拆開巨集的兩個部分說明。
+\item \texttt{CONCAT(my, Var)} 展開後變成什麼識別字？
+\item 手寫：把 \texttt{CONCAT} 換成只用空白隔開（不用 \texttt{\#\#}）的
+版本，\texttt{CONCAT\_SPACE(my, Var)} 會展開成什麼？跟 \texttt{a\#\#b} 的
+版本差在哪裡？
+\item \texttt{STR(VERSION)} 跟 \texttt{XSTR(VERSION)} 為什麼展開結果不
+一樣？\texttt{XSTR} 多做了哪一步？
+\end{drills}
+
+\section{可變參數巨集}
+\label{sec:pp-variadic}
+
+函式式巨集的參數列跟函式一樣，本來個數是固定的。 但很多時候我們想要一個
+巨集接受「不定數量」的參數——最典型的例子就是包一層 \texttt{printf}：訊息
+格式化字串後面要接幾個值，事先不知道。 C99 引入 \texttt{...} 與
+\texttt{\_\_VA\_ARGS\_\_} 解決這件事：
+
+\begin{code}{c}{可變參數巨集的語法}
+#define NAME(固定參數, ...) 替換內容，用 __VA_ARGS__ 代表 ... 的部分
+\end{code}
+
+\texttt{...} 放在參數列最後，代表「後面接任意個數的參數」；替換內容裡用
+\texttt{\_\_VA\_ARGS\_\_} 這個特殊識別字，代表呼叫端實際傳進來、對應到
+\texttt{...} 的那些引數，原封不動貼在這裡：
+
+\begin{example}{c}{(log-variadic.c) 把 LOG 改成 printf 風格的可變參數版本}
+#include <stdio.h>
+
+#define LOG(fmt, ...) \
+    fprintf(stderr, "[%s:%d] " fmt "\n", __FILE__, __LINE__, __VA_ARGS__)
+
+int main(void) {
+    int x = 10;
+    LOG("x = %d", x);
+    LOG("x doubled = %d", x * 2);
+    return 0;
+}
+\end{example}
+
+\iosample{}{[log-variadic.c:8] x = 10\\{[log-variadic.c:9] x doubled = 20}}
+
+\texttt{LOG("x = \%d", x)} 展開時，\texttt{fmt} 對應到 \texttt{"x = \%d"}、
+\texttt{\_\_VA\_ARGS\_\_} 對應到 \texttt{x}，整行變成
+\texttt{fprintf(stderr, "[\%s:\%d] " "x = \%d" "\textbackslash n", \_\_FILE\_\_,
+\_\_LINE\_\_, x)}——注意 \texttt{"[\%s:\%d] "} 跟 \texttt{fmt} 展開出來的
+\texttt{"x = \%d"} 是兩個相鄰的字串常數，C 會自動把相鄰字串接成一個，等
+價於一路寫好的格式字串。 這跟第~\ref{sec:pp-funcmacro}~節的一般參數行為
+完全一致，只是 \texttt{\_\_VA\_ARGS\_\_} 一次代表好幾個引數，而不是一
+個。
+
+\subsection{呼叫端至少要傳一個變動參數}
+
+嚴格的 C99／C11 規定 \texttt{...} 至少要對應到一個引數——也就是說
+\texttt{LOG("just a message")}（後面完全不接任何變動參數）在標準模式下編
+不過，因為 \texttt{fmt} 後面的逗號沒有東西可以接。 GCC 與 Clang 都提供一
+個常見的擴充寫法 \texttt{, \#\#\_\_VA\_ARGS\_\_}：當變動參數是空的，
+\texttt{\#\#} 會連同前面那個逗號一起吞掉，讓零個變動參數也能編過（C23 用
+\texttt{\_\_VA\_OPT\_\_} 標準化了同一件事）。 這一章的範例都保證至少傳一
+個變動參數，不需要用到這個擴充。
+
+\keypoint{\texttt{...} 放在參數列最後，\texttt{\_\_VA\_ARGS\_\_} 在展開時
+被換成呼叫端實際傳入、對應 \texttt{...} 的所有引數。 標準要求至少傳一個
+變動參數；想支援零個，要用編譯器擴充 \texttt{\#\#\_\_VA\_ARGS\_\_} 或
+C23 的 \texttt{\_\_VA\_OPT\_\_}。}
+
+\begin{drills}[label=drills:pp-variadic]
+\item 手寫：\texttt{LOG("x = \%d", x)} 展開後大致長什麼樣子？
+\texttt{\_\_VA\_ARGS\_\_} 被換成了什麼？
+\item 如果呼叫 \texttt{LOG("just a message")}（後面沒有任何變動參數），
+在嚴格的 C11 底下會發生什麼事？
+\item \texttt{\_\_VA\_ARGS\_\_} 跟一般巨集參數（像 \texttt{SQUARE} 的
+\texttt{x}）比起來，差在哪裡？
+\item 補空：想讓巨集像 \texttt{printf} 一樣接受不定數量的參數，參數列最
+後要寫 \underline{\hspace{2em}}，展開內容裡用 \underline{\hspace{2em}}
+代表呼叫端實際傳入的東西。
+\end{drills}
+
+\section{條件編譯}
+\label{sec:pp-cond}
+
+條件編譯讓前置處理器根據某個巨集有沒有被定義、或某個常數表達式是不是為
+真，選擇性地保留或丟掉一段程式碼。 這一節最重要的應用，是解決第
+\ref{sec:pp-include} 節留下的問題：同一個標頭檔被間接 \texttt{\#include}
+兩次以上，會發生什麼事。
+
+\subsection{Include guard}
+
+先看沒有防護的情況。 標頭檔裡放了一個 \texttt{struct} 定義：
+
+\begin{code}{c}{guard\_test2.h（沒有 include guard）}
+struct Point { int x, y; };
+\end{code}
+
+如果它被同一個 \texttt{.c} 檔 \texttt{\#include} 兩次（實務上常常是因為
+\texttt{A.h} 和 \texttt{B.h} 都 \texttt{\#include} 了同一個
+\texttt{C.h}，而某個 \texttt{.c} 檔同時用到 \texttt{A.h} 與
+\texttt{B.h}），結果是這樣：
+
+\begin{code}{text}{struct 被定義兩次}
+error: redefinition of 'struct Point'
+note: originally defined here
+\end{code}
+
+修法是在標頭檔最外層包一層條件編譯，讓內容最多只被前置處理器「看到」一
+次：
+
+\begin{example}{c}{(guard-test1.h) include guard}
+#ifndef GUARD_TEST1_H
+#define GUARD_TEST1_H
+
+struct Point { int x, y; };
+
+#endif
+\end{example}
+
+第一次 \texttt{\#include} 這個檔案時，\texttt{GUARD\_TEST1\_H} 還沒被定
+義，\texttt{\#ifndef} 為真，於是定義 \texttt{GUARD\_TEST1\_H}、往下保留
+\texttt{struct} 的定義。 第二次 \texttt{\#include} 同一個檔案時，
+\texttt{GUARD\_TEST1\_H} 已經定義過了，\texttt{\#ifndef} 變成假，中間整段
+（包括 \texttt{struct} 的定義）被前置處理器直接跳過，不會出現在展開結果
+裡，也就不會有重複定義的問題。 這是本章到目前為止唯一一段值得背下來的固
+定格式：每一個標頭檔都該包這一層。
+
+網路上常見的 include guard 命名還有 \texttt{\_GUARD\_H\_}、
+\texttt{\_\_GUARD\_H\_\_} 這種前後加底線的寫法，這裡刻意不用——之後
+《C 標準程式庫》那一章會看到，底線開頭的識別字整批保留給編譯器與函式庫實
+作使用，自己寫的 guard 巨集踩到這條規則不算違規（不會編不過），但已經算
+是在跟實作可能用到的名字打架，不值得冒這個險。
+
+大部分主流編譯器也支援一句非標準但幾乎通用的替代寫法：
+
+\begin{code}{c}{\#pragma once}
+#pragma once
+
+struct Point { int x, y; };
+\end{code}
+
+\texttt{\#pragma once} 讓編譯器自己記住「這個檔案已經看過了」，效果跟
+include guard 一樣，只是少打三行字；缺點是它不是 C 標準的一部分（雖然實
+務上幾乎所有編譯器都支援）。 兩種寫法擇一即可，這本書後面統一用 include
+guard，因為它是任何合格 C 編譯器都保證支援的寫法。
+
+\keypoint{Include guard 是 \texttt{\#ifndef} + \texttt{\#define} +
+\texttt{\#endif} 的固定寫法，保護標頭檔內容最多只被前置處理器展開一次。
+每一個自己寫的標頭檔都該包上這一層，不是只有出問題才補；\texttt{\#pragma
+once} 是效果相同的非標準捷徑。}
+
+\subsection{常見的條件編譯指令}
+
+\begin{code}{c}{條件編譯指令}
+#ifdef SYMBOL      // 如果 SYMBOL 有被 #define 過
+#ifndef SYMBOL     // 如果 SYMBOL 沒有被 #define 過
+#if CONDITION      // 如果常數表達式 CONDITION 為真
+#elif CONDITION    // 前面都不成立、且這個為真
+#else              // 前面都不成立
+#endif             // 結束這一段條件編譯
+\end{code}
+
+\texttt{\#ifdef X} 等價於 \texttt{\#if defined(X)}；把 \texttt{defined()}
+寫成函式呼叫的樣子，是為了能跟其他條件用 \texttt{\&\&}／\texttt{||} 組合，
+例如 \texttt{\#if defined(DEBUG) \&\& !defined(NDEBUG)}。
+
+\subsection[\#if 只算整數常數]{\texttt{\#if} 只做整數常數運算，未定義的識別字算 0}
+
+\texttt{\#if} 後面的條件必須是一個\textbf{整數常數表達式}——前置處理器不
+懂變數、不懂函式呼叫，只能算加減乘除、比較、邏輯運算這些純整數運算。 更
+危險的規則是：如果條件裡出現一個\textbf{根本沒被 \texttt{\#define} 過}的
+識別字，前置處理器不會報錯，而是把它當成 \texttt{0}：
+
+\begin{example}{c}{(if-undefined-demo.c) 誤打錯字或忘記定義，靜靜地算成 0}
+#include <stdio.h>
+
+int main(void) {
+#if UNDEFINED_SYMBOL > 0
+    printf("branch A\n");
+#else
+    printf("branch B\n");
+#endif
+    return 0;
+}
+\end{example}
+
+\iosample{}{branch B}
+
+\texttt{UNDEFINED\_SYMBOL} 從頭到尾沒有被 \texttt{\#define} 過，
+\texttt{\#if UNDEFINED\_SYMBOL > 0} 被當成 \texttt{\#if 0 > 0}，結果是假，
+程式走進 \texttt{\#else}。 一般編譯選項（連 \texttt{-Wall -Wextra} 都不
+會）\textbf{不會警告這件事}——如果你把巨集名字打錯字，或者忘了在某個標
+頭檔裡 \texttt{\#define} 它，程式照樣默默編過、默默走錯分支，除錯起來很難
+察覺。 想讓編譯器主動抓這個地雷，要另外加上 \texttt{-Wundef}：
+
+\begin{code}{bash}{用 -Wundef 抓未定義識別字}
+gcc -Wundef if-undefined-demo.c -o if-undefined-demo
+\end{code}
+
+\begin{code}{text}{-Wundef 的警告}
+if-undefined-demo.c:4:5: warning: 'UNDEFINED_SYMBOL' is not defined,
+evaluates to 0 [-Wundef]
+\end{code}
+
+\subsection{平台分支}
+
+另一個常見用途是根據編譯器內建定義的平台巨集，切換不同平台的程式碼：
+
+\begin{example}{c}{(platform.c) 平台判斷}
+#include <stdio.h>
+
+int main(void) {
+#ifdef __linux__
+    printf("Running on Linux\n");
+#elif defined(__APPLE__)
+    printf("Running on macOS\n");
+#elif defined(_WIN32)
+    printf("Running on Windows\n");
+#else
+    printf("Running on other platform\n");
+#endif
+    return 0;
+}
+\end{example}
+
+\iosample{}{Running on macOS}
+
+注意巨集名字是 \texttt{\_\_linux\_\_}，前後各兩條底線，全部小寫；沒有這個
+巨集叫 \texttt{\_\_LINUX\_\_}。 這些平台巨集是編譯器自己內建定義的，不需
+要（也不應該）自己 \texttt{\#define} 它們；如果打錯成 \texttt{\_\_LINUX\_\_}
+這種不存在的名字，就正好踩到上一小節的地雷——它會被靜靜當成 \texttt{0}，
+永遠走到 \texttt{\#else}，而且不會有任何警告（除非加了 \texttt{-Wundef}）。
+另外 \texttt{\_WIN32} 這個名字容易讓人誤會——它在 32 位元\textit{與} 64
+位元 Windows 上都會被定義（是「Windows API」的意思，不是「32 位元」），
+不要以為它只代表 32 位元平臺就另外去找一個不存在的「64 位元判斷」。
+
+\subsection{除錯開關}
+
+條件編譯也常用來整段打開或關閉除錯輸出：
+
+\begin{code}{c}{除錯開關}
+#define DEBUG 1
+
+#if DEBUG
+    printf("Debug mode enabled\n");
+#endif
+\end{code}
+
+跟 \texttt{if (DEBUG) printf(...)} 不同：\texttt{\#if} 是前置處理期就決定
+要不要保留這段程式碼，\texttt{DEBUG} 為假的分支根本不會被編譯器看到；一般
+的 \texttt{if} 是執行期才判斷，兩個分支都會被編譯進執行檔。 想要完全排除
+一段程式碼（連編譯都不編）、或整段程式碼在某些平台上根本不合語法，只能用
+條件編譯，不能用 \texttt{if}。 同樣的手法還能反過來用：把一大段暫時不想
+編譯、但還不想刪掉的程式碼包在 \texttt{\#if 0 ... \#endif} 裡，等於一種
+「編譯期註解」。
+
+\keypoint{\texttt{\#if}／\texttt{\#ifdef} 是前置處理期的分支，不合條件的
+分支連編譯器都看不到；一般的 \texttt{if} 是執行期分支，兩邊都會被編譯。
+\texttt{\#if} 只做整數常數運算，\textbf{未定義的識別字會被當成 0}，預設
+不會有警告——這是本章最容易被忽略的地雷，養成打錯字或漏
+\texttt{\#define} 就用 \texttt{-Wundef} 檢查的習慣。}
+
+\begin{drills}[label=drills:pp-cond]
+\item \texttt{guard-test1.h} 被同一個 \texttt{.c} 檔 \texttt{\#include}
+兩次，為什麼沒有出錯？guard 裡的三行分別做了什麼？
+\item \texttt{guard-test2.h}（沒有 guard）被 \texttt{\#include} 兩次會出
+現什麼錯誤，是編譯期還是連結期？
+\item \texttt{\#if UNDEFINED\_SYMBOL > 0} 在沒有先 \texttt{\#define
+UNDEFINED\_SYMBOL} 的情況下，會被前置處理器當成什麼值？預設編譯會不會
+警告？
+\item 想讓編譯器主動警告「用到未定義的識別字」，要加上哪個旗標？
+\item 平台判斷那段程式碼在 macOS 上為什麼走 \texttt{\_\_APPLE\_\_} 那個分
+支？
+\item 補空：include guard 巨集的名字通常取標頭檔名的大寫加底線，例如
+\texttt{mathutils.h} 對應 \underline{\hspace{2em}}。
+\end{drills}
+
+\section{命令列與預定義巨集}
+\label{sec:pp-cmdline}
+
+\subsection{命令列 \texttt{-D} 與 \texttt{-U}}
+
+\texttt{-D} 讓你在編譯時從命令列定義巨集，不用改原始碼；\texttt{-U} 則是
+取消某個巨集的定義。 這是條件編譯真正發揮威力的地方——同一份原始碼，靠
+編譯旗標切換出不同版本。
+
+\begin{example}{c}{(cmdline-define.c) 命令列決定要不要優化、要哪個版本}
+#include <stdio.h>
+
+int main(void) {
+#ifdef OPTIMIZE
+    printf("Optimized version\n");
+#else
+    printf("Debug version\n");
+#endif
+
+#ifdef VERSION
+    printf("Version: %d\n", VERSION);
+#endif
+    return 0;
+}
+\end{example}
+
+\begin{code}{bash}{不同的編譯旗標}
+gcc cmdline-define.c -o prog                     # 不加旗標
+gcc -DOPTIMIZE -DVERSION=2 cmdline-define.c -o prog2
+\end{code}
+
+\iosample{}{Debug version}
+
+加了 \texttt{-DOPTIMIZE -DVERSION=2} 之後，輸出變成 \texttt{Optimized
+version} 加 \texttt{Version: 2}。
+
+最常見的真實用法是 \texttt{NDEBUG}：C 標準函式庫的 \texttt{assert} 只要
+偵測到 \texttt{NDEBUG} 被定義，就會把自己展開成幾乎什麼都不做，整批關掉斷
+言檢查——開發時開著斷言抓錯，發布版用 \texttt{-DNDEBUG} 一次關掉，不用手
+動刪程式碼裡的 \texttt{assert}。 第~\ref{sec:pp-assert}~節會自己寫一個一
+模一樣行為的版本。
+
+還有一個常跟 \texttt{-D}／\texttt{-U} 一起用到的旗標：\texttt{-I目錄}，
+讓 \texttt{\#include "..."} 除了目前檔案所在目錄，額外搜尋這個目錄。
+第~\ref{sec:pp-include}~節的 \texttt{mathutils.h} 例子把標頭檔跟原始碼放
+在同一層，不需要 \texttt{-I}；一旦專案變大、標頭檔搬進獨立的
+\texttt{include/} 資料夾，就要靠 \texttt{-I} 告訴編譯器去哪裡找：
+
+\begin{code}{bash}{-I 指定額外的標頭檔搜尋路徑}
+gcc main.c mathutils.c -Iinclude -o main
+\end{code}
+
+\keypoint{\texttt{-D名字}／\texttt{-D名字=值} 從命令列定義巨集，
+\texttt{-U名字} 取消定義，都不用改原始碼。 \texttt{-DNDEBUG} 是關閉
+\texttt{assert} 的標準做法；\texttt{-I目錄} 讓 \texttt{\#include "..."}
+額外搜尋指定的目錄。}
+
+\subsection{預定義巨集}
+
+編譯器會自動定義一批巨集，不用自己 \texttt{\#define}，直接可以用：
+
+\begin{code}{c}{常見的預定義巨集}
+__FILE__            // 目前檔案名字（字串）
+__LINE__            // 目前行號（整數）
+__DATE__            // 編譯日期（字串）
+__TIME__            // 編譯時間（字串）
+__STDC_VERSION__    // 這個編譯器遵循的 C 標準版本（整數）
+\end{code}
+
+\begin{example}{c}{(predefined.c) 印出所有預定義巨集}
+#include <stdio.h>
+
+int main(void) {
+    printf("File: %s\n", __FILE__);
+    printf("Line: %d\n", __LINE__);
+    printf("Date: %s\n", __DATE__);
+    printf("Time: %s\n", __TIME__);
+    printf("STDC_VERSION: %ld\n", __STDC_VERSION__);
+    printf("func: %s\n", __func__);
+    return 0;
+}
+\end{example}
+
+\iosample{}{File: predefined.c\\Line: 5\\Date: Sep  1 2026\\Time: 11:30:15\\STDC\_VERSION: 201112\\func: main}
+
+\texttt{\_\_STDC\_VERSION\_\_} 印出 \texttt{201112} 代表這個編譯器目前用
+C11（\texttt{201710} 是 C17，\texttt{202311} 是 C23，依實際編譯選項而
+定）。 \texttt{\_\_DATE\_\_}／\texttt{\_\_TIME\_\_} 是編譯當下的日期時間，
+每次重新編譯都會不一樣，跟原始碼本身沒有關係。 \texttt{\_\_LINE\_\_} 算的
+是它\textit{被展開的那一行}，如果它出現在另一個巨集（例如下一節的
+\texttt{LOG}）裡面，算的是\textbf{呼叫端}那一行，不是巨集定義那一行——這
+正是它能用來做日誌定位的原因。
+
+\subsection{\texttt{\_\_func\_\_} 不是巨集}
+
+\texttt{\_\_func\_\_} 看起來跟其他雙底線名字很像，但它其實是 C99 引入的
+一個\textbf{識別字}，由編譯器在每個函式一進來就自動填好一個字串，不是前
+置處理器展開出來的：
+
+\begin{code}{c}{驗證 \_\_func\_\_ 不是巨集}
+#ifdef __func__
+    // 不會走到這裡：__func__ 對前置處理器來說根本不存在
+#else
+    // 會走到這裡：它是識別字，不是巨集
+#endif
+\end{code}
+
+差別在於：巨集在前置處理階段就被整段換掉，\texttt{\#ifdef} 能看到它；
+\texttt{\_\_func\_\_} 要等到編譯階段才被賦值，前置處理器完全不知道有這個
+東西存在，所以 \texttt{\#ifdef \_\_func\_\_} 永遠是假。
+
+\subsection{其他兩個指令：\texttt{\#error} 與 \texttt{\#line}}
+
+\texttt{\#error 訊息} 讓前置處理器主動中止編譯、印出這則訊息，常用來檢查
+前提條件（例如「這支程式需要 C99 以上」）；\texttt{\#line 數字 "檔名"} 能
+覆寫接下來 \texttt{\_\_LINE\_\_}／\texttt{\_\_FILE\_\_} 回報的行號與檔名，
+主要給程式碼產生器（例如 yacc／bison）使用，手寫程式碼很少直接用到。
+
+\keypoint{\texttt{\_\_FILE\_\_}／\texttt{\_\_LINE\_\_} 在巨集展開鏈裡永遠
+指向呼叫端，不是巨集定義處，這是它們能用來定位錯誤的原因。
+\texttt{\_\_func\_\_} 是識別字不是巨集，\texttt{\#ifdef} 抓不到它；
+\texttt{\#error} 用來在編譯期主動中止並回報訊息。}
+
+\begin{drills}[label=drills:pp-cmdline]
+\item 不加任何 \texttt{-D} 旗標編譯 \texttt{cmdline-define.c}，輸出是什
+麼？加 \texttt{-DOPTIMIZE -DVERSION=2} 之後呢？
+\item \texttt{-DNDEBUG} 通常搭配哪個標準函式庫巨集使用？它做的事是什麼？
+\item 補空：想要在編譯時「取消」某個巨集的定義，命令列旗標是
+\underline{\hspace{2em}}。
+\item \texttt{\_\_LINE\_\_} 如果出現在另一個巨集（例如 \texttt{LOG}）裡
+面，印出來的行號是巨集定義那一行，還是呼叫端那一行？
+\item \texttt{\_\_func\_\_} 是巨集還是識別字？這代表 \texttt{\#ifdef
+\_\_func\_\_} 會是真還是假？
+\item 補空：想知道原始碼檔名，用 \underline{\hspace{2em}}；想在編譯期主
+動中止並印出一則錯誤訊息，用 \underline{\hspace{2em}}。
+\end{drills}
+
+\section{綜合：自己寫 \texttt{LOG} 與 \texttt{assert}}
+\label{sec:pp-assert}
+
+前面十節的零件——反斜線續行、函式式巨集、巨集還是函式的判準、\texttt{\#}、
+可變參數巨集、條件編譯、\texttt{-DNDEBUG}、\texttt{\_\_FILE\_\_}／
+\texttt{\_\_LINE\_\_}——湊在一起，剛好可以自己寫出兩個每個 C 專案幾乎都會
+用到的工具：一個帶檔名行號、支援任意參數的 \texttt{LOG}，和一個仿造標準
+函式庫 \texttt{assert} 行為的斷言巨集。 \texttt{LOG} 第~\ref{sec:pp-variadic}~
+節已經寫過，這裡直接拿來用：
+
+\begin{code}{c}{回顧：可變參數版的 LOG}
+#define LOG(fmt, ...) \
+    fprintf(stderr, "[%s:%d] " fmt "\n", __FILE__, __LINE__, __VA_ARGS__)
+\end{code}
+
+\subsection{裸 \texttt{if} 巨集踩到的 dangling else}
+
+\texttt{LOG} 只展開成一個 \texttt{fprintf} 呼叫，語法上是單一個運算式陳
+述，接在 \texttt{if}／\texttt{else} 後面很安全。 但接下來要寫的
+\texttt{assert} 展開成好幾個陳述式（判斷、印訊息、中止程式），如果直接用
+裸的 \texttt{if} 包起來，會踩到一個經典的坑：
+
+\begin{example}{c}{(dangling-else.c) 裸 if 巨集接不上 else}
+#include <stdio.h>
+
+#define MY_ASSERT_BAD(cond) \
+    if (!(cond)) { \
+        printf("assertion failed\n"); \
+    }
+
+int main(void) {
+    int x = 5;
+    if (x > 0)
+        MY_ASSERT_BAD(x > 10);
+    else
+        printf("x <= 0\n");
+    return 0;
+}
+\end{example}
+
+展開之後，\texttt{if (x > 0) MY\_ASSERT\_BAD(x > 10);} 那一行變成
+\texttt{if (x > 0) if (!(x > 10)) \{...\} ; else ...}——真正的問題出在呼
+叫端那個分號：\texttt{if (!(x > 10)) \{...\}} 本身已經是一句完整的陳述式
+（大括號結尾不用再接分號），呼叫端寫的那個 \texttt{;} 變成緊接在後面的一
+個\textbf{獨立空陳述式}。 於是外層 \texttt{if (x > 0)} 的陳述部分，到這個
+空陳述式就結束了；後面的 \texttt{else} 往前找最近的 \texttt{if}，卻只找到
+一個空陳述式擋在中間，沒有 \texttt{if} 可以接，編不過（不同編譯器的錯誤
+訊息用字不盡相同，GCC 上是 \texttt{error: 'else' without a previous
+'if'}）。
+
+更危險的是相反的情形：如果呼叫端\textbf{不寫}分號——
+\texttt{MY\_ASSERT\_BAD(x > 10)} 後面直接接 \texttt{else}——反而編得過：
+外層 \texttt{if (x > 0)} 的陳述部分就是巨集展開出的
+\texttt{if (!(x > 10)) \{...\}}，而 \texttt{else} 順理成章接在\textit{這
+個內層} \texttt{if} 後面，不是接在外層 \texttt{if} 後面。 這台機器上編譯
+器通常會用 \texttt{-Wdangling-else} 提醒「加括號避免歧義」，但這只是警
+告，程式照樣編出來、照樣執行，而且執行結果完全不對——\texttt{x > 0} 卻走
+進「\texttt{x <= 0}」的分支，是看不出來的\textbf{靜默語意錯誤}，比編不過
+危險得多。 \texttt{do-while(0)} 真正要防的就是這個：不管呼叫端寫不寫分
+號，都不該讓 \texttt{else} 有機會誤接到巨集內部的 \texttt{if}。
+
+改成 \texttt{do \{ ... \} while (0)} 包起來，整段就變成語法上「單獨一
+句」，\texttt{else} 就能接回外層的 \texttt{if}：
+
+\begin{example}{c}{(dangling-else-fixed.c) do-while(0) 接得回 else}
+#include <stdio.h>
+
+#define MY_ASSERT_OK(cond) \
+    do { \
+        if (!(cond)) { \
+            printf("assertion failed\n"); \
+        } \
+    } while (0)
+
+int main(void) {
+    int x = 5;
+    if (x > 0)
+        MY_ASSERT_OK(x > 10);
+    else
+        printf("x <= 0\n");
+    return 0;
+}
+\end{example}
+
+\iosample{}{assertion failed}
+
+\subsection{自製 \texttt{assert}}
+
+零件都到位了：\texttt{\#} 把條件字串化印出來、\texttt{\_\_FILE\_\_}／
+\texttt{\_\_LINE\_\_} 定位、\texttt{do-while(0)} 保證語法安全、
+\texttt{\#ifdef NDEBUG} 讓它在發布版整批消失：
+
+\begin{example}{c}{(my-assert.c) 完整的自製 assert}
+#include <stdio.h>
+#include <stdlib.h>
+
+#ifdef NDEBUG
+    #define MY_ASSERT(cond) ((void)0)
+#else
+    #define MY_ASSERT(cond) \
+        do { \
+            if (!(cond)) { \
+                fprintf(stderr, "Assertion failed: %s\n", #cond); \
+                fprintf(stderr, "  at %s:%d\n", __FILE__, __LINE__); \
+                abort(); \
+            } \
+        } while (0)
+#endif
+
+int main(void) {
+    int x = 5;
+
+    if (x > 0)
+        MY_ASSERT(x < 100);
+    else
+        MY_ASSERT(x >= 0);
+
+    MY_ASSERT(x > 0);
+    printf("all assertions passed\n");
+
+    MY_ASSERT(x > 10); /* 這一行會讓程式中止 */
+    printf("unreachable\n");
+    return 0;
+}
+\end{example}
+
+一般編譯、直接執行：
+
+\begin{code}{bash}{偵錯版本}
+gcc my-assert.c -o my-assert && ./my-assert
+\end{code}
+
+\iosample{}{all assertions passed\\Assertion failed: x > 10\\\ \ at my-assert.c:28}
+
+加 \texttt{-DNDEBUG} 重新編譯，\texttt{MY\_ASSERT} 整批變成
+\texttt{((void)0)}，條件根本不會被求值，程式一路跑到底：
+
+\begin{code}{bash}{發布版本}
+gcc -DNDEBUG my-assert.c -o my-assert-release && ./my-assert-release
+\end{code}
+
+\iosample{}{all assertions passed\\unreachable}
+
+跟標準函式庫真正的 \texttt{assert} 一模一樣的行為：\texttt{NDEBUG} 定義前
+就 \texttt{\#include <assert.h>} 或改變 \texttt{NDEBUG}，行為都會跟著變，
+因為 \texttt{assert.h} 本身也是用同一套條件編譯手法寫的——所以實務上直接
+用標準的 \texttt{assert} 就好，這裡自己動手寫一次是為了把整章的零件串起
+來看。
+
+\subsection{回到起點：用 \texttt{gcc -E} 看整段展開}
+
+把 \texttt{LOG} 和 \texttt{MY\_ASSERT} 放進同一支程式，用第
+\ref{sec:pp-what} 節學過的 \texttt{gcc -E}，可以直接看到前置處理器真正產
+生的翻譯單元：
+
+\begin{example}{c}{(debug-demo.c) LOG 與 MY\_ASSERT 放進同一支程式}
+#include <stdio.h>
+#include <stdlib.h>
+
+#define LOG(fmt, ...) \
+    fprintf(stderr, "[%s:%d] " fmt "\n", __FILE__, __LINE__, __VA_ARGS__)
+
+#ifdef NDEBUG
+    #define MY_ASSERT(cond) ((void)0)
+#else
+    #define MY_ASSERT(cond) \
+        do { \
+            if (!(cond)) { \
+                fprintf(stderr, "Assertion failed: %s\n", #cond); \
+                fprintf(stderr, "  at %s:%d\n", __FILE__, __LINE__); \
+                abort(); \
+            } \
+        } while (0)
+#endif
+
+int main(void) {
+    int x = 10;
+    LOG("x starts at %d", x);
+
+    MY_ASSERT(x > 0);
+    x = x * 2;
+    LOG("x doubled to %d", x);
+
+    MY_ASSERT(x < 15); /* 這一行會讓程式中止 */
+    printf("unreachable\n");
+    return 0;
+}
+\end{example}
+
+\iosample{}{[debug-demo.c:22] x starts at 10\\{[debug-demo.c:26] x doubled to 20}\\Assertion failed: x < 15\\\ \ at debug-demo.c:28}
+
+\begin{code}{text}{gcc -E 輸出（節錄 main，示意用的原始 C 陳述式）}
+int main(void) {
+    int x = 10;
+    fprintf(stderr, "[%s:%d] " "x starts at %d" "\n", "debug-demo.c", 22, x);
+
+    do { if (!(x > 0)) { fprintf(stderr, "Assertion failed: %s\n", "x > 0");
+        fprintf(stderr, "  at %s:%d\n", "debug-demo.c", 24); abort(); } } while (0);
+    x = x * 2;
+    fprintf(stderr, "[%s:%d] " "x doubled to %d" "\n", "debug-demo.c", 26, x);
+
+    do { if (!(x < 15)) { fprintf(stderr, "Assertion failed: %s\n", "x < 15");
+        fprintf(stderr, "  at %s:%d\n", "debug-demo.c", 28); abort(); } } while (0);
+    printf("unreachable\n");
+    return 0;
+}
+\end{code}
+
+每一個看起來像函式呼叫的巨集，展開後都變成一長串沒有巨集名字的原始
+C 陳述式——\texttt{\_\_FILE\_\_}、\texttt{\_\_LINE\_\_}、\texttt{\#cond}、
+\texttt{\_\_VA\_ARGS\_\_} 全部被換成具體的文字。 （這裡的 \texttt{stderr}
+是刻意保留的識別字寫法：有些平臺的 C 函式庫把 \texttt{stderr} 本身也定義
+成巨集，實際在你自己的機器上跑 \texttt{gcc -E}，看到的可能是那個平臺內部
+的替代名字，不影響這裡要示範的重點。）這正好呼應第
+\ref{sec:pp-what} 節的第一句話：前置處理器只做文字替換，替換完之後，
+\texttt{LOG} 和 \texttt{MY\_ASSERT} 這兩個名字就徹底從翻譯單元裡消失了。
+
+\keypoint{\texttt{\#cond} 把條件字串化印出來、\texttt{do-while(0)} 讓多行
+巨集在語法上安全、\texttt{\#ifdef NDEBUG} 讓斷言可以整批關閉、
+\texttt{\_\_VA\_ARGS\_\_} 讓 \texttt{LOG} 接受任意參數——這四件事合起來
+就是標準函式庫 \texttt{assert} 與常見 log 巨集的完整實作套路。}
+
+\begin{drills}[label=drills:pp-assert]
+\item \texttt{MY\_ASSERT(x > 10)} 失敗時印出的兩行，分別用到巨集裡的哪個
+運算子／哪個預定義巨集？
+\item 用 \texttt{-DNDEBUG} 重新編譯 \texttt{my-assert.c}，同一行
+\texttt{MY\_ASSERT(x > 10)} 還會中止程式嗎？為什麼？
+\item \texttt{dangling-else.c} 為什麼會出現「\texttt{else} 沒有對應的
+\texttt{if}」這個錯誤？
+\item 手寫：把 \texttt{MY\_ASSERT\_BAD} 換成 \texttt{do-while(0)} 版本，
+為什麼 \texttt{else} 就接得回去了？
+\item 如果呼叫端\textbf{不寫}分號（\texttt{MY\_ASSERT\_BAD(x > 10)} 後
+面直接接 \texttt{else}），這段程式編不編得過？如果編得過，\texttt{else}
+實際上接到哪個 \texttt{if}？
+\end{drills}
+
+\section{常見錯誤清單}
+\label{sec:pp-checklist}
+
+下面每一條都對應前面某一節。
+
+\begin{itemize}
+\item 前置處理器輸出的翻譯單元還是合法 C 原始碼；\texttt{\#define} 只是
+文字替換，替換前的名字之後就不存在了。
+（第~\ref{sec:pp-what}~節）
+\item 指令從 \texttt{\#} 到換行結束，反斜線續行後面不能有多餘空白，否則
+續行失敗；巨集替換比對的是 token，不是子字串。
+（第~\ref{sec:pp-syntax}~節）
+\item 標頭檔放宣告不放定義，否則連結期會撞名。
+（第~\ref{sec:pp-include}~節）
+\item 陣列大小要編譯期常數，選 \texttt{\#define} 或 \texttt{enum}；\\
+型別別名用 \texttt{typedef}，不要用 \texttt{\#define}。\\
+（第~\ref{sec:pp-define}~節）
+\item 函式式巨集的參數與整個展開式都要加括號；參數有副作用會被重複求
+值，是未定義行為。
+（第~\ref{sec:pp-funcmacro}~節）
+\item 能用 \texttt{enum}／\texttt{typedef}／\texttt{static inline} 解決
+的，不要用巨集；巨集只留給 token 操作、可變參數、條件編譯、與懶惰求值。\\
+（第~\ref{sec:pp-guidelines}~節）
+\item \texttt{\#} 字串化不會先求值；\texttt{\#\#} 才是真正的 token 貼
+接，跟空白隔開不同。
+（第~\ref{sec:pp-stringize}~節）
+\item 呼叫可變參數巨集時，標準要求至少傳一個變動參數，\\
+零個變動參數要靠 \texttt{\#\#\_\_VA\_ARGS\_\_} 這類編譯器擴充才能編過。
+（第~\ref{sec:pp-variadic}~節）
+\item 每個自己寫的標頭檔都要包 include guard；平台巨集是
+\texttt{\_\_linux\_\_}，全小寫，不是 \texttt{\_\_LINUX\_\_}；\texttt{\#if}
+對未定義的識別字視為 \texttt{0}，預設不會警告，要加 \texttt{-Wundef} 才
+抓得到。\\
+（第~\ref{sec:pp-cond}~節）
+\item \texttt{-D名字}／\texttt{-D名字=值} 定義巨集，\texttt{-U名字} 取消
+定義；\texttt{\_\_LINE\_\_}／\texttt{\_\_FILE\_\_} 在巨集裡指向呼叫端；
+\texttt{\_\_func\_\_} 是識別字不是巨集。
+（第~\ref{sec:pp-cmdline}~節）
+\item 多行函式式巨集要包 \texttt{do \{ ... \} while (0)}，\\
+否則裸 \texttt{if} 會踩到 dangling else。
+（第~\ref{sec:pp-assert}~節）
+\end{itemize}
+
+\begin{drills}[label=drills:pp-checklist]
+\item 下面這段有四個錯，請全部標出。
+\begin{verbatim}
+#define SQUARE(x) x * x
+#ifdef __LINUX__
+    #define PLATFORM "linux"
+#endif
+#if BUILD_MODE
+    #define MODE "release"
+#endif
+#define LOG_ON(msg) if (1) printf(msg)
+\end{verbatim}
+\item 指出錯誤：\texttt{\#define IntPtr int *} 後面接
+\texttt{IntPtr p1, p2;}。
+\item 指出錯誤：標頭檔裡直接寫函式本體（不是宣告），被兩個 \texttt{.c}
+檔一起 \texttt{\#include}。
+\item 圈出哪幾行會真的進入翻譯單元：
+\begin{verbatim}
+#define LEVEL 2
+#if LEVEL >= 3
+    printf("high\n");
+#elif LEVEL >= 1
+    printf("mid\n");
+#else
+    printf("low\n");
+#endif
+\end{verbatim}
+\end{drills}
+
+\phantomsection
+\addcontentsline{toc}{section}{練習解答}
+\section*{練習解答}
+
+各節練習的答案收在這裡。 手寫展開類的題目只給展開後的結果；完整程式見
+正文片語／範例。
+
+\paragraph{第~\ref{sec:pp-what}~節}
+\begin{enumerate}
+\item \texttt{gcc -E hello.c} 印出幾百行，遠比一行 \texttt{printf} 多；
+多出來的內容是 \texttt{\#include <stdio.h>} 展開出的一大串宣告。
+\item 是。 前置處理器的輸出（翻譯單元）仍是合法的 C 原始碼，會直接餵給
+編譯器繼續處理。
+\item 編譯階段：\texttt{printf} 沒有先被宣告。 較新的編譯器（GCC 14／
+Clang 16 這個等級以上）預設直接把「隱含宣告函式」（\texttt{implicit
+declaration of function}）當成錯誤；較舊的編譯器只給警告、照樣編過連結成
+功。 但不管是哪一種，呼叫一個沒有原型的函式，本身都是未定義行為。
+\item \texttt{3+3}，也就是 \texttt{TWICE(3)} 展開成 \texttt{3+3}（不是
+\texttt{6}，前置處理器不會幫你先算出來，但 \texttt{3+3} 這個運算式的值是
+\texttt{6}）。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:pp-syntax}~節}
+\begin{enumerate}
+\item 兩個錯誤，第二個更早被編譯器抓到：\texttt{BIG\_NUMBER} 會變成沒有
+替換內容的空巨集，下一行單獨的 \texttt{123456} 不再屬於任何指令，變成檔
+案作用域裡一段孤立的數字，不是合法的頂層宣告，編不過；更直接的是使用
+\texttt{BIG\_NUMBER} 的那一行——\texttt{printf("\%d\textbackslash n",
+BIG\_NUMBER);} 因為 \texttt{BIG\_NUMBER} 展開成空，變成
+\texttt{printf("\%d\textbackslash n", );}，多出一個逗號後面沒有引數，這
+是更直接、通常也更早被編譯器指出來的語法錯誤。
+\item \texttt{\#} 前面的空白只是縮排，跟指令本身無關；\texttt{\#} 後面如
+果先出現其他程式碼，那一行就不再符合「以 \texttt{\#} 開頭的指令」這個語
+法規則，會被當成普通程式碼解讀。
+\item 不會。 \texttt{N100} 是單一個識別字 token，跟 \texttt{N} 無關；
+\texttt{"N"} 裡的 \texttt{N} 是字串常數的一部分，前置處理器不會鑽進字串
+內部替換。
+\item 換行字元；反斜線 \texttt{\textbackslash}。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:pp-include}~節}
+\begin{enumerate}
+\item \texttt{<>} 先找系統／編譯器內建的標頭檔搜尋路徑；\texttt{""} 先從
+目前檔案所在目錄找，找不到才退到系統路徑。
+\item 連結期。 個別編譯 \texttt{a.c}、\texttt{b.c} 都不會出錯，因為前置
+處理器只是把定義貼進兩個檔案、編譯器看到的也都是合法的函式定義；要到連
+結器要把兩個目的檔接起來、發現兩份 \texttt{square} 本體撞名時才會出錯。
+\item 標頭檔互相 \texttt{\#include}、或多個標頭檔被同一個 \texttt{.c}
+檔一起用到時，同一個標頭檔可能被間接展開超過一次。
+\item 宣告；定義。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:pp-define}~節}
+\begin{enumerate}
+\item 不會。 內容一字不差的重新定義是合法的，不會有警告。
+\item \texttt{array\_size} 是 \texttt{const} 變數，不是整數常數表達式；
+檔案作用域的陣列大小必須是真正的常數表達式，錯誤訊息說它是「檔案作用域
+的可變長度陣列」（variably modified at file scope）。
+\item \texttt{INT\_PTR p1, p2;} 展開成 \texttt{int * p1, p2;}，星號只黏
+著 \texttt{p1}；\texttt{p2} 只是宣告了一個 \texttt{int}。
+\item \texttt{enum}（\texttt{enum \{ NAME = value \};}）。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:pp-funcmacro}~節}
+\begin{enumerate}
+\item 展開成 \texttt{2 * 3+4}，也就是 \texttt{2 * 3 + 4 = 10}。
+\item \texttt{\#define DOUBLE(x) (2 * (x))}；\texttt{DOUBLE(3+4)} 展開成
+\texttt{(2 * (3+4))}，等於 \texttt{14}。
+\item 未定義行為：\texttt{(i++) * (i++)} 對同一個變數做了兩次沒有序列點
+隔開的修改，這台機器剛好算出 \texttt{30} 且 \texttt{i} 變成 \texttt{7}，
+換一個編譯器結果可能不同。
+\item \texttt{static inline} 函式。
+\item \texttt{TWICE} 名字後面有空白，是物件式巨集，替換內容是整段
+\texttt{(x) x+x}；\texttt{TWICE(3)} 展開成 \texttt{(x) x+x(3)}。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:pp-guidelines}~節}
+\begin{enumerate}
+\item 藏了 \texttt{return -1;}；\texttt{b = -2} 讓
+\texttt{CHECK\_POSITIVE(b)} 展開出的 \texttt{if} 成立，\texttt{check}
+直接返回，後面的 \texttt{printf("checked b")} 與 \texttt{return 0} 都沒
+機會執行。
+\item 呼叫端要寫 \texttt{if (!check\_positive(b)) return -1;}，多一行，
+但換來的是一眼就看得到「這裡可能會提前返回」，不用去翻巨集定義。
+\item 重複求值配 \texttt{SQUARE(i++)}；型別不安全配 \texttt{IntPtr}（星
+號只黏 \texttt{p1}，型別悄悄跟著出錯）；隱藏控制流程配
+\texttt{CHECK\_POSITIVE}。
+\item 條件編譯；\texttt{\_\_FILE\_\_}／\texttt{\_\_LINE\_\_}（懶惰求值／
+呼叫端位置）。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:pp-stringize}~節}
+\begin{enumerate}
+\item \texttt{STR(hello)} 展開成 \texttt{"hello"}；\texttt{STR(1 + 2)}
+展開成 \texttt{"1 + 2"}（保留原始文字，不會先算出 \texttt{3}）。
+\item \texttt{\#v} 把參數名字字串化印出來（顯示 \texttt{"count"}），另
+一個獨立的 \texttt{v} 則是真正拿去求值的變數，兩者各做各的事。
+\item \texttt{myVar}。
+\item 展開成 \texttt{my Var}（中間隔著空白，是兩個 token），拿去宣告變
+數會編不過；\texttt{a\#\#b} 才會把兩個 token 真正黏成一個新識別字
+\texttt{myVar}。
+\item \texttt{STR(VERSION)} 的參數被 \texttt{\#} 直接用到，不會先展開，
+所以是字面上的 \texttt{"VERSION"}；\texttt{XSTR(VERSION)} 的參數在
+\texttt{XSTR} 自己的替換內容裡沒有直接接 \texttt{\#}，會先正常展開成
+\texttt{3}，再交給 \texttt{STR} 字串化，多做了「先讓 \texttt{VERSION}
+展開成 \texttt{3}」這一步。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:pp-variadic}~節}
+\begin{enumerate}
+\item 展開成 \texttt{fprintf(stderr, "[\%s:\%d] " "x = \%d" "\textbackslash n",
+\_\_FILE\_\_, \_\_LINE\_\_, x)}；\texttt{\_\_VA\_ARGS\_\_} 被換成
+\texttt{x}。
+\item 標準 C11 底下編不過，因為 \texttt{...} 後面沒有對應到任何引數；要
+用 GCC／Clang 的 \texttt{\#\#\_\_VA\_ARGS\_\_} 擴充或 C23 的
+\texttt{\_\_VA\_OPT\_\_} 才能支援零個變動參數。
+\item \texttt{\_\_VA\_ARGS\_\_} 一次代表任意個數的引數（照原樣整段貼
+上），一般參數（像 \texttt{x}）固定只代表一個引數。
+\item \texttt{...}；\texttt{\_\_VA\_ARGS\_\_}。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:pp-cond}~節}
+\begin{enumerate}
+\item 第一次 \texttt{\#include} 時 \texttt{GUARD\_TEST1\_H} 還沒定義，
+\texttt{\#ifndef} 為真，定義它並保留內容；第二次 \texttt{\#include} 時
+\texttt{GUARD\_TEST1\_H} 已經定義過，\texttt{\#ifndef} 為假，中間內容被
+整段跳過。
+\item \texttt{redefinition of 'struct Point'}，編譯期錯誤（兩次
+\texttt{\#include} 發生在同一次編譯裡，不是連結期）。
+\item 被當成 \texttt{0}；預設不會警告。
+\item \texttt{-Wundef}。
+\item 因為 \texttt{\_\_APPLE\_\_} 是 macOS 上的編譯器內建定義的巨集，
+\texttt{\_\_linux\_\_} 沒有被定義，\texttt{\#ifdef \_\_linux\_\_} 為假，
+往下走到 \texttt{\#elif defined(\_\_APPLE\_\_)}。
+\item \texttt{MATHUTILS\_H}。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:pp-cmdline}~節}
+\begin{enumerate}
+\item 不加旗標輸出 \texttt{Debug version}；加 \texttt{-DOPTIMIZE
+-DVERSION=2} 之後輸出 \texttt{Optimized version} 加 \texttt{Version: 2}。
+\item \texttt{assert}；\texttt{NDEBUG} 定義後，\texttt{assert(...)} 會展
+開成幾乎什麼都不做，關掉所有斷言檢查。
+\item \texttt{-U名字}（例如 \texttt{gcc -UNDEBUG}）。
+\item 呼叫端那一行，不是巨集定義那一行。
+\item 識別字，不是巨集；\texttt{\#ifdef \_\_func\_\_} 永遠是假，因為前置
+處理器根本不知道有這個東西。
+\item \texttt{\_\_FILE\_\_}；\texttt{\#error}。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:pp-assert}~節}
+\begin{enumerate}
+\item 第一行用 \texttt{\#cond} 把條件字串化；第二行用
+\texttt{\_\_FILE\_\_} 與 \texttt{\_\_LINE\_\_} 定位。
+\item 不會。 \texttt{NDEBUG} 定義後 \texttt{MY\_ASSERT} 被換成
+\texttt{((void)0)}，條件根本不會被求值，也不會呼叫 \texttt{abort}。
+\item 因為呼叫端那個分號變成了一個獨立的空陳述式：巨集展開出的
+\texttt{if (!(x > 10)) \{...\}} 本身已經結束，後面的 \texttt{;} 是另一句
+空陳述式，外層 \texttt{if (x > 0)} 的陳述部分到這裡就結束了，\texttt{else}
+往前找不到可以接的 \texttt{if}。
+\item \texttt{do \{ ... \} while (0)} 把整段包成語法上單獨一句，
+\texttt{if (x > 0) MY\_ASSERT\_OK(...);} 只有一句陳述，後面的
+\texttt{else} 能正確接回外層的 \texttt{if}。
+\item 編得過。 這時候外層 \texttt{if (x > 0)} 的陳述部分就是巨集展開出
+的 \texttt{if (!(x > 10)) \{...\}}，\texttt{else} 會接到\textit{這個內
+層} \texttt{if}，不是原本想要的外層 \texttt{if}——程式照樣編過、照樣執
+行，但語意悄悄錯了，是比編譯錯誤更危險的靜默 bug。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:pp-checklist}~節}
+\begin{enumerate}
+\item 四個錯：\texttt{SQUARE(x)} 沒有括號（該寫成
+\texttt{((x) * (x))}）；\texttt{\_\_LINUX\_\_} 應該是全小寫的
+\texttt{\_\_linux\_\_}；\texttt{BUILD\_MODE} 沒有先 \texttt{\#define}，
+\texttt{\#if BUILD\_MODE} 被當成 \texttt{\#if 0}，\texttt{MODE} 永遠不
+會被定義；\\
+\texttt{LOG\_ON} 展開成裸的 \texttt{if}，沒有
+\texttt{do-while(0)}，會踩 dangling else。
+\item \texttt{p2} 不是指標，是 \texttt{int}：\texttt{\#define} 展開後星
+號只黏著 \texttt{p1}。
+\item 個別編譯都不會出錯，連結時會因為兩份相同的函式本體撞名而失敗
+（\texttt{duplicate symbol} 或 \texttt{multiple definition}）。
+\item \texttt{LEVEL} 是 \texttt{2}，\texttt{LEVEL >= 3} 為假、
+\texttt{LEVEL >= 1} 為真，所以只有 \texttt{\#elif} 分支裡的\\
+\texttt{printf("mid\textbackslash n");} 那一行會真的進入翻譯單元，其餘
+分支都被前置處理器整段跳過。
+\end{enumerate}

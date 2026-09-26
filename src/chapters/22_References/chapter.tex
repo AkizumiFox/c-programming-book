@@ -1,0 +1,37 @@
+\phantomsection
+\addcontentsline{toc}{chapter}{參考資料}
+\chapter*{參考資料}
+\label{ch:references}
+
+本書寫作過程中，幾本教材反覆被引用、對照，或直接影響了某幾節的節序安
+排。 這裡列出來，方便讀者需要更完整、更深入的說明時查閱原書。
+
+\begin{description}
+\item[K. N. King, \textit{C Programming: A Modern Approach}, 2nd
+edition.] 全書節序參照最多的一本，尤其是〈前置處理〉一章的
+\texttt{\#if} 與條件編譯、〈物件〉一章「介面先於實作」的設計次序，都
+直接照這本書 ch.19「Program Design」的骨架安排。
+
+\item[Stephen Prata, \textit{C Primer Plus}, 6th edition.] 〈前置處理〉
+與〈C 標準程式庫〉兩章裡，字串化（\texttt{\#}）、token 貼接
+（\texttt{\#\#}）、可變參數巨集的範例編排，參照了這本書 ch.16 的作
+法。
+
+\item[Peter van der Linden, \textit{Expert C Programming: Deep C
+Secrets}.] 〈宣告修飾詞〉一章「順時針／螺旋法則」的說法出自這本書；
+〈前置處理〉一章對編譯／連結流程的描述，也參照了這本書對建置流程的
+講解。
+
+\item[Richard Reese, \textit{Understanding and Using C Pointers}.]
+（O'Reilly, 2013）〈物件〉一章「不完整型別」那一節，關於「只暴露使用
+者需要的資訊」這個資訊隱藏原則的講法，直接引用自這本書。
+
+\item[劉邦鋒，《由片語學習 C 程式設計》，第二版，國立臺灣大學。] 本書
+最初的骨架設計——用「片語＋範例」交替、搭配學習要點與風格要點——延續
+自這本書的編排慣例，是本書體例最直接的源頭。
+\end{description}
+
+這五本之外，各章節末的「常見錯誤清單」與練習，部分取材自標準函式庫
+（\texttt{<assert.h>}、\texttt{<stdlib.h>} 等）的官方文件與 ISO C 標
+準本身逐條核對過的行為，沒有另外列出版本資訊；行文中提到「C 標準規
+定」的地方，指的都是 C11（ISO/IEC 9899:2011）。

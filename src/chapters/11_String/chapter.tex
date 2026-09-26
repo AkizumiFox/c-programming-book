@@ -1,0 +1,1490 @@
+\chapter{字串}
+\label{ch:string}
+
+字串是一個約定：一塊 \texttt{char} 陣列，最後一格放 NUL 終止符
+\texttt{\textbackslash 0}。 C 沒有獨立的 \texttt{String} 型別，也不會
+檢查這個約定有沒有被遵守。 後面每一節都在看同一個約定在不同情境下怎
+麼被遵守、又怎麼被打破：宣告時、輸出入時、呼叫函式時、自己動手寫函式
+時。 最後用一個簡易 BASIC 直譯器當總驗收，那支程式同時用到矩形陣列存
+字串、指標陣列做查表，剛好是本章要建立的核心對比。
+
+\section{字串是一種約定，不是一種型別}
+\label{sec:str-convention}
+
+寫下 \texttt{char s[] = "hi"} 時，記憶體裡實際是三個位元組
+\texttt{'h'}、\texttt{'i'}，以及最後的 \texttt{'\textbackslash 0'}。
+\texttt{printf("\%s", s)}、\texttt{strlen(s)}、\texttt{strcpy} 都靠那
+個值為 $0$ 的字元判斷結尾。 沒有人在編譯期或執行期強制檢查它在不在；
+忘記放、放錯位置、寫過頭蓋掉它，程式仍會編譯通過，只是印出垃圾、讀過
+邊界，或直接當掉。
+
+\begin{code}{c}{忘記加 NUL，printf 會印出垃圾}
+char s[3];
+s[0] = 'h';
+s[1] = 'i';
+// 沒有 s[2] = '\0'
+printf("%s\n", s);   // 從 s[0] 一路印到碰巧遇到 0 為止
+\end{code}
+
+這段程式完全合法。 \texttt{\%s} 不知道陣列有多長，只會往後走，直到看
+見一個位元組的值是 $0$。 那個 $0$ 可能在隔壁變數裡，也可能在更遠的地
+方。 第 1 節之後談到的 \texttt{sizeof} 對不上 \texttt{strlen}、
+\texttt{strcpy} 不檢查邊界、改字串常值會出事，都是同一個原因的不同展
+現：語言把結尾交給我們自己守。
+
+順便把兩個長得很像的名字分開。 \textbf{NUL} 是值為 $0$ 的字元，寫成
+\texttt{'\textbackslash 0'}，用來標字串結尾。 \textbf{NULL} 是指標的
+哨兵值，表示目前不指向任何有效物件。 一個是字元、一個是指標，混用會
+讓分類與比較都默默錯下去。
+
+\keypoint{字串 $=$ \texttt{char} 陣列 $+$ NUL 終止符。 C 不檢查這個約
+定；每次讀寫都要自己確保結尾在、空間夠。}
+
+\begin{drills}[label=drills:str-convention]
+\item \texttt{char s[3] = \{'h', 'i'\};} 少了最後補 \texttt{s[2] = '\textbackslash 0'}，
+拿去 \texttt{printf("\%s", s)} 會發生什麼事？
+\item NUL 跟 NULL 有什麼不同？ 一個標記什麼結束，一個表示什麼？
+\item 為什麼 \texttt{strlen} 讀過邊界的錯誤，編譯器通常抓不出來？
+\end{drills}
+
+\section{宣告與儲存位置}
+\label{sec:str-declare-storage}
+
+同一個約定，放進不同種類的記憶體，規則就不一樣。 常見有三種：指標指
+向字串常值、陣列自己擁有一份可改的複本、\texttt{malloc} 從 heap 要一
+塊空間。
+
+\subsection{指標宣告}
+
+\begin{code}{c}{字串指標宣告}
+char *p = "hello";    // p 指向唯讀的字串常值
+\end{code}
+
+\texttt{p} 自己是一個位址變數，存的是常值 \texttt{"hello"} 的起始位址。
+那塊常值通常住在唯讀區，不能改內容。 硬寫 \texttt{p[0] = 'H'} 行為沒
+有保證，常常直接 Segmentation Fault。
+
+編譯器還可能把相同的字面值去重、只留一份。 兩個指標都寫
+\texttt{"hello"}，執行時可能指向同一塊記憶體。 若其中一個被改到（例如
+先轉成非 \texttt{const} 再寫入），另一個看起來毫不相干的字面值也會跟
+著變，除錯時非常難查。
+
+\subsection{陣列宣告}
+
+\begin{code}{c}{字串陣列宣告}
+char str[100];              // 未初始化，內容為垃圾
+char str[] = "hello";       // 編譯器自動計算大小（6）
+char str[6] = "hello";      // 明確指定大小
+char str[100] = "hello";    // 初始化，剩餘位置為 NUL
+\end{code}
+
+陣列在宣告當下就配置連續的 \texttt{char}。 用字面值初始化時，編譯器
+會把字元連同最後的 NUL 一併複製進這塊空間，所以陣列內容可以改。 大小
+必須至少是字元數加 $1$，留給終止符。
+
+\subsection{堆上分配}
+
+\begin{code}{c}{用 malloc 分配字串}
+#include <stdlib.h>
+#include <string.h>
+
+char *str = (char *)malloc(100);
+if (str == NULL) {
+    // malloc 失敗
+    return;
+}
+strcpy(str, "hello");
+free(str);
+\end{code}
+
+\texttt{malloc} 要來的空間生命週期由我們決定，內容可改，用完必須
+\texttt{free}。 完整的動態配置規則在高等技術那一章；這裡只要先記住：
+指標指向的那塊記憶體，必須活得比我們使用它的時間久。
+
+\subsection[陣列名字 vs 指標：常數與變數]{陣列名字是位址常數，指標是位址變數}
+
+這是兩種宣告最容易混的地方。 \texttt{char arr[] = "hello"} 的
+\texttt{arr} 在編譯期就綁在這塊陣列的起始位址上，不能改指向別處。
+\texttt{char *p = "hello"} 的 \texttt{p} 是變數，可以再指向別的字串。
+
+\begin{code}{c}{陣列不能重新指向，指標可以}
+char arr[] = "hello";
+char *p = "hello";
+
+// arr = "world";   // 編譯錯誤：陣列不是可賦值的左值
+p = "world";        // 合法：p 改指向另一個常值
+\end{code}
+
+\subsection[陷阱：別用 = 或 == 處理字串]{陷阱：不能用 \texttt{=} 賦值、不能用 \texttt{==} 比較}
+
+初學者寫壞第一支字串程式，多半卡在這兩個直覺。 整數可以 \texttt{x =
+3}、\texttt{x == y}；字串看起來也像一份資料，手就會寫出同樣的符號。
+
+\begin{code}{c}{❌ 危險：用 = 把字面值賦給陣列}
+char s[10];
+s = "abc";    // 編譯錯誤
+\end{code}
+
+\begin{code}{c}{✓ 安全：用 strcpy 把字元一個一個複製過去}
+char s[10];
+strcpy(s, "abc");
+\end{code}
+
+\texttt{=} 對陣列做的是改指向，陣列名字改不了指向，所以編譯失敗。 要
+的是把字元複製進已有的格子，那是 \texttt{strcpy} 的工作。
+
+\begin{code}{c}{❌ 危險：用 == 比較兩個字串}
+char s1[] = "abc";
+char s2[] = "abc";
+if (s1 == s2) {       // 比的是兩個陣列的起始位址
+    // 幾乎一定是假，即使內容相同
+}
+\end{code}
+
+\begin{code}{c}{✓ 安全：用 strcmp 比較內容}
+char s1[] = "abc";
+char s2[] = "abc";
+if (strcmp(s1, s2) == 0) {
+    // 內容相同
+}
+\end{code}
+
+\texttt{==} 比較的是位址。 兩個陣列各有自己的空間，位址不同，內容再
+怎麼一樣也會得到假。 要比內容，用 \texttt{strcmp}：回傳 $0$ 表示相等，
+負數表示左邊字典序較小，正數表示較大。
+
+\subsection{空字串}
+
+\begin{example}{c}{(empty-string.c) 空字串的長度是 0}
+#include <stdio.h>
+#include <string.h>
+
+int main(void) {
+    char empty[] = "";         // 陣列大小為 1，只有 NUL
+    printf("%zu\n", strlen(empty));
+}
+\end{example}
+
+\iosample{}{
+0 \\
+}
+
+空字串長度為 $0$，但仍佔 $1$ 個位元組給 NUL。 指標也可以寫
+\texttt{char *emptyPtr = ""}，指向同一種只有終止符的常值。 沒有終止
+符的空陣列，跟空字串是兩件事。
+
+\subsection{\texttt{sizeof} 與 \texttt{strlen}}
+
+宣告完立刻就會撞到這組對比。
+
+\begin{example}{c}{(sizeof-strlen.c) 比較 sizeof 與 strlen}
+#include <stdio.h>
+#include <string.h>
+
+int main(void) {
+    char arr[] = "hello";
+    printf("%zu\n", sizeof(arr));   // 6，含 NUL
+    printf("%zu\n", strlen(arr));   // 5，走到 NUL 之前
+}
+\end{example}
+
+\iosample{}{
+6 \\
+5 \\
+}
+
+\texttt{sizeof(arr)} 在編譯期就算好整塊陣列的位元組數，含結尾的 NUL。
+\texttt{strlen} 執行時從開頭走到第一個 NUL，回傳途中經過幾個字元，不
+含終止符。 若改成指標 \texttt{char *p = "hello"}，\texttt{sizeof(p)}
+只會得到指標本身的寬度，跟字串多長無關。 複製時預留的空間必須是
+\texttt{strlen(src) + 1}。
+
+\begin{code}{c}{計算複製空間}
+char dest[100];
+char src[] = "hello";
+
+strcpy(dest, src);                    // dest 至少要 6 格
+strncpy(dest, src, sizeof(dest) - 1); // 留下最後一格給 NUL
+\end{code}
+
+\keypoint{\texttt{strlen} 回傳字元數（不含 NUL），\texttt{sizeof} 回傳
+陣列大小（含 NUL）。 複製時預留 $1$ 位元組給終止符。}
+
+\begin{drills}[label=drills:str-declare-storage]
+\item \texttt{char *p = "hello";} 跟 \texttt{char arr[] = "hello";}，哪
+一個之後可以改指向別的字串？ 哪一個之後可以改內容？
+\item \texttt{sizeof(arr)} 跟 \texttt{strlen(arr)} 對同一個
+\texttt{char arr[] = "hello"}，各會得到多少？ 差在哪裡？
+\item 用 \texttt{malloc} 要來的字串記憶體，用完之後該做什麼？
+\end{drills}
+
+\section{字串的輸出與輸入}
+\label{sec:str-io}
+
+輸出入函式同樣只認 NUL，不認陣列長度。 選哪一個函式，差在它讀到哪裡
+停、會不會自己加換行、會不會檢查空間。
+
+\subsection{輸出：\texttt{printf} 與 \texttt{puts}}
+
+\begin{example}{c}{(printf-puts.c) 用 printf 與 puts 印字串}
+#include <stdio.h>
+
+int main(void) {
+    char str[] = "hello";
+    printf("%s\n", str);
+    printf("Name: %s\n", str);
+    puts(str);                 // 自動再印一個換行
+}
+\end{example}
+
+\iosample{}{
+hello \\
+Name: hello \\
+hello \\
+}
+
+\texttt{\%s} 從起始位址一路印到 NUL。 字串沒正確終止，就會印過邊界。
+\texttt{puts(str)} 等價於 \texttt{printf("\%s\textbackslash n", str)}，
+少打幾個字，但一樣靠 NUL 停下來；遇不到 \texttt{'\textbackslash 0'}，
+它會一直印到記憶體某處碰巧找到 $0$ 為止。 這跟第 1 節那個忘記加終止
+符的例子是同一件事。
+
+\subsection{用 \texttt{scanf} 讀入}
+
+\begin{example}{c}{(scanf-word.c) scanf 只讀到空白為止}
+#include <stdio.h>
+
+int main(void) {
+    char str[100];
+    scanf("%99s", str);        // 最多 99 個字元，留下 1 格給 NUL
+    printf("%s\n", str);
+}
+\end{example}
+
+\iosample{
+hello world \\
+}{
+hello \\
+}
+
+\texttt{\%s} 會跳過前導空白，讀到下一個空白為止，所以
+\texttt{hello world} 只留下 \texttt{hello}。 \textbf{務必指定長度限
+制}；若寫成 \texttt{scanf("\%s", str)}，輸入太長就會寫過陣列盡頭。
+
+早期還有一個看起來更直覺的 \texttt{gets(str)}：讀整行、不檢查長度。
+緩衝區溢位的漏洞大到 C11 已經把它從標準裡移除。 現在讀整行，用下面
+的 \texttt{fgets}。
+
+\subsection{用 \texttt{fgets} 讀入}
+
+\begin{example}{c}{(fgets-line.c) fgets 讀整行再去掉換行}
+#include <stdio.h>
+#include <string.h>
+
+int main(void) {
+    char str[100];
+    if (fgets(str, 100, stdin) != NULL) {
+        char *nl = strchr(str, '\n');
+        if (nl != NULL) {
+            *nl = '\0';        // 把換行換成終止符
+        }
+        printf("%s\n", str);
+    }
+}
+\end{example}
+
+\iosample{
+hello world \\
+}{
+hello world \\
+}
+
+\texttt{fgets} 最多讀 \texttt{size - 1} 個字元，自己補 NUL，所以比
+\texttt{scanf("\%s")} 安全。 它會把行尾的 \texttt{'\textbackslash n'}
+一併讀進來（緩衝區夠的話）。 後面要比對內容、算長度時，通常先把換行
+拿掉。 上面用 \texttt{strchr} 找第一個換行，找到就改成
+\texttt{'\textbackslash 0'}；\texttt{strchr} 的完整用法第 5 節再展開。
+
+\keypoint{輸出入都靠 NUL 停下來。 讀入時指定長度；讀整行用
+\texttt{fgets}，再用 \texttt{strchr} 清掉換行。}
+
+\begin{drills}[label=drills:str-io]
+\item \texttt{scanf("\%s", str)} 讀 \texttt{"hello world"} 時，\texttt{str}
+裡最後會是什麼？
+\item 為什麼本書建議用 \texttt{scanf("\%99s", str)} 而不是
+\texttt{scanf("\%s", str)}？
+\item \texttt{fgets} 讀進來的字串，行尾通常還帶著什麼字元？ 要怎麼把它
+去掉？
+\end{drills}
+
+\section{動手做：自己寫字串函式}
+\label{sec:str-diy-functions}
+
+標準函式庫看起來像黑盒子，打開來看就是：從某個位址出發，一格一格走到
+NUL。 我們先用下標數某個字元出現幾次，再改成指標，最後推導出兩個到處
+都會碰到的寫法。
+
+\subsection{下標版}
+
+\begin{example}{c}{(count-char.c) 用下標計算字元次數}
+#include <stdio.h>
+
+int count_char(const char s[], char target) {
+    int n = 0;
+    for (int i = 0; s[i] != '\0'; i++) {
+        if (s[i] == target) {
+            n++;
+        }
+    }
+    return n;
+}
+
+int main(void) {
+    printf("%d\n", count_char("hello", 'l'));
+}
+\end{example}
+
+\iosample{}{
+2 \\
+}
+
+\texttt{s[i] != '\textbackslash 0'} 就是在守那個約定：走到終止符就停。
+對 \texttt{"hello"} 數 \texttt{'l'}，\texttt{i} 從 $0$ 走到 $4$，命中
+兩次，回傳 $2$。
+
+\subsection{指標版}
+
+同一個函式可以消掉索引 \texttt{i}。 \texttt{s[i]} 等價於
+\texttt{*(s + i)}；每次 \texttt{i++} 等價於讓指標本身往前一格。
+
+\begin{code}{c}{用指標計算某個字元出現次數}
+int count_char(const char *s, char target) {
+    int n = 0;
+    while (*s) {
+        if (*s == target) {
+            n++;
+        }
+        s++;
+    }
+    return n;
+}
+\end{code}
+
+\texttt{*s} 在條件裡被當成整數看：NUL 的值是 $0$，條件為假，迴圈停。
+非 NUL 的字元值都不是 $0$，條件為真。 這就是下面第一個 idiom 的來源。
+
+\subsection{Idiom 1：找到字串結尾}
+
+\begin{code}{c}{走到 NUL 上停下}
+while (*s) {
+    s++;
+}
+// 離開迴圈時 *s 是 '\0'，s 正指在終止符上
+\end{code}
+
+每一步先看目前格子有沒有值，有就前進。 停下來時 \texttt{s} 指著
+NUL，所以 \texttt{s - start} 正好是字元數，也就是 \texttt{strlen}。
+
+\subsection{Idiom 2：邊複製邊找結尾}
+
+\texttt{strcpy} 的核心是一行：
+
+\begin{code}{c}{strcpy 的核心邏輯}
+while (*p++ = *s2++) {
+    ;
+}
+\end{code}
+
+拆開看，一次迴圈做完四件事：
+
+\begin{enumerate}
+\item \texttt{*s2++} 取出 \texttt{s2} 目前的字元，然後 \texttt{s2}
+      往前一格。
+\item 把這個字元寫進 \texttt{*p}，然後 \texttt{p} 往前一格。
+\item 賦值運算式本身的值，就是剛被寫進去的那個字元。
+\item \texttt{while} 拿這個值當條件：不是 $0$ 就再跑一輪。
+\end{enumerate}
+
+複製到 NUL 那一刻，賦值已經完成（目的地也有終止符了），條件剛好為假，
+迴圈結束。 不需要再補一行 \texttt{*p = '\textbackslash 0'}，因為
+\texttt{'\textbackslash 0'} 自己已經被複製過去。
+
+\subsection{手刻 \texttt{my\_strlen} 與 \texttt{my\_strcpy}}
+
+把兩個 idiom 收成函式，標準庫裡的對應版本做的就是這些事。
+
+\begin{example}{c}{(my-strlen-strcpy.c) 手刻 strlen 與 strcpy}
+#include <stdio.h>
+#include <stddef.h>
+
+size_t my_strlen(const char *s) {
+    const char *start = s;
+    while (*s) {
+        s++;
+    }
+    return (size_t)(s - start);
+}
+
+void my_strcpy(char *p, const char *s2) {
+    while ((*p++ = *s2++)) {   // 連 NUL 一起複製過去
+        ;
+    }
+}
+
+int main(void) {
+    char dest[20];
+    my_strcpy(dest, "hello");
+    printf("%zu\n", my_strlen(dest));
+    printf("%s\n", dest);
+}
+\end{example}
+
+\iosample{}{
+5 \\
+hello \\
+}
+
+\texttt{my\_strlen("hello")} 得到 $5$。 \texttt{my\_strcpy(dest,
+"hello")} 之後 \texttt{dest} 裡是 \texttt{h e l l o \textbackslash 0}，
+可以交給 \texttt{\%s} 印。 參數寫成 \texttt{const char *} 的，是來源、
+函式不會改它；沒有 \texttt{const} 的是目的地、準備被寫入。 下一節標準
+函式庫的原型，用的是同一套標記。
+
+\keypoint{\texttt{while (*s)} 走到結尾；\texttt{while (*p++ = *s2++)}
+邊複製邊停在 NUL。 標準字串函式就是這兩種走法的包裝。}
+
+\begin{drills}[label=drills:str-diy-functions]
+\item \texttt{s[i]} 跟 \texttt{*(s + i)} 是同一件事嗎？ 兩種寫法哪個比
+較適合改寫成指標版迴圈？
+\item \texttt{while (*p++ = *s2++)} 這一行，複製完最後一個字元之後，為
+什麼迴圈會自動停下來，不用另外判斷？
+\item \texttt{my\_strlen} 回傳的長度，含不含最後的 NUL？
+\end{drills}
+
+\section{標準函式庫}
+\label{sec:str-stdlib}
+
+\texttt{string.h} 把上一節那種走訪包裝成一組現成函式。 原型裡標
+\texttt{const char *} 的參數是來源，函式保證不改它；沒標
+\texttt{const} 的是目的地，會被寫入。 例如
+\texttt{strcpy(char *dest, const char *src)}：\texttt{src} 只讀，
+\texttt{dest} 要夠大、由呼叫者負責。
+
+\subsection{\texttt{strlen}：字串長度}
+
+\begin{example}{c}{(strlen-demo.c) strlen 用法}
+#include <stdio.h>
+#include <string.h>
+
+int main(void) {
+    char str[] = "hello";
+    printf("%zu\n", strlen(str));
+}
+\end{example}
+
+\iosample{}{
+5 \\
+}
+
+回傳字元數（不含 NUL）。
+
+\subsection{\texttt{strcpy}：複製字串}
+
+\begin{code}{c}{strcpy 用法（不安全）}
+char dest[100];
+strcpy(dest, "hello");  // 不檢查 dest 大小
+\end{code}
+
+\subsection{\texttt{strncpy}：有長度限制的複製}
+
+\begin{code}{c}{strncpy 用法（較安全）}
+char dest[100];
+strncpy(dest, "hello", sizeof(dest) - 1);
+dest[sizeof(dest) - 1] = '\0';  // 確保 NUL 終止
+\end{code}
+
+\texttt{strncpy} 在來源較長時可能不會自己寫 NUL，所以最後一格要手動補上。
+
+\subsection{\texttt{strcat}：字串連接}
+
+\begin{example}{c}{(strcat-demo.c) strcat 用法}
+#include <stdio.h>
+#include <string.h>
+
+int main(void) {
+    char dest[100] = "Hello ";
+    strcat(dest, "World");     // 無長度檢查
+    printf("%s\n", dest);
+}
+\end{example}
+
+\iosample{}{
+Hello World \\
+}
+
+\subsection{\texttt{strncat}：有長度限制的連接}
+
+\begin{code}{c}{strncat 用法}
+char dest[100] = "Hello ";
+strncat(dest, "World", sizeof(dest) - strlen(dest) - 1);
+\end{code}
+
+可追加的長度是目的地剩餘空間再減 $1$，留給終止符。
+
+\subsection{\texttt{strcmp}：字串比較}
+
+\begin{example}{c}{(strcmp-demo.c) strcmp 用法}
+#include <stdio.h>
+#include <string.h>
+
+int main(void) {
+    char s1[] = "apple";
+    char s2[] = "banana";
+
+    if (strcmp(s1, s2) < 0) {
+        printf("apple < banana\n");
+    }
+}
+\end{example}
+
+\iosample{}{
+apple < banana \\
+}
+
+回傳負數（s1 較小）、$0$（相等）、正數（s1 較大）。
+
+\subsection{\texttt{strncmp}：有長度限制的比較}
+
+\begin{code}{c}{strncmp 用法}
+char s1[] = "hello";
+char s2[] = "help";
+
+if (strncmp(s1, s2, 3) == 0) {
+    printf("前 3 字元相同\n");
+}
+\end{code}
+
+\subsection{\texttt{strchr}：查找字元}
+
+第 3 節去掉 \texttt{fgets} 的換行，用的就是它。
+
+\begin{example}{c}{(strchr-demo.c) strchr 用法}
+#include <stdio.h>
+#include <string.h>
+
+int main(void) {
+    char str[] = "hello world";
+    char *p = strchr(str, 'o');
+    if (p != NULL) {
+        printf("找到 o 在位置 %ld\n", p - str);
+    }
+}
+\end{example}
+
+\iosample{}{
+找到 o 在位置 4 \\
+}
+
+回傳第一次出現的位址；找不到則回傳 \texttt{NULL}。
+\texttt{p - str} 是從開頭算起的位移，單位是字元個數。
+
+\subsection{\texttt{strrchr}：查找最後一個字元}
+
+\begin{code}{c}{strrchr 用法}
+char str[] = "hello.txt";
+char *p = strrchr(str, '.');  // 找最後的點
+\end{code}
+
+\subsection{\texttt{strstr}：查找子字串}
+
+\begin{example}{c}{(strstr-demo.c) strstr 用法}
+#include <stdio.h>
+#include <string.h>
+
+int main(void) {
+    char str[] = "hello world";
+    char *p = strstr(str, "wor");
+    if (p != NULL) {
+        printf("找到 wor 在位置 %ld\n", p - str);
+    }
+}
+\end{example}
+
+\iosample{}{
+找到 wor 在位置 6 \\
+}
+
+找不到同樣回傳 \texttt{NULL}。
+
+\subsection{\texttt{strtok}：分詞}
+
+\begin{example}{c}{(strtok-demo.c) strtok 用法}
+#include <stdio.h>
+#include <string.h>
+
+int main(void) {
+    char str[] = "apple,banana,orange";
+    char *token = strtok(str, ",");   // 第一個詞
+    while (token != NULL) {
+        printf("%s\n", token);
+        token = strtok(NULL, ",");    // 後續詞
+    }
+}
+\end{example}
+
+\iosample{}{
+apple \\
+banana \\
+orange \\
+}
+
+\texttt{strtok} 會修改原字串，把分隔符改成 NUL。 若需保留原文，先複製
+一份再切。
+
+\subsection{\texttt{strspn} 與 \texttt{strcspn}}
+
+\begin{code}{c}{strspn 與 strcspn}
+char str[] = "123abc";
+int n = strspn(str, "0123456789");  // 3（前三個都是數字）
+n = strcspn(str, "abc");            // 3（前三個不含 a、b、c）
+\end{code}
+
+\subsection{\texttt{sprintf} 與 \texttt{snprintf}：組成字串}
+
+有時要把好幾個值拼成一行訊息，存在陣列裡以後再用。
+\texttt{sprintf} 跟 \texttt{printf} 格式相同，只是寫進字串而不是螢幕；
+它不檢查目的地有多長。 習慣上改用 \texttt{snprintf}，把陣列大小一併傳
+進去。
+
+\begin{example}{c}{(snprintf-demo.c) 用 snprintf 組成訊息}
+#include <stdio.h>
+
+int main(void) {
+    char name[] = "Ann";
+    int score = 95;
+    char msg[80];
+
+    snprintf(msg, sizeof(msg), "%s 得了 %d 分", name, score);
+    puts(msg);
+}
+\end{example}
+
+\iosample{}{
+Ann 得了 95 分 \\
+}
+
+\keypoint{來源參數標 \texttt{const}，目的地由呼叫者準備夠大的緩衝區。
+找不到時 \texttt{strchr}／\texttt{strstr} 回傳 \texttt{NULL}，先檢查再
+解參考。}
+
+\begin{drills}[label=drills:str-stdlib]
+\item \texttt{strcmp(s1, s2)} 回傳 $0$ 代表什麼？ 回傳負數呢？
+\item \texttt{strchr} 找不到字元時，回傳值是什麼？ 用它的回傳值之前該
+先做什麼檢查？
+\item \texttt{strtok} 分詞時，會不會動到原本傳進去的字串？ 若要保留原
+文，該怎麼做？
+\item \texttt{sprintf} 跟 \texttt{snprintf} 的差別是什麼？ 為什麼本節建
+議優先用 \texttt{snprintf}？
+\end{drills}
+
+\section{字串陣列：矩形 vs 鋸齒}
+\label{sec:str-array-rect-jagged}
+
+一組字串可以有兩種排法。 一種是每列固定長度的二維陣列，一種是指標陣
+列、各指向長短不一的字串。 最後一節的直譯器兩種都用。
+
+\subsection{矩形陣列}
+
+\begin{example}{c}{(names-rect.c) 矩形陣列存放多個名字}
+#include <stdio.h>
+#include <string.h>
+
+int main(void) {
+    char names[5][40];
+    strcpy(names[0], "Ann");
+    strcpy(names[1], "Bob");
+    names[0][0] = 'a';     // 內容可改
+    printf("%s\n", names[0]);
+    printf("%s\n", names[1]);
+}
+\end{example}
+
+\iosample{}{
+ann \\
+Bob \\
+}
+
+\texttt{names[5][40]} 在記憶體裡是連續 $5 \times 40$ 個
+\texttt{char}。 每列都有自己的空間，可以修改，所以第一個名字從
+\texttt{Ann} 變成 \texttt{ann}。 短名字後面會墊一堆 NUL，比較浪費。
+
+\begin{code}{text}{矩形：每列一樣長}
+names[0]  A n n \0  ...（補到 40）
+names[1]  B o b \0  ...（補到 40）
+\end{code}
+
+\subsection{鋸齒陣列}
+
+\begin{code}{c}{指標陣列，各指向不同長度的字串}
+char *table[5] = {"Ann", "Bob", "Cara", "Dan", "Eve"};
+// table[0][0] = 'a';   // 若指向字面值，改內容行為沒有保證
+table[0] = "Anna";      // 可以改指向
+\end{code}
+
+每個元素是一個 \texttt{char *}，指向的字串可長可短，省空間。 若指向
+字面值，內容通常不能改；若指向自己的陣列或 \texttt{malloc} 出來的空
+間，就可以改。
+
+\begin{code}{text}{鋸齒：指標指向各自的結尾}
+table[0] --> A n n \0
+table[1] --> B o b \0
+table[2] --> C a r a \0
+\end{code}
+
+第 9 節的直譯器正好並存這兩種：\texttt{varName} 是
+\texttt{char varName[VAR][NAMELENGTH]}，用來真正存放變數名字元；
+\texttt{varNameTable} 是 \texttt{char *varNameTable[VAR]}，每個格子指
+向 \texttt{varName} 的某一列，查表時交給 \texttt{strcmp}。 矩形負責擁
+有記憶體，鋸齒負責快速指來指去。
+
+排序一組字串時，鋸齒陣列可以只交換指標、不必搬動字元本身；完整的排序
+範例留給之後的演算法章節。
+
+\keypoint{\texttt{char a[M][N]} 是矩形、列定長、內容可改。
+\texttt{char *a[M]} 是鋸齒、省空間，指向常值時不能改內容。}
+
+\begin{drills}[label=drills:str-array-rect-jagged]
+\item \texttt{char names[5][40]} 這種矩形陣列，每一列的長度是固定的還
+是各自不同？
+\item \texttt{char *table[5] = \{"Ann", "Bob", ...\}} 這種鋸齒陣列，
+\texttt{table[0] = "Anna";} 合法嗎？ \texttt{table[0][0] = 'a';} 呢？
+\item 矩形陣列跟鋸齒陣列，哪一種比較省記憶體？ 為什麼？
+\end{drills}
+
+\section{傳遞與回傳字串}
+\label{sec:str-pass-return}
+
+函式邊界上，字串參數看起來像陣列，傳進去的其實是起始位址。 不必再傳
+長度，除非函式裡要寫入、必須知道緩衝區有多大。 這就是直譯器裡
+\texttt{char *varNameTable[]} 能在多個函式之間傳來傳去的前提。
+
+回傳字串時，指向的記憶體必須在函式結束後仍有效。
+
+\begin{itemize}
+\item 回傳字面值：常值活到程式結束，安全。
+\item 回傳 \texttt{static} 陣列：安全，但下次呼叫會覆蓋上次的內容。
+\item 回傳 \texttt{malloc} 的區塊：安全，呼叫者負責 \texttt{free}。
+\item 回傳區域陣列的位址：函式一結束那塊 stack 就失效，之後再讀行為
+      沒有保證。
+\end{itemize}
+
+\begin{code}{c}{❌ 危險：回傳區域陣列的位址}
+char *makeTag(int n) {
+    char buf[16];
+    sprintf(buf, "TAG-%d", n);
+    return buf;   // buf 在函式結束後已經無效
+}
+\end{code}
+
+\begin{example}{c}{(make-tag.c) 呼叫者提供緩衝區寫入標籤}
+#include <stdio.h>
+#include <stddef.h>
+
+void makeTag(int n, char *buf, size_t size) {
+    snprintf(buf, size, "TAG-%d", n);
+}
+
+int main(void) {
+    char tag[16];
+    makeTag(7, tag, sizeof(tag));
+    printf("%s\n", tag);
+}
+\end{example}
+
+\iosample{}{
+TAG-7 \\
+}
+
+呼叫端自己準備 \texttt{char tag[16]}，把位址與大小傳進去。 函式寫完
+就結束，不需要回傳指標。 第 9 節的 \texttt{readVariable}、
+\texttt{processCode} 都是這種模式：緩衝區由 \texttt{main} 準備，函式
+只沿著傳進來的位址讀寫。
+
+\keypoint{傳字串就是傳位址。 回傳時，指向的物件必須活得比這次呼叫久；
+區域陣列不行。}
+
+\begin{drills}[label=drills:str-pass-return]
+\item 為什麼 \texttt{char *makeTag(int n) \{ char buf[16]; ...; return
+buf; \}} 是危險的寫法？ 函式結束後 \texttt{buf} 發生了什麼事？
+\item 要讓函式把結果寫回呼叫端，範例 \texttt{make-tag.c} 用的是哪一種
+做法：回傳指標，還是把緩衝區位址傳進去？
+\item 回傳 \texttt{static} 陣列安不安全？ 連續呼叫兩次會發生什麼事？
+\end{drills}
+
+\section{常見陷阱與最佳實踐}
+\label{sec:str-pitfalls}
+
+前幾節談過的約定、賦值、生命週期，這裡收成一張對照表。
+
+\subsection{陷阱 1：緩衝區溢出}
+
+\begin{code}{c}{❌ 危險}
+char dest[10];
+strcpy(dest, "very long string");  // 溢出
+\end{code}
+
+\begin{code}{c}{✓ 安全}
+char dest[10];
+strncpy(dest, "very long string", sizeof(dest) - 1);
+dest[sizeof(dest) - 1] = '\0';
+\end{code}
+
+\subsection{陷阱 2：忘記 NUL 終止符}
+
+\begin{code}{c}{❌ 危險}
+char dest[10];
+for (int i = 0; i < 10; i++) {
+    dest[i] = 'a';
+}
+// 沒有 NUL，strlen 與 %s 都會越界
+\end{code}
+
+\subsection{陷阱 3：\texttt{strtok} 修改原字串}
+
+\begin{code}{c}{❌ 危險}
+char str[] = "a,b,c";
+strtok(str, ",");
+printf("%s\n", str);  // 只剩 a
+\end{code}
+
+\begin{code}{c}{✓ 安全}
+char str[] = "a,b,c";
+char copy[100];
+strcpy(copy, str);
+strtok(copy, ",");     // 修改複本
+\end{code}
+
+\subsection{陷阱 4：用 \texttt{=} 賦值、用 \texttt{==} 比較}
+
+第 2 節的核心陷阱，這裡再列一次當複習。
+
+\begin{code}{c}{❌ 危險}
+char s[10];
+s = "abc";            // 編譯錯誤
+if (s == "abc") {     // 比位址
+}
+\end{code}
+
+\begin{code}{c}{✓ 安全}
+char s[10];
+strcpy(s, "abc");
+if (strcmp(s, "abc") == 0) {
+}
+\end{code}
+
+\subsection{陷阱 5：回傳區域字串位址}
+
+第 7 節的地雷，再看一眼簽名就知道。
+
+\begin{code}{c}{❌ 危險}
+char *label(void) {
+    char buf[8] = "ok";
+    return buf;
+}
+\end{code}
+
+\begin{code}{c}{✓ 安全}
+void label(char *buf, size_t size) {
+    snprintf(buf, size, "ok");
+}
+\end{code}
+
+\subsection{最佳實踐}
+
+\begin{itemize}
+\item \textbf{用 strncpy 和 strncat}，永不用 strcpy 和 strcat
+\item \textbf{檢查 malloc 回傳值}，防止 NULL 指標
+\item \textbf{字串賦值前複製}，若需保留原文
+\item \textbf{明確檢查邊界}，尤其是陣列大小計算
+\item \textbf{用 sizeof 陣列得大小}，但記得 sizeof 指標只給指標大小
+\end{itemize}
+
+\keypoint{字串處理的核心是記住：字串 $=$ 陣列 $+$ NUL 終止符。 每次操
+作都要確保足夠空間與正確終止。}
+
+\begin{drills}[label=drills:str-pitfalls]
+\item 陷阱 1 裡 \texttt{strcpy(dest, "very long string")} 若 \texttt{dest}
+只有 10 格，會發生什麼事？ 換成 \texttt{strncpy} 版本要注意補上什麼？
+\item 陷阱 3 為什麼說 \texttt{strtok} 會「修改原字串」？ 要保留原文該
+怎麼做？
+\item 陷阱 4 的 \texttt{if (s == "abc")} 比較的是內容還是位址？ 正確寫
+法該用哪個函式？
+\end{drills}
+
+\section{簡易 BASIC 直譯器}
+\label{sec:str-basic-interp}
+
+作為字串處理的綜合應用，我們實作一個簡易的 BASIC 直譯器。 它展示如何
+用字串函式解析並執行一個小語言：讀 token、比對指令名稱、查變數表、再
+依操作碼執行。
+
+\subsection{設計}
+
+BASIC 直譯器支援以下語句：
+\begin{itemize}
+\item \texttt{VAR ... END}：變數聲明（輸入時寫成一連串
+      \texttt{名稱 = 值}，以 \texttt{END} 結束）
+\item \texttt{ASSIGN}：變數賦值
+\item \texttt{IF}：條件跳轉
+\item \texttt{GOTO}：無條件跳轉
+\item \texttt{PRINT}：輸出變數
+\item \texttt{STOP}：停止程式
+\end{itemize}
+
+\subsection{核心函式說明}
+
+\textbf{readVariable}：解析變數聲明區段
+
+\begin{code}{c}{readVariable 簽名}
+void readVariable(char varName[][NAMELENGTH],
+                  int varValue[],
+                  char *varNameTable[]);
+\end{code}
+
+讀入變數名和初始值，建立查詢表。
+
+\textbf{processCode}：解析程式碼
+
+\begin{code}{c}{processCode 簽名}
+void processCode(char *varNameTable[],
+                 int code[], int opd1[],
+                 int opd2[], int compopr[],
+                 int gotoLine[],
+                 int target[]);
+\end{code}
+
+逐行解析 BASIC 語句，提取操作碼和操作數。
+
+\textbf{runCode}：執行程式
+
+\begin{code}{c}{runCode 簽名}
+void runCode(char varName[][NAMELENGTH],
+             int varValue[], int code[],
+             int opd1[], int opd2[],
+             int compopr[], int gotoLine[],
+             int target[]);
+\end{code}
+
+根據解析結果逐行執行，維護變數值和程式計數器。
+
+完整實作包括以下函式：
+\begin{itemize}
+\item 查表：\texttt{find}、\texttt{findOprCode}、\texttt{findVariable}
+\item 解析：\texttt{processIF}、\texttt{processASSIGN}、\texttt{processCode}
+\item 執行：\texttt{compare}、\texttt{arithmetic}、\texttt{runCode}
+\item 入口：\texttt{readVariable}、\texttt{main}
+\end{itemize}
+
+\begin{code}{c}{BASIC 直譯器完整原始碼}
+#include <stdio.h>
+#include <string.h>
+#include <assert.h> /* for assert */
+#include <stdlib.h> /* for exit */
+/* define */
+/* max # of var */
+#define VAR 100
+/* max length of var name */
+#define NAMELENGTH 80
+/* max # of lines of code */
+#define LINE 200
+
+enum Operator
+  {ADD, SUB, MUL, DIV, MOD, EQL, NOTEQL,
+   SMALLER, LARGER, SMALLEREQL, LARGEREQL};
+
+enum StatementType
+  {STOP, IF, GOTO, PRINT, ASSIGN};
+
+/* find */
+int find(char *string, char *table[])
+{
+  int index = 0;
+  while (table[index] != NULL) {
+    if (strcmp(string, table[index]) == 0)
+      return index;
+    index++;
+  }
+  return(-1); /* not found */
+}
+
+/* findOprCode */
+int findOprCode(char *name)
+{
+  char *operators[] = {"+", "-", "*", "/", "%",
+                       "==", "!=", "<", ">",
+                       "<=", ">=", NULL};
+  int code = find(name, operators);
+  if (code == -1)
+    exit(-1);
+  return(code);
+}
+
+/* findVariable */
+int findVariable (char *name,
+                  char *varNameTable[])
+{
+  int index = find(name, varNameTable);
+  if (index == -1)
+    exit(-1);
+  return(index);
+}
+
+/* processIF */
+void processIF(int lineNum, char *varNameTable[],
+               int code[], int opd1[],
+               int opd2[], int compopr[],
+               int gotoLine[])
+{
+  char gotoStr[NAMELENGTH];
+  char opd[NAMELENGTH], opr[NAMELENGTH];
+
+  code[lineNum] = IF;
+  scanf("%s", opd);
+  opd1[lineNum] = 
+    findVariable(opd, varNameTable);
+  scanf("%s", opr);
+  compopr[lineNum] = findOprCode(opr);
+  scanf("%s", opd);
+  opd2[lineNum] = 
+    findVariable(opd, varNameTable);
+  scanf("%s", gotoStr);
+  assert(strcmp(gotoStr, "GOTO") == 0);
+  scanf("%d", &(gotoLine[lineNum]));
+}
+
+/* processASSIGN */
+void processASSIGN(int lineNum, char *first,
+                   char *varNameTable[],
+                   int code[], int opd1[],
+                   int opd2[], int compopr[],
+                   int target[])
+{
+  char opd[NAMELENGTH], opr[NAMELENGTH];
+  code[lineNum] = ASSIGN;
+  target[lineNum] = 
+    findVariable(first, varNameTable);
+  char assignStr[NAMELENGTH];
+  scanf("%s", assignStr);
+  assert(strcmp(assignStr, "=") == 0);
+  scanf("%s", opd);
+  opd1[lineNum] = 
+    findVariable(opd, varNameTable);
+  scanf("%s", opr);
+  compopr[lineNum] = findOprCode (opr);
+  scanf("%s", opd);
+  opd2[lineNum] = 
+    findVariable(opd, varNameTable);
+}
+
+/* processCode */
+void processCode(char *varNameTable[],
+                 int code[], int opd1[],
+                 int opd2[], int compopr[],
+                 int gotoLine[],
+                 int target[])
+{
+  char first[NAMELENGTH];
+  char opd[NAMELENGTH];
+  int lineNum = 2; /* 1 is for var */
+  char *firstTable[] = 
+    {"STOP", "IF", "GOTO", "PRINT", NULL};
+  int firstTableSize = 
+    sizeof(firstTable) / sizeof(char *);
+  while (scanf("%s", first) != EOF) {
+    int firstType = find(first, firstTable);
+    switch (firstType) {
+    case GOTO:
+      code[lineNum] = GOTO;
+      scanf("%d", &(gotoLine[lineNum]));
+      break;
+    case STOP:
+      code[lineNum] = STOP;
+      break;
+    case IF:
+      code[lineNum] = IF;
+      processIF(lineNum, varNameTable, code,
+                opd1, opd2, compopr, gotoLine);
+      break;
+    case PRINT:
+      code[lineNum] = PRINT;
+      scanf("%s", opd);
+      target[lineNum] = 
+        findVariable(opd, varNameTable);
+      break;
+    default: /* must be assignment */
+      code[lineNum] = ASSIGN;
+      processASSIGN(lineNum, first, varNameTable,
+                    code, opd1, opd2, compopr,
+                    target);
+      break;
+    }
+    lineNum++;
+  }
+}
+
+/* compare */
+int compare(int operand1, int operand2,
+            int operator)
+{
+  switch (operator) {
+  case EQL:
+    return (operand1 == operand2);
+  case NOTEQL:
+    return (operand1 != operand2);
+  case SMALLER:
+    return (operand1 < operand2);
+  case LARGER:
+    return (operand1 > operand2);
+  case SMALLEREQL:
+    return (operand1 <= operand2);
+  case LARGEREQL:
+    return (operand1 >= operand2);
+  default:
+    printf("invalid comp %d\n", operator);
+    exit(-1);
+  }
+}
+
+/* arithmetic */
+int arithmetic(int operand1, int operand2,
+               int operator)
+{
+  switch (operator) {
+  case ADD:
+    return (operand1 + operand2);
+  case SUB:
+    return (operand1 - operand2);
+  case MUL:
+    return (operand1 * operand2);
+  case DIV:
+    return (operand1 / operand2);
+  case MOD:
+    return (operand1 % operand2);
+  default:
+    printf("invalid comp %d\n", operator);
+    exit(-1);
+  }
+}
+
+/* runCode */
+void runCode(char varName[][NAMELENGTH],
+             int varValue[], int code[],
+             int opd1[], int opd2[],
+             int compopr[], int gotoLine[],
+             int target[])
+{
+  int line = 2; /* starts at 2 */
+  while (code[line] != STOP) {
+    switch (code[line]) {
+    case IF:
+      if (compare(varValue[opd1[line]],
+                  varValue[opd2[line]],
+                  compopr[line]))
+        line = gotoLine[line];
+      else
+        line++;
+      break;
+    case GOTO:
+      line = gotoLine[line];
+      break;
+    case ASSIGN:
+      varValue[target[line]] = 
+        arithmetic(varValue[opd1[line]],
+                   varValue[opd2[line]],
+                   compopr[line]);
+      line++;
+      break;
+    case PRINT:
+      printf("%d\n", varValue[target[line]]);
+      line++;
+      break;
+    default:
+      printf("invalid code %d\n", code[line]);
+      exit(-1);
+    }
+  }
+}
+
+/* readVariable */
+void readVariable(char varName[][NAMELENGTH],
+                  int varValue[],
+                  char *varNameTable[])
+{
+  int count = 0;
+  char name [NAMELENGTH];
+
+  scanf("%s", name);
+  while (strcmp(name, "END") != 0) {
+    char assignStr[NAMELENGTH];
+    strcpy(varName[count], name);
+    scanf("%s", assignStr);
+    assert(strcmp(assignStr, "=") == 0);
+    scanf("%d", &(varValue[count]));
+    varNameTable[count] = varName[count];
+    count++;
+    scanf("%s", name);
+  }
+  varNameTable[count] = NULL;
+}
+
+/* main */
+int main ()
+{
+  char varName [VAR] [NAMELENGTH];
+  int varValue [VAR];
+  char *varNameTable [VAR];
+  /* get variables */
+  readVariable(varName, varValue, varNameTable);
+  int code [LINE];
+  int opd1 [LINE], compopr[LINE], opd2[LINE];
+  int gotoLine[LINE]; /* IF */
+  int target[LINE]; /* both PRINT and ASSIGN */
+  /* process code */
+  processCode(varNameTable, code, opd1,
+              opd2, compopr, gotoLine, target);
+  /* run code */
+  runCode(varName, varValue, code, opd1,
+          opd2, compopr, gotoLine, target);
+  return 0;
+}
+/* end */
+\end{code}
+
+\subsection{用 BASIC 求質數的程式範例}
+
+以下 BASIC 程式找出 $2$ 到 $100$ 之間的質數。 直譯器要處理變數宣告、
+算術、比較、條件跳轉。 輸入時第 1 行是變數區（以 \texttt{END} 結束），
+後面各行對應程式行號 $2$ 起：
+
+\begin{code}{c}{質數判斷程式（BASIC 語法）}
+1 N = 2 F = 2 ONE = 1 TWO = 2 R = 0 S = 0 ZERO = 0 HUNDRED = 100 END
+2 IF N > HUNDRED GOTO 12
+3 F = TWO + ZERO
+4 R = N % F
+5 IF R == ZERO GOTO 10
+6 F = F + ONE
+7 S = F * F
+8 IF S <= N GOTO 4
+9 PRINT N
+10 N = N + ONE
+11 GOTO 2
+12 STOP
+\end{code}
+
+執行流程：
+\begin{enumerate}
+\item 第 1 行：初始化變數（N$=2$，F$=2$，ONE$=1$ 等）
+\item 第 2 行：檢查 N 是否超過 $100$，若是則跳至停止
+\item 第 3--8 行：逐一檢查 $2$ 到 $\sqrt{N}$ 的數字是否能整除 N
+\item 第 9 行：若沒有因子，印出 N（質數）
+\item 第 10--11 行：N 加 $1$，繼續迴圈
+\end{enumerate}
+
+直譯器讀入時沒有行號 token，變數區與各行指令用空白分開即可：
+
+\iosample{
+N = 2 F = 2 ONE = 1 TWO = 2 R = 0 S = 0 ZERO = 0 HUNDRED = 100 END \\
+IF N > HUNDRED GOTO 12 \\
+F = TWO + ZERO \\
+R = N \% F \\
+IF R == ZERO GOTO 10 \\
+F = F + ONE \\
+S = F * F \\
+IF S <= N GOTO 4 \\
+PRINT N \\
+N = N + ONE \\
+GOTO 2 \\
+STOP \\
+}{
+3 \\
+5 \\
+7 \\
+11 \\
+13 \\
+17 \\
+19 \\
+23 \\
+29 \\
+31 \\
+37 \\
+41 \\
+43 \\
+47 \\
+53 \\
+59 \\
+61 \\
+67 \\
+71 \\
+73 \\
+79 \\
+83 \\
+89 \\
+97 \\
+}
+
+起始時 \texttt{N} 與 \texttt{F} 都是 $2$，第 4 行算出
+\texttt{N \% F} 為 $0$，第 5 行就跳到第 10 行把 \texttt{N} 加 $1$，
+所以 $2$ 不會被印出來。 從 $3$ 開始，\texttt{F} 每次重設成 $2$，小
+於 \texttt{N} 的因子才會觸發那條跳轉。 輸出是 $3$ 到 $97$ 的質數。
+
+這個程式展示了直譯器需要處理的典型複雜度：
+\begin{itemize}
+\item \textbf{變數管理}：宣告、查詢、修改多個變數
+\item \textbf{字串解析}：用空白把一行拆成 token
+\item \textbf{字元查詢}：用 \texttt{strcmp} 匹配指令名稱
+\item \textbf{運算子解析}：識別 \texttt{+}、\texttt{-}、\texttt{*}、
+      \texttt{\%}、\texttt{>}、\texttt{<=}、\texttt{==} 等
+\item \textbf{控制流}：管理程式計數器、條件跳轉
+\end{itemize}
+
+\subsection[回頭指認：對照前面學過的內容]{回頭指認：這支程式用到前面哪幾節}
+
+讀完整支直譯器之後，可以對回本章的主軸：每一處都在遵守或利用字串那條
+約定。
+
+\begin{itemize}
+\item \texttt{varName} 是 \texttt{char varName[VAR][NAMELENGTH]}，矩
+      形陣列，真正存變數名字元；\texttt{varNameTable} 是
+      \texttt{char *varNameTable[VAR]}，鋸齒式指標陣列，每個元素指向
+      \texttt{varName} 的一列，最後用 \texttt{NULL} 收尾。 這就是第 6
+      節的兩種模式並存：矩形負責擁有記憶體，指標陣列負責查表。
+\item \texttt{find}、\texttt{findVariable}、\texttt{findOprCode} 都是
+      對一個 \texttt{NULL} 結尾的指標陣列做 \texttt{strcmp}，一個一個
+      比到命中為止。 這是第 5 節 \texttt{strcmp} 的手刻查表，沒有用雜
+      湊或更複雜的結構。
+\item 變數區與每一句指令都靠 \texttt{scanf("\%s", ...)} 讀下一個
+      token，空白當分隔。 這是第 3 節的讀法：\texttt{\%s} 讀到空白為
+      止。
+\item 所有函式簽名裡的 \texttt{char varName[][NAMELENGTH]}、
+      \texttt{char *varNameTable[]}，傳的都是起始位址。 \texttt{main}
+      準備好兩塊陣列，其餘函式只沿著指標讀寫，沒有回傳區域字串。 這
+      是第 7 節的傳遞方式。
+\end{itemize}
+
+直譯器示範了字串處理在編譯器與直譯器裡的角色：從源碼讀入、匹配指令、
+分割 token、查表，每一步都靠同一條約定：走到 NUL 就停，比內容用
+\texttt{strcmp}，傳的是位址而不是複本。
+
+\keypoint{矩形陣列存字元、指標陣列做查表、\texttt{strcmp} 逐一比對、
+\texttt{scanf("\%s")} 讀 token、函式之間只傳位址。 直譯器把本章每一節
+串在同一支程式裡。}
+
+\begin{drills}[label=drills:str-basic-interp]
+\item 質數程式跑到 \texttt{N = 2} 時，第 9 行的 \texttt{PRINT N} 有沒有
+執行？ 為什麼 $2$ 不會出現在輸出裡？
+\item 直譯器裡 \texttt{varName} 跟 \texttt{varNameTable} 各是矩形陣列還
+是鋸齒陣列？ 誰真正擁有字元的記憶體？
+\item \texttt{find}、\texttt{findVariable} 這類查表函式，靠哪個字串函
+式判斷有沒有找到？
+\end{drills}
+
+\addcontentsline{toc}{section}{練習解答}
+\section*{練習解答}
+
+各節練習的答案收在這裡。 短題只給能一句話核對的結果。
+
+\paragraph{第~\ref{sec:str-convention}~節}
+\begin{enumerate}
+\item \texttt{printf} 會從 \texttt{s[0]} 開始一路印，直到記憶體某處碰
+巧出現值為 $0$ 的位元組為止——可能印出垃圾字元，甚至讀過陣列邊界。
+\item NUL（\texttt{'\textbackslash 0'}）是值為 $0$ 的字元，標記字串結
+尾；NULL 是指標的哨兵值，表示不指向任何有效物件。
+\item 因為語言本身不檢查這個約定；\texttt{\%s} 只是往後走找 $0$，忘記
+放終止符仍然合法編譯，只是執行時行為不對。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:str-declare-storage}~節}
+\begin{enumerate}
+\item \texttt{p} 之後可以改指向別的字串（它是一個指標變數）；
+\texttt{arr} 之後可以改內容（它是自己擁有的、可寫入的陣列），但不能
+改指向。
+\item \texttt{sizeof(arr)} 得到 $6$（含最後的 NUL），\texttt{strlen(arr)}
+得到 $5$（不含 NUL，只算走到終止符前的字元數）。
+\item 用 \texttt{free} 把它還給系統，避免記憶體洩漏。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:str-io}~節}
+\begin{enumerate}
+\item 只會存到 \texttt{hello}：\texttt{\%s} 讀到空白就停。
+\item 因為沒有長度限制的 \texttt{scanf("\%s", str)}，若輸入超過緩衝區
+大小，會寫過陣列盡頭；加上長度限制（如 \texttt{\%99s}）能確保最多寫入
+99 個字元、留 1 格給 NUL。
+\item 通常還帶著換行字元 \texttt{'\textbackslash n'}；可以用
+\texttt{strchr} 找到它，改成 \texttt{'\textbackslash 0'} 去掉。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:str-diy-functions}~節}
+\begin{enumerate}
+\item 是同一件事；指標版迴圈用 \texttt{*s} 搭配 \texttt{s++}，改寫起來
+更直接。
+\item 因為賦值運算式的值就是被寫入的那個字元；複製到 NUL 時，NUL 本
+身（值為 $0$）被賦值、也被當成條件判斷，條件為假，迴圈自然結束。
+\item 不含最後的 NUL，只回傳走過的字元數。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:str-stdlib}~節}
+\begin{enumerate}
+\item $0$ 代表兩字串內容相同；負數代表 \texttt{s1} 字典序比 \texttt{s2}
+小。
+\item 回傳 \texttt{NULL}；用它之前要先檢查是否為 \texttt{NULL}，再解參
+考，否則會存取無效位址。
+\item 會：\texttt{strtok} 把分隔符位置改成 NUL，直接修改原字串；要保留
+原文，得先複製一份再對複本呼叫 \texttt{strtok}。
+\item \texttt{sprintf} 不檢查目的地大小，\texttt{snprintf} 多一個大小參
+數、不會寫過邊界；本節建議優先用 \texttt{snprintf} 是為了避免緩衝區溢
+出。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:str-array-rect-jagged}~節}
+\begin{enumerate}
+\item 固定的：每一列都是同樣的長度（這裡是 40）。
+\item \texttt{table[0] = "Anna";} 合法（改指向）；\texttt{table[0][0] =
+'a';} 若指向的是字面值，行為沒有保證，通常不安全。
+\item 鋸齒陣列通常比較省空間，因為每個字串只佔剛好夠用的長度，不會像
+矩形陣列那樣把短字串墊滿到固定寬度。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:str-pass-return}~節}
+\begin{enumerate}
+\item \texttt{buf} 是函式裡的區域陣列，函式一結束它在堆疊上的空間就失
+效；回傳的位址指向一塊已經失效的記憶體，之後讀取行為沒有保證。
+\item 把緩衝區位址（連同大小）傳進去，由呼叫端 \texttt{main} 準備空間，
+函式只負責寫入，不回傳指標。
+\item 安全，但下次呼叫會覆蓋上次的內容；連續呼叫兩次、把兩次的回傳指
+標都留著用，會發現兩個指標最後指向同一份、且是第二次呼叫的內容。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:str-pitfalls}~節}
+\begin{enumerate}
+\item 會寫過 \texttt{dest} 的邊界，造成緩衝區溢位；換成 \texttt{strncpy}
+之後，若來源字串跟緩衝區一樣長或更長，\texttt{strncpy} 可能不會自動補
+NUL，要自己在最後一格補上 \texttt{'\textbackslash 0'}。
+\item 因為 \texttt{strtok} 會把分隔符原地改成 NUL，直接修改傳進去的字
+串本身；要保留原文，得先用 \texttt{strcpy} 複製一份，再對複本呼叫
+\texttt{strtok}。
+\item 比較的是位址（兩個陣列的起始位址），不是內容；正確寫法要用
+\texttt{strcmp(s, "abc") == 0} 比較內容。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:str-basic-interp}~節}
+\begin{enumerate}
+\item 沒有執行：\texttt{N = 2} 時第 4 行算出 \texttt{N \% F} 為 $0$，
+第 5 行的 \texttt{IF R == ZERO GOTO 10} 成立，直接跳到第 10 行把 N 加
+1，第 9 行的 \texttt{PRINT} 被跳過。
+\item \texttt{varName} 是矩形陣列（\texttt{char varName[VAR][NAMELENGTH]}），
+真正擁有字元的記憶體；\texttt{varNameTable} 是鋸齒式指標陣列
+（\texttt{char *varNameTable[VAR]}），只是指向 \texttt{varName} 裡的
+某一列，不擁有記憶體。
+\item 靠 \texttt{strcmp}：對 \texttt{NULL} 結尾的指標陣列逐一比對，找
+到內容相同的字串就算命中。
+\end{enumerate}

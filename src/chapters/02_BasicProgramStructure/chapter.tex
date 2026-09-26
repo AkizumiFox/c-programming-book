@@ -1,0 +1,647 @@
+\chapter{基本程式架構}
+\label{ch:basicprogramstructure}
+
+第一章已經交代程式骨架、\texttt{gcc} 編譯流程，以及 \texttt{Hello,
+world!} 怎麼跑起來。 這一章不再重講 \texttt{\#include} 與前置處理／
+編譯／連結，直接從輸出與輸入的實務技巧接下去：資料怎麼透過
+\texttt{printf} 和 \texttt{scanf} 在程式與外界之間來回傳遞。
+
+這一章依四個階段推進：先把 \texttt{printf} 與換行講透，再一口氣搞懂變數
+的宣告與賦值，接著用 \texttt{scanf} 與回音程式確認輸入輸出的管子是通的，
+最後才處理多個數字的讀寫、補零格式與 \texttt{double}。 算式本身（加減
+乘除、整數除法怎麼截斷、什麼時候該用 \texttt{double} 做計算）留到下一
+章運算再集中處理；這裡的目標是讓讀者能獨立寫出讀一些整數或浮點數、依
+題目要求印出結果的程式骨架。
+
+\section{用 printf 輸出文字}
+\label{sec:basic-printf}
+
+要印出文字，我們在 \texttt{printf} 的格式字串裡寫想輸出的內容；一行一
+個 \texttt{printf}，就會一行一行印到螢幕上。
+
+\begin{code}{c}{連續印出多行文字}
+printf("first line\n");
+printf("second line\n");
+printf("third line\n");
+\end{code}
+
+格式字串用雙引號包起來；引號裡的內容會原樣輸出（除了 \texttt{\textbackslash n}
+這類跳脫字元）。 如果題目要求印出固定的英文句子、而且順序與換行都已
+經規定好，通常不需要變數，也不需要 \texttt{scanf}。 直接把句子寫進
+\texttt{printf} 即可。
+
+範例 \thechapter.2 依序印出三句英文；每一句各自一行，中間沒有多餘的
+空白行。
+
+\begin{example}{c}{(three-lines.c) 印出三句固定的英文}
+#include <stdio.h>
+
+int main(void) {
+    printf("This is a book.\n");
+    printf("It teaches C programming.\n");
+    printf("Read it carefully.\n");
+}
+\end{example}
+
+\iosample{}{
+This is a book. \\
+It teaches C programming. \\
+Read it carefully. \\
+}
+
+這種純輸出、無輸入的題目，檢查的重點往往是：大小寫、標點、以及每
+一行末尾有沒有照規定換行。 寫完之後用 \texttt{diff} 跟預期輸出比對，
+比用肉眼掃過更可靠。
+
+\texttt{printf} 印完一段文字之後，游標停在那段文字的右邊。 若立刻再
+印下一段，兩段會黏成一長串，中間沒有空白、也沒有換行。 範例
+\thechapter.3 連續印 \texttt{"17"} 和 \texttt{"29"}，螢幕上看到的是
+\texttt{1729}。 這只是兩次輸出拼在一起，跟數學上的 $1729$ 無關。
+
+\begin{example}{c}{(print-glued.c) 兩次 printf 中間沒有換行}
+#include <stdio.h>
+
+int main(void) {
+    printf("17");
+    printf("29");
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+1729 \\
+}
+
+補上 \texttt{\textbackslash n} 之後，每次印完都會把游標移到下一行，
+如範例 \thechapter.4。 這跟上一章印 \texttt{Hello, world!} 是同一
+件事。
+
+\begin{example}{c}{(print-two-lines.c) 每段文字印完後換行}
+#include <stdio.h>
+
+int main(void) {
+    printf("17\n");
+    printf("29\n");
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+17 \\
+29 \\
+}
+
+若希望兩段文字出現在同一行、中間用空白隔開，格式字串應寫成
+\texttt{"17 29\textbackslash n"}，空白是你自己放進字串裡的字元，編
+譯器不會自動插入。 題目範例輸出有幾個空白、最後有沒有換行，都要對
+著抄，不要看起來差不多就過關。
+
+\stylepoint{固定字串輸出題不需要宣告變數；把要求的文字原樣放進
+\texttt{printf}，並確認 \texttt{\textbackslash n} 的位置跟題目一致。
+需要換行就自己寫 \texttt{\textbackslash n}；螢幕上文字黏在一起，多半
+是上一次 \texttt{printf} 沒把游標移走。}
+
+\begin{drills}[label=drills:basic-printf]
+\item 連續執行 \texttt{printf("17");} 和 \texttt{printf("29");}（中間
+沒有 \texttt{\textbackslash n}），螢幕上會看到什麼？
+\item 要讓 \texttt{"17"} 和 \texttt{"29"} 印在同一行、中間隔一個空
+白，格式字串該怎麼寫？
+\item 範例 \thechapter.4（\texttt{print-two-lines.c}）印出兩行
+\texttt{17} 與 \texttt{29}，靠的是哪個字元？
+\end{drills}
+
+\section{變數與 int 型別}
+\label{sec:basic-int-vars}
+
+一旦題目說讀入一個整數，我們就需要地方暫存讀進來的值。
+\emph{變數}（variable）就是程式執行期間在記憶體裡保留的一格（或多格）
+空間，我們用名字（例如 \texttt{count}、\texttt{year}）存取它，型別
+（例如 \texttt{int}）決定這一格有多大、能存什麼範圍的整數。
+
+\begin{code}{c}{宣告整數變數}
+int x;
+\end{code}
+
+\texttt{int x;} 向編譯器申請一個名為 \texttt{x} 的整數變數。 在
+\texttt{main} 裡宣告的變數，生命週期只到 \texttt{main} 結束為止。 它
+們通常配置在\emph{堆疊}（stack）上：函式被呼叫時，區域變數依序在堆
+疊上開闢空間；函式返回時，這些空間一併回收。 現階段只要記住：變數名
+是給人讀的，編譯器真正關心的是在記憶體的哪裡、佔幾個位元組。
+
+每個變數可以想成同時帶著四件事：\emph{型別}（這一格能放什麼）、
+\emph{名字}（我們怎麼稱呼它）、\emph{值}（這一格目前存的內容）、以
+及\emph{位址}（它在記憶體裡的編號）。 \texttt{scanf} 需要的是位址，
+所以才會寫 \texttt{\&x}；\texttt{printf("\%d", x)} 需要的是值，所以
+寫 \texttt{x} 就夠。 把這兩種用途混在一起，是這一章後半最常見的錯。
+
+名字不是隨便取的。 C 的\emph{識別字}（identifier）只能由英文字母、
+數字和底線組成，而且不能以數字開頭；大小寫視為不同，所以
+\texttt{sum} 和 \texttt{Sum} 是兩個變數。 有些單字被語言保留當關鍵
+字（\texttt{int}、\texttt{return}、\texttt{if}），不能拿來當變數
+名。 取名時優先用看得懂的字：\texttt{score}、\texttt{year} 比
+\texttt{a1}、\texttt{tmp2} 更容易在除錯時對上號。 C 程式常見兩種風
+格：小寫加底線 \texttt{student\_score}，或駝峰式 \texttt{studentScore}；
+兩種都可以，重點是同一支程式裡保持一致，不要讓 \texttt{a}、
+\texttt{b}、\texttt{c} 滿天飛。
+
+\begin{center}
+\begin{tikzpicture}
+    \node[cell] (v) {?};
+    \node[idxlbl, left=3mm of v] (name) {\texttt{x}};
+    \node[idxlbl, right=3mm of v, align=left] (note) {尚未賦值};
+\end{tikzpicture}
+\diagcaption{變數 \texttt{x} 在概念上可以想成記憶體裡的一格；宣告後、
+\texttt{scanf} 或賦值之前，內容是未定義的，不該拿來做計算。}
+\label{fig:ch02-variable-box}
+\end{center}
+
+\keypoint{\texttt{int} 用來存整數；變數必須先宣告型別和名字，才能被
+\texttt{scanf} 寫入或在運算式中使用。}
+
+\stylepoint{變數名要讓人看得懂用途；\texttt{student\_score} 或
+\texttt{studentScore} 都比 \texttt{a} 好維護。同一支程式裡選一種命名
+風格並保持一致。}
+
+\begin{drills}[label=drills:basic-int-vars]
+\item 一個變數同時帶著哪四件事？ \texttt{scanf} 需要用到其中哪一個？
+\item \texttt{int x;} 宣告完、還沒賦值之前，\texttt{x} 裡面是什麼？ 這
+時候可以直接拿去 \texttt{printf} 嗎？
+\item \texttt{Sum} 和 \texttt{sum} 是不是同一個變數？ 為什麼？
+\end{drills}
+
+\section{初始化與賦值}
+\label{sec:basic-init-assign}
+
+宣告變數之後，我們得把值寫進去，程式才有明確的狀態可以運作。 一個好
+習慣是在宣告的當下就指定初值，讓讀程式的人一眼看出起始狀態，也避免
+沒賦值就拿來計算的模糊情況。 在較複雜的程式裡，每個變數一開始都有
+確定的值，除錯時也比較少追蹤到莫名其妙的殘留內容。
+
+\begin{code}{c}{宣告並初始化}
+int count = 0;
+int year = 2024;
+\end{code}
+
+這段程式一邊宣告變數 \texttt{count}，一邊把它設為 $0$；\texttt{year}
+則一開始就有 $2024$ 這個明確的值。 等號在這裡代表賦值：把右邊的值
+寫進左邊的變數，可以想成一支向左的箭頭。 \texttt{int n = 42;} 就是
+在宣告的當下就給初值；也可以先宣告、稍後再用賦值敘述改它的內容。
+
+\begin{code}{c}{先宣告，再把值寫進變數}
+int n;
+n = 42;
+\end{code}
+
+如果有幾個用途相近的變數（例如同樣是迴圈用的索引、或同一組座標），
+可以在同一行內一起宣告，只要型別一致即可：
+
+\begin{code}{c}{一行宣告多個變數}
+int i, j, k;
+\end{code}
+
+也可以在宣告時一併給初值：
+
+\begin{code}{c}{宣告並初始化多個變數}
+int a = 1, b = 2, c = 3;
+\end{code}
+
+範例 \thechapter.10 把宣告與初值合成一個完整程式：宣告 \texttt{answer}、
+立刻給初值、再用 \texttt{\%d} 印出來。 \texttt{\%d} 的 \texttt{d} 表
+示十進位（decimal）；後面那個參數必須是整數值，不是位址。
+
+\begin{example}{c}{(show-answer.c) 設定整數並印出}
+#include <stdio.h>
+
+int main(void) {
+    int answer = 42;
+    printf("%d\n", answer);
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+42 \\
+}
+
+同一個意思也可以拆成先空宣告、再賦值，如範例 \thechapter.11。 執行
+結果一樣是 $42$。 兩種寫法編譯器都收；初值在宣告時就寫下，比較
+不容易忘記。 若宣告了卻既不初始化、也不賦值，就拿去 \texttt{printf}，
+那一格裡可能是殘留的任意位元；後面會看到編譯器對這件事的警告。
+
+\begin{example}{c}{(assign-later.c) 宣告與賦值分成兩步}
+#include <stdio.h>
+
+int main(void) {
+    int n;
+    n = 42;
+    printf("%d\n", n);
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+42 \\
+}
+
+在這台機器上，\texttt{sizeof(int)} 的結果是 $4$，也就是一個
+\texttt{int} 佔四個位元組（三十二個位元）。 這不是語言保證的唯一可
+能；別的平臺上 \texttt{int} 可能更寬或更窄。 現階段只要有這個數量級
+的感覺：它不是無限大的整數，太大的數字之後會在運算那一章碰到溢
+位。
+
+\keypoint{賦值是把右邊的值寫進左邊的變數。 宣告時給初值，或宣告
+後再賦值，都可以；拿尚未寫入的變數去做計算，結果沒有保證。}
+
+\stylepoint{相似用途的變數可以放在一起宣告，增加可讀性。寫作時盡量讓
+名字和分組呈現變數之間的邏輯關係。}
+
+\begin{drills}[label=drills:basic-init-assign]
+\item \texttt{int n; n = 42;} 跟 \texttt{int n = 42;}，兩者最後
+\texttt{n} 的值一樣嗎？
+\item 宣告了 \texttt{int x;} 卻沒有初始化、也沒有賦值，就直接拿去
+\texttt{printf}，這樣安全嗎？
+\item 把 \texttt{int a, b, c;} 改成一行內就給三個初值，該怎麼寫？
+\end{drills}
+
+\section{用 scanf 讀入整數}
+\label{sec:basic-scanf}
+
+C 語言用 \texttt{scanf} 從標準輸入讀資料。 讀一個整數的典型寫法是：
+
+\begin{code}{c}{讀入一個 int 並存進變數 x}
+int x;
+scanf("%d", &x);
+\end{code}
+
+格式字串 \texttt{"\%d"} 表示期待一個十進位整數；第二個參數必須是
+變數的\emph{位址}，所以變數名前面要加 \texttt{\&}（取址運算子）。 可以
+把 \texttt{\&x} 理解成請把讀到的值寫進 \texttt{x} 在記憶體裡的那一格。
+\texttt{scanf} 需要知道寫到哪裡，光給變數名而不給位址是不夠的。
+
+上一節學 \texttt{printf} 時，我們在格式字串裡用 \texttt{\textbackslash n}
+控制換行。 讀入時不要照抄這個習慣：\texttt{scanf("\%d\textbackslash n",
+\&n)} 是常見的地雷。 格式字串裡的空白字元（包含 \texttt{\textbackslash n}）
+會一直跳過輸入裡的空白，直到看見下一個非空白字元為止；若你在讀完整數
+後多寫了 \texttt{\textbackslash n}，程式可能看起來像卡住，等你在鍵盤
+上多按一次才繼續。 讀整數用 \texttt{"\%d"} 就夠；換行留給 \texttt{printf}
+去處理。
+
+\keypoint{\texttt{scanf} 讀 \texttt{int} 時，格式用 \texttt{\%d}，參
+數必須是 \texttt{\&變數名}；漏寫 \texttt{\&} 是初學者最常見、也最危險
+的錯誤之一，可能導致程式寫壞記憶體。格式字串裡不要加 \texttt{\textbackslash n}。}
+
+\begin{drills}[label=drills:basic-scanf]
+\item 讀一個 \texttt{int} 變數 \texttt{n}，\texttt{scanf} 的格式字串
+該寫成什麼？參數該怎麼寫？
+\item \texttt{scanf("\%d\textbackslash n", \&n)} 這樣寫，可能會讓程式
+看起來像卡住，為什麼？
+\item \texttt{scanf} 的第二個參數為什麼一定要是變數的位址（加
+\texttt{\&}），不能直接寫變數名？
+\end{drills}
+
+\section{回音程式：讀進來再原樣印出}
+\label{sec:basic-echo}
+
+真正解題時，數字來自標準輸入。 最小的完整迴路是：宣告、\texttt{scanf}
+寫入、\texttt{printf} 讀出。 範例 \thechapter.13 什麼都不算，只把讀
+到的整數印回去。 看起來無聊，卻最能確認輸入輸出這條管子是通的。 若
+連回音都印錯，問題在格式字串或 \texttt{\&}，不必先懷疑後面的算式。
+
+\begin{example}{c}{(echo-int.c) 讀入一個整數再印出}
+#include <stdio.h>
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+    printf("%d\n", n);
+    return 0;
+}
+\end{example}
+
+\iosample{
+100 \\
+}{
+100 \\
+}
+
+執行順序必須是：先有變數、再讀入、最後印出。 顛倒成先 \texttt{printf}
+再 \texttt{scanf}，印出來的會是尚未寫入的內容；先 \texttt{scanf} 卻
+漏掉 \texttt{\&}，則是請 \texttt{scanf} 把整數寫到一個不像位址的地
+方。
+
+管子通了之後，就可以接上一點簡單的計算。 範例 \thechapter.14 讀入兩
+個整數，把它們相加後印出。 這是讀入 $\to$ 計算 $\to$ 輸出三段式程
+式的最小完整版本：中間的加法本身很簡單，重點在於 \texttt{scanf} 與
+\texttt{printf} 的配對是否正確；算式的細節留到下一章再展開。
+
+\begin{example}{c}{(sum-two.c) 讀入兩個整數並輸出總和}
+#include <stdio.h>
+
+int main(void) {
+    int a, b;
+    scanf("%d %d", &a, &b);
+
+    printf("%d\n", a + b);
+}
+\end{example}
+
+\iosample{
+3 7 \\
+}{
+10 \\
+}
+
+以這份輸入為例：\texttt{scanf} 依空白分隔讀到 \texttt{a = 3}、
+\texttt{b = 7}，\texttt{printf} 印出 \texttt{a + b = 10}。 格式字串
+\texttt{"\%d\textbackslash n"} 裡的 \texttt{\%d} 會被替換成整數值；
+我們只放一個 \texttt{\%d}，所以輸出只有數字本身加換行。
+
+我們在這台機器上用 \texttt{gcc -Wall} 編譯過一份漏寫 \texttt{\&}
+的程式：\texttt{scanf("\%d", n)}。 編譯器提出兩則警告，大意是格式
+期待 \texttt{int *}（指向整數的位址），實際卻收到 \texttt{int}，而
+且 \texttt{n} 在呼叫當下還未初始化。 警告沒有阻止產生執行檔，但這
+種程式執行期可能寫壞別的記憶體，屬於上一章說的執行期錯誤的近親。
+\textbf{看到格式與型別不符的警告，先改到警告消失，再談答案對不對。}
+
+同一個編譯器對宣告了 \texttt{int n;} 卻直接 \texttt{printf("\%d",
+n)} 也會警告 \texttt{variable 'n' is uninitialized when used
+here}，並建議寫 \texttt{= 0}。 初始化成 $0$ 能讓警告消失，但不表示
+$0$ 就是題目要的值。 它只是一個確定的值。 該從鍵盤讀的，還是得
+\texttt{scanf}。
+
+\keypoint{\texttt{printf} 用變數的值，\texttt{scanf} 用變數的位址。
+\texttt{-Wall} 對漏寫 \texttt{\&}、以及使用未初始化變數，通常會先
+喊一聲；那一聲值得當成錯誤來修。}
+
+\begin{drills}[label=drills:basic-echo]
+\item 為什麼要先宣告變數、再 \texttt{scanf}、最後才 \texttt{printf}，
+順序顛倒會怎樣？
+\item 範例 \thechapter.14（\texttt{sum-two.c}）輸入 \texttt{3 7}，會
+印出什麼？
+\item \texttt{scanf("\%d", n)}（漏寫 \texttt{\&}）編譯時，\texttt{gcc
+-Wall} 通常會給什麼樣的警告？
+\end{drills}
+
+\section{讀取多個值與調整輸出格式}
+\label{sec:basic-multi-read}
+
+題目有時要求分多行讀入，或在同一行讀入多個數字但輸出順序不同。 兩種
+常見片語如下：
+
+\begin{code}{c}{同一行讀入兩個整數}
+scanf("%d %d", &a, &b);
+\end{code}
+
+\begin{code}{c}{分三次各讀一個整數}
+scanf("%d", &a);
+scanf("%d", &b);
+scanf("%d", &c);
+\end{code}
+
+同一行的 \texttt{"\%d \%d"} 會跳過中間的空白字元；分三次 \texttt{scanf}
+則是每次讀到下一個整數為止。 兩者都能處理一行多個數字或每行一
+個數字的輸入，但程式可讀性上，若題目明確說一行兩個整數，用一
+次 \texttt{scanf} 讀齊通常比較清楚。
+
+範例 \thechapter.17 讀入兩個整數，但輸出時先印第二個、再印第一個。 
+只需要交換 \texttt{printf} 裡的變數順序，不需要真的交換變數的值。
+
+\begin{example}{c}{(swap-two.c) 讀入兩個整數並以相反順序輸出}
+#include <stdio.h>
+
+int main(void) {
+    int a, b;
+    scanf("%d %d", &a, &b);
+
+    printf("%d %d\n", b, a);
+}
+\end{example}
+
+\iosample{
+3 7 \\
+}{
+7 3 \\
+}
+
+範例 \thechapter.18 則示範分三次讀入三個整數：每次 \texttt{scanf} 各處
+理一個 \texttt{\%d}，適合題目把三個數字分成三行給定的情況。
+
+\begin{example}{c}{(read-three-sum.c) 分三次讀入三個整數}
+#include <stdio.h>
+
+int main(void) {
+    int a, b, c;
+    scanf("%d", &a);
+    scanf("%d", &b);
+    scanf("%d", &c);
+
+    printf("%d\n", a + b + c);
+}
+\end{example}
+
+\iosample{
+1 \\
+2 \\
+3 \\
+}{
+6 \\
+}
+
+\stylepoint{輸出多個以空白分隔的整數時，格式字串寫成
+\texttt{"\%d \%d\textbackslash n"}；最後一個數字後面要不要空白，要
+對照題目範例輸出，不要自己多加。}
+
+\begin{drills}[label=drills:basic-multi-read]
+\item 用一次 \texttt{scanf("\%d \%d", \&a, \&b)} 跟分兩次
+\texttt{scanf("\%d", \&a); scanf("\%d", \&b);}，讀到的結果一樣嗎？
+\item 範例 \thechapter.17（\texttt{swap-two.c}）輸入 \texttt{3 7}，
+輸出是什麼？靠的是交換變數的值，還是交換 \texttt{printf} 裡的順序？
+\item 若題目把三個整數分三行給，該用一次 \texttt{scanf} 還是三次？
+\end{drills}
+
+\section{printf 的寬度與補零}
+\label{sec:basic-width-padding}
+
+除了 \texttt{\%d}，\texttt{printf} 還可以在 \texttt{\%} 與轉換字元之間
+插入\emph{寬度}，控制至少印出幾個字元；寬度前面再加 \texttt{0}，不足
+的部分會用前導零補齊，而不是空白。
+
+\begin{code}{c}{將整數以至少 5 位數輸出，不足補零}
+printf("%05d\n", id);
+\end{code}
+
+\texttt{\%05d} 裡的 \texttt{5} 是最小欄寬，\texttt{0} 表示用零補位。
+例如 \texttt{id = 42} 只佔兩位，輸出會變成 \texttt{00042}。 若數字本
+身已超過五位（例如 \texttt{123456}），不會被截斷，會完整印出六位。
+
+範例 \thechapter.20 讀入一個學號或編號，依題目要求補零成五位。
+
+\begin{example}{c}{(padded-id.c) 將整數補零成五位輸出}
+#include <stdio.h>
+
+int main(void) {
+    int id;
+    scanf("%d", &id);
+
+    printf("%05d\n", id);
+}
+\end{example}
+
+\iosample{
+42 \\
+}{
+00042 \\
+}
+
+這種格式控制在處理固定長度的數字編碼時很常見。 例如日期裡的月
+分、流水號。 算式怎麼從整數裡拆出各位數字，則屬於下一章的除法與餘數
+技巧；這裡只處理已知一個整數，要怎麼漂亮地印出來。
+
+\keypoint{\texttt{\%05d} 的 \texttt{0} 是補零旗標，\texttt{5} 是
+最小寬度；兩者缺一不可，\texttt{\%5d} 只會用空白補位。}
+
+\begin{drills}[label=drills:basic-width-padding]
+\item \texttt{printf("\%05d\textbackslash n", 42);} 會印出什麼？
+\item 若 \texttt{id = 123456}（超過 5 位數），\texttt{\%05d} 會把它
+截斷成 5 位嗎？
+\item \texttt{\%5d}（沒有前導 \texttt{0}）跟 \texttt{\%05d}，不足位數
+時分別用什麼字元補齊？
+\end{drills}
+
+\section{double 型別與浮點輸入輸出}
+\label{sec:basic-double}
+
+有些輸出需要小數點（例如金額），這時候整數型別不夠用，要改用
+\texttt{double}（雙精度浮點數）。 讀寫 \texttt{double} 時，格式字串
+跟 \texttt{int} 不同：
+
+\begin{code}{c}{讀入 double 並印到小數點後兩位}
+double x;
+scanf("%lf", &x);
+printf("%.2f\n", x);
+\end{code}
+
+\texttt{scanf} 讀 \texttt{double} 必須用 \texttt{\%lf}（這裡的
+\texttt{l} 代表 \texttt{long double} 家族，對 \texttt{double} 就是正
+確的格式）；\texttt{printf} 印 \texttt{double} 則用 \texttt{\%f} 就
+夠。 這是 C 語言留下來的不對稱寫法，之後浮點數那一章還會再從記憶體
+表示的角度細講。
+
+範例 \thechapter.22 讀入一個浮點數，四捨五入到小數點後兩位輸出。 這
+裡的重點是 \texttt{\%lf}/\texttt{\%.2f} 的配對；至於整數分鐘換算
+成含小數的元這類題目，分子該除以 \texttt{100.0} 還是 \texttt{100}，
+則留到下一章討論型別轉換。
+
+\begin{example}{c}{(read-double-print.c) 讀入浮點數並印出兩位小數}
+#include <stdio.h>
+
+int main(void) {
+    double price;
+    scanf("%lf", &price);
+
+    printf("%.2f\n", price);
+}
+\end{example}
+
+\iosample{
+3.14159 \\
+}{
+3.14 \\
+}
+
+\texttt{\%.2f} 裡的 \texttt{.2} 表示小數位數；編譯器會做四捨五入。 若
+不指定小數位數，\texttt{\%f} 預設常印出六位小數，對很多題目來說既冗
+長又可能暴露浮點誤差。 養成依題目要求寫 \texttt{\%.Nf} 的習慣，可以少
+掉不少格式不符的錯誤。
+
+\stylepoint{讀 \texttt{double} 用 \texttt{\%lf}，印 \texttt{double} 用
+\texttt{\%f} 或 \texttt{\%.Nf}；不要把 \texttt{scanf} 的格式直接套到
+\texttt{printf} 上。}
+
+C 對標點幾乎沒有容錯：少一個分號、括號不成對、字串少關一個直引號，
+編譯器就無法確定你想表達什麼。 上一章的 \texttt{Hello, world!} 已經
+示範過分號；這一章開始，每一個 \texttt{\%}、\texttt{\&}、逗號、雙引
+號都各自有職務，不要把它們當成裝飾。 下一章會把加、減、乘、除、以
+及整數除法的截斷，接到這個骨架上。 輸入輸出的管子先通，算式才有
+地方可放。
+
+\begin{drills}[label=drills:basic-double]
+\item \texttt{scanf} 讀 \texttt{double} 用什麼格式？\texttt{printf}
+印 \texttt{double} 用什麼格式？兩者一樣嗎？
+\item \texttt{printf("\%.2f\textbackslash n", 3.14159);} 會印出什麼？
+\item 若不指定小數位數，直接用 \texttt{\%f}，通常會印出幾位小數？
+\end{drills}
+
+\addcontentsline{toc}{section}{練習解答}
+\section*{練習解答}
+
+各節練習的答案收在這裡。 短題只給能一句話核對的結果。
+
+\paragraph{第~\ref{sec:basic-printf}~節}
+\begin{enumerate}
+\item \texttt{1729}：兩次輸出直接黏在一起，中間沒有空白也沒有換行。
+\item \texttt{"17 29\textbackslash n"}——空白要自己放進格式字串裡，
+編譯器不會自動加。
+\item \texttt{\textbackslash n}（換行字元）。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:basic-int-vars}~節}
+\begin{enumerate}
+\item 型別、名字、值、位址；\texttt{scanf} 需要的是位址，所以要寫
+\texttt{\&x}。
+\item 內容不確定（殘留值）；不該直接拿去 \texttt{printf}，結果沒有保
+證。
+\item 不是同一個變數。 C 的識別字大小寫視為不同。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:basic-init-assign}~節}
+\begin{enumerate}
+\item 一樣，最後 \texttt{n} 都是 \texttt{42}。
+\item 不安全。 未初始化、未賦值的變數內容是不確定的殘留值，不該直接
+使用。
+\item \texttt{int a = 1, b = 2, c = 3;}
+\end{enumerate}
+
+\paragraph{第~\ref{sec:basic-scanf}~節}
+\begin{enumerate}
+\item \texttt{scanf("\%d", \&n);}
+\item 因為 \texttt{scanf} 格式字串裡的空白（含 \texttt{\textbackslash
+n}）會一直跳過輸入裡的空白字元，直到遇到下一個非空白字元；多打的
+\texttt{\textbackslash n} 會讓程式等使用者多輸入一次才繼續。
+\item 因為 \texttt{scanf} 需要知道要把讀到的值\emph{寫到哪裡}（位
+址），只給變數名（值）它無從得知該寫進哪一格記憶體。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:basic-echo}~節}
+\begin{enumerate}
+\item 因為要先有變數才能讀入，要先讀入才有值可印；顛倒的話，
+\texttt{printf} 會印出尚未寫入的內容，或 \texttt{scanf} 沒有地方可
+存。
+\item \texttt{10}（\texttt{3 + 7}）。
+\item 格式期待 \texttt{int *}（位址）卻收到 \texttt{int}（值），並提
+醒 \texttt{n} 在呼叫時尚未初始化。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:basic-multi-read}~節}
+\begin{enumerate}
+\item 一樣：兩種寫法都能把兩個以空白（或換行）分隔的整數分別讀進
+\texttt{a}、\texttt{b}。
+\item 輸出 \texttt{7 3}；靠的是交換 \texttt{printf} 裡兩個變數的順
+序，值本身沒有互換。
+\item 分三次 \texttt{scanf("\%d", ...)}，每次讀一個。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:basic-width-padding}~節}
+\begin{enumerate}
+\item \texttt{00042}。
+\item 不會截斷，會完整印出 \texttt{123456}（六位）。
+\item \texttt{\%5d} 用空白補位；\texttt{\%05d} 用 \texttt{0} 補位。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:basic-double}~節}
+\begin{enumerate}
+\item 不一樣：\texttt{scanf} 讀 \texttt{double} 要用 \texttt{\%lf}，
+\texttt{printf} 印則用 \texttt{\%f}（或 \texttt{\%.Nf}）。
+\item \texttt{3.14}。
+\item 預設通常印出六位小數。
+\end{enumerate}

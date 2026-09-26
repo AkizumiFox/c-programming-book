@@ -1,0 +1,1032 @@
+% 變更摘要
+% - 第四輪：解讀複雜宣告整節（含原陷阱 6／現陷阱 5）併回本章
+% - 格式指定符只留 signed/unsigned 節一張總表
+% - const：三種指標之後立刻接跨檔兩種寫法；volatile 等改選讀
+% - static：用 print-stars.c 開場，再定義 scope / linkage / duration
+% - 陷阱：1 格式、2 有號無號、3 靜默溢位、4 未初始化、5 巢狀 const
+% - UB 統一：未定義行為：…這裡印出的數字只是這次編譯的結果…
+% TODO(future-chapter): malloc/free/calloc/VLA
+% TODO(future-chapter): struct/union/enum 語法
+% TODO(future-chapter): 標頭檔保護、makefile、static/dynamic linking、ABI
+% TODO(future-chapter): inline 函式
+
+\chapter{宣告修飾}
+\label{ch:declarationmodifiers}
+
+整數型別不只有 \texttt{int}。 C 提供了 \texttt{short}、\texttt{long}、
+\texttt{long long}、\texttt{signed}、\texttt{unsigned} 等修飾符，讓我們
+依範圍與正負選擇型別。 同一套宣告語法也決定變數能不能改
+（\texttt{const}）、能活多久、誰看得到（\texttt{static}），以及一串
+\texttt{*}、\texttt{[]}、\texttt{()} 該從哪裡讀起。 這一章先把整數家
+族、限定符與儲存類別講清楚，再用同一套規則讀複雜宣告；讀完可以去結
+構。
+
+\section{short、long 及 long long}
+\label{sec:decl-int-sizes}
+
+\subsection{位元組數與範圍}
+
+\begin{code}{c}{整數型別的大小}
+#include <stdio.h>
+#include <limits.h>
+
+int main(void) {
+    printf("short: %zu bytes, range [%d, %d]\n",
+           sizeof(short), SHRT_MIN, SHRT_MAX);
+    printf("int: %zu bytes, range [%d, %d]\n",
+           sizeof(int), INT_MIN, INT_MAX);
+    printf("long: %zu bytes, range [%ld, %ld]\n",
+           sizeof(long), LONG_MIN, LONG_MAX);
+    printf("long long: %zu bytes, range [%lld, %lld]\n",
+           sizeof(long long), LLONG_MIN, LLONG_MAX);
+}
+\end{code}
+
+典型的大小：
+\begin{itemize}
+\item \texttt{short}：2 位元組（$-32768$ 到 $32767$）
+\item \texttt{int}：4 位元組（約 $-2.1 \times 10^9$ 到 $2.1 \times 10^9$）
+\item \texttt{long}：4 或 8 位元組（取決於架構）
+\item \texttt{long long}：8 位元組（約 $-9.2 \times 10^{18}$ 到 $9.2 \times 10^{18}$）
+\end{itemize}
+
+對應的 \texttt{printf} 格式指定符（含無號與八進位）見下一節總表。
+
+\subsection{溢位}
+
+當變數超過其型別的最大值時發生溢位。 帶符號整數加過上限，在許多機器上
+會繞回最小負數，但標準把這件事標成未定義行為：編譯器可以環繞、可以刪
+掉檢查、也可以做別的事。 無符號整數溢位才有保證，結果是模 $2^n$ 的環
+繞。 完整的檢查寫法見後文 \texttt{stdint.h} 那一節。
+
+上面是概念描述，實際跑起來長什麼樣子，看下面這個對照：
+
+\begin{example}{c}{(int-overflow.c) 帶符號與無符號溢位的差別}
+#include <stdio.h>
+#include <limits.h>
+
+int main(void) {
+    int i = INT_MAX;
+    printf("INT_MAX = %d\n", i);
+    i = i + 1;
+    printf("INT_MAX + 1 = %d\n", i);
+
+    unsigned int u = UINT_MAX;
+    printf("UINT_MAX = %u\n", u);
+    u = u + 1;
+    printf("UINT_MAX + 1 = %u\n", u);
+}
+\end{example}
+
+\iosample{
+}{
+INT\_MAX = 2147483647 \\
+INT\_MAX + 1 = -2147483648 \\
+UINT\_MAX = 4294967295 \\
+UINT\_MAX + 1 = 0 \\
+}
+
+\keypoint{未定義行為：帶符號整數溢位。 這裡印出的數字只是這次編譯的結
+果，換機器或最佳化層級不必相同。}
+
+前兩行是帶符號溢位：依標準，\texttt{i + 1} 的結果不受保護。 這裡印出的
+\texttt{-2147483648} 只是這台機器、這個編譯器當下剛好呈現的一種可能。
+後兩行是無符號溢位：\texttt{u + 1} 保證環繞成 $0$，這是標準明文規定的
+行為，換編譯器也一樣。
+
+\begin{drills}[label=drills:decl-int-sizes]
+\item \texttt{short} 通常佔幾個位元組？範圍大約是多少？
+\item \texttt{INT\_MAX + 1} 在這台機器上實際印出什麼？這個結果是標準
+保證的行為嗎？
+\item \texttt{UINT\_MAX + 1} 標準怎麼規定？跟帶符號溢位的差別在哪？
+\end{drills}
+
+\section{signed 及 unsigned}
+\label{sec:decl-signed-unsigned}
+
+\texttt{signed} 和 \texttt{unsigned} 修飾符決定整數是否表示負數。
+
+\subsection{帶符號整數}
+
+\begin{code}{c}{帶符號整數（預設）}
+signed int si = -42;
+int i = -42;             // default is signed
+\end{code}
+
+範圍：$-2^{n-1}$ 到 $2^{n-1} - 1$（其中 $n$ 是位元數）。
+
+\subsection{無符號整數}
+
+\begin{code}{c}{無符號整數}
+unsigned int ui = 42;
+unsigned short us = 1000;
+unsigned long ul = 100000;
+unsigned long long ull = 10000000000ULL;
+\end{code}
+
+範圍：$0$ 到 $2^n - 1$。
+
+\subsection{格式指定符總表}
+
+把短／長／有號／無號放進同一張表，寫 \texttt{printf} 時可以直接查：
+
+\begin{center}
+\begin{tabular}{|l|l|l|l|}
+\hline
+\textbf{型別} & \textbf{十進位} & \textbf{十六進位} & \textbf{八進位} \\
+\hline
+\texttt{short} & \texttt{\%hd} & \texttt{\%hx} & \texttt{\%ho} \\
+\texttt{int} & \texttt{\%d} & \texttt{\%x} & \texttt{\%o} \\
+\texttt{long} & \texttt{\%ld} & \texttt{\%lx} & \texttt{\%lo} \\
+\texttt{long long} & \texttt{\%lld} & \texttt{\%llx} & \texttt{\%llo} \\
+\texttt{unsigned short} & \texttt{\%hu} & \texttt{\%hx} & \texttt{\%ho} \\
+\texttt{unsigned int} & \texttt{\%u} & \texttt{\%x} & \texttt{\%o} \\
+\texttt{unsigned long} & \texttt{\%lu} & \texttt{\%lx} & \texttt{\%lo} \\
+\texttt{unsigned long long} & \texttt{\%llu} & \texttt{\%llx} & \texttt{\%llo} \\
+\hline
+\end{tabular}
+\end{center}
+
+\texttt{\%x} 與 \texttt{\%o} 不分有號無號，一律把底下的位元當無號數排
+版；印一個負數的十六進位，看到的是它的補數表示法。
+
+\keypoint{\texttt{unsigned} 的 \texttt{printf} 格式是 \texttt{\%u}，
+寫成 \texttt{\%d} 會依有號解讀同一串位元，印出來的數字就錯了。 格式與
+引數型別不符本身是未定義行為，細節見後文陷阱 1。}
+
+\begin{drills}[label=drills:decl-signed-unsigned]
+\item \texttt{unsigned int} 的範圍是多少？ 跟 \texttt{signed int} 的範
+圍差在哪裡？
+\item 用 \texttt{\%d} 印一個 \texttt{unsigned int} 變數，可能出什麼問
+題？ 該用哪個格式指定符？
+\item \texttt{\%x} 和 \texttt{\%o} 會不會區分有號無號？ 印一個負數的十
+六進位，看到的其實是什麼？
+\end{drills}
+
+% 合併原 C99 與 stdint 兩節；完整溢位檢查只留 overflow-check.c
+\section{C99 與 stdint.h}
+\label{sec:decl-stdint}
+
+C99 用 \texttt{stdint.h} 給出固定寬度的整數型別，跨平臺時大小與範圍相
+同。
+
+\subsection{固定寬度型別}
+
+\begin{code}{c}{stdint.h 的固定寬度型別}
+#include <stdint.h>
+
+int8_t i8 = 127;
+int16_t i16 = 32767;
+int32_t i32 = 2147483647;
+int64_t i64 = 9223372036854775807LL;
+
+uint8_t u8 = 255;
+uint16_t u16 = 65535;
+uint32_t u32 = 4294967295U;
+uint64_t u64 = 18446744073709551615ULL;
+\end{code}
+
+同一個標頭還提供至少 $N$ 位的 \texttt{int\_leastN\_t}、實作上較快的
+\texttt{int\_fastN\_t}，以及裝得下指標的 \texttt{intptr\_t}／
+\texttt{uintptr\_t}。 對應的上下界是 \texttt{INT32\_MAX}、
+\texttt{UINT32\_MAX} 這類巨集；\texttt{printf} 可用
+\texttt{PRId32}、\texttt{PRIu32} 對準格式。
+
+\subsection{整數提升}
+
+較窄的整數一旦走進運算式，會先被提升成較寬的型別，這叫 integral
+promotion。 引數傳進沒有原型、或傳進 \texttt{printf} 這種可變引數函式
+時，同樣會提升：所以 \texttt{printf("\%d", short\_var)} 能動，實際送進
+去的是 \texttt{int}。
+
+\begin{center}
+\begin{tabular}{|l|l|}
+\hline
+\textbf{出現在運算式裡的型別} & \textbf{提升後} \\
+\hline
+\texttt{char}、\texttt{signed char}、\texttt{unsigned char} &
+\texttt{int} \\
+\texttt{short} & \texttt{int} \\
+\texttt{unsigned short} & \texttt{int}（裝得下時） \\
+\texttt{float}（舊式／無原型引數） & \texttt{double} \\
+\hline
+\end{tabular}
+\end{center}
+
+\texttt{unsigned short} 若裝不進 \texttt{int}，才升成
+\texttt{unsigned int}。 \texttt{float} 那一行只適用舊式引數傳遞；兩個
+\texttt{float} 相加，在有原型的現代 C 裡仍是 \texttt{float}。 提升之後
+若兩邊型別還不同，再走 usual arithmetic conversions：有號與無號
+\texttt{int} 一起比較時，有號那邊會轉成無號。 這就是後文陷阱 2 的根
+源。
+
+\keypoint{較窄的整數先提升，再跟另一個運算元對齊。
+\texttt{int} 碰上 \texttt{unsigned int} 時，是有號轉成無號。}
+
+提升只發生在運算的當下，存回窄型別變數時又是另一回事：
+
+\begin{example}{c}{(promotion-surprise.c) 提升與窄化是兩個不同的步驟}
+#include <stdio.h>
+
+int main(void) {
+    unsigned char a = 200;
+    unsigned char b = 100;
+    unsigned char c = a + b;
+
+    printf("a + b 存回 unsigned char = %u\n", c);
+    printf("a + b 這個運算式的大小 = %zu bytes\n", sizeof(a + b));
+}
+\end{example}
+
+\iosample{
+}{
+a + b 存回 unsigned char = 44 \\
+a + b 這個運算式的大小 = 4 bytes \\
+}
+
+\texttt{a} 和 \texttt{b} 相加前都先提升成 \texttt{int}，所以
+\texttt{a + b} 這個運算式本身的型別是 \texttt{int}（\texttt{sizeof} 量
+到 $4$），運算過程中的 $300$ 完全不會溢位。 溢位其實發生在最後一步：
+把 \texttt{int} 的 $300$ 窄化存回 \texttt{unsigned char} 時，依無符號
+窄化規則模 $256$ 環繞，變成 $44$。 這一步是有定義的。 兩個
+\texttt{unsigned char} 相加會不會溢位，因此要拆兩層回答：運算當下不
+會，存回窄型別時才可能。
+
+\subsection{溢位的安全檢查}
+
+用固定寬度型別時，上下界是常數，可以在運算前先問會不會跨過邊界。
+
+\begin{example}{c}{(overflow-check.c) 檢查整數溢位}
+#include <stdio.h>
+#include <stdint.h>
+#include <limits.h>
+
+int main(void) {
+    int32_t a = INT32_MAX;
+    int32_t b = 1;
+
+    if (a > INT32_MAX - b) {
+        printf("加法會溢位\n");
+    } else {
+        printf("結果：%d\n", a + b);
+    }
+
+    uint32_t x = UINT32_MAX / 2 + 1;
+    uint32_t y = 3;
+    if (x > UINT32_MAX / y) {
+        printf("乘法會溢位\n");
+    } else {
+        printf("結果：%u\n", x * y);
+    }
+}
+\end{example}
+
+\iosample{
+}{
+加法會溢位 \\
+乘法會溢位 \\
+}
+
+\texttt{INT32\_MAX - b} 先算出還能再加多少，再跟 \texttt{a} 比；乘法則
+用除法避開先乘爆掉。 帶符號溢位是未定義行為，所以要在真正算出
+\texttt{a + b} 之前攔下來。
+
+\begin{drills}[label=drills:decl-stdint]
+\item \texttt{promotion-surprise.c} 裡，\texttt{a + b} 這個運算式本身
+的 \texttt{sizeof} 是多少？ 存回 \texttt{unsigned char c} 之後的值又是
+多少？ 兩者為什麼不同？
+\item 較窄的整數型別（例如 \texttt{short}）走進運算式時，會先被提升成
+什麼型別？
+\item \texttt{overflow-check.c} 用什麼技巧，在加法真的溢位之前就先攔下
+來？
+\end{drills}
+
+\section{const 型別限定符}
+\label{sec:decl-const}
+
+\texttt{const} 表示這份物件不能透過這個名字改寫。 它可以標在變數、陣列
+元素和指標上。
+
+\subsection{const 參數}
+
+\begin{code}{c}{const 函式參數}
+void printString(const char *str) {
+    printf("%s\n", str);
+    // str[0] = 'X';   // compiler error
+}
+
+int sumArray(const int arr[], int n) {
+    int sum = 0;
+    for (int i = 0; i < n; i++) {
+        sum += arr[i];
+    }
+    // arr[0] = 0;     // compiler error
+    return sum;
+}
+\end{code}
+
+參數標 \texttt{const}，是向呼叫者保證函式只讀、不改內容。
+
+\subsection{const 陣列}
+
+\begin{code}{c}{const 陣列}
+const int days[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+// days[0] = 30;       // compiler error
+
+const char *months[] = {"Jan", "Feb", "Mar"};
+\end{code}
+
+\subsection{const 指標}
+
+\texttt{const} 可以修飾指標本身，也可以修飾它指向的資料，因此有三種組
+合。
+
+\begin{code}{c}{三種 const 指標}
+int x = 5;
+int y = 8;
+
+const int *p1 = &x;    // pointer to const data
+p1 = &y;               // OK: pointer can move
+// *p1 = 10;           // error: data is const
+
+int * const p2 = &x;   // const pointer
+// p2 = &y;            // error: pointer is const
+*p2 = 10;              // OK: data can change
+
+const int * const p3 = &x;  // both const
+// p3 = &y;
+// *p3 = 10;
+\end{code}
+
+這裡先從識別字往外走，系統練習見後文解讀複雜宣告。 \texttt{p1} 左邊是
+\texttt{*}，所以它是指標；再往左是 \texttt{const int}，指向的資料不能
+改。 \texttt{p2} 的 \texttt{const} 緊貼識別字，改不了指標本身。
+
+\keypoint{從識別字往外讀。 另一種掃法是由右向左：\texttt{*} 左邊的
+\texttt{const} 修飾指向的資料，緊貼識別字的 \texttt{const} 修飾指標本
+身；兩套走完得到同一個意思。}
+
+\subsection{跨檔案共享 const}
+
+跨檔案共享一份 \texttt{const} 全域資料，有兩種常見寫法。
+
+第一種：一個檔案負責定義，其他檔案用 \texttt{extern} 宣告。 整支程式
+只有一份 \texttt{PI}。
+
+\begin{code}{c}{extern 宣告一份全域常數}
+/* file1.c: the single definition */
+const double PI = 3.14159;
+
+/* file2.c: a reference, no new object */
+extern const double PI;
+\end{code}
+
+第二種：把定義寫進標頭，並加上 \texttt{static}。 每個包含這份標頭的
+\texttt{.c} 各自有一份相同的副本。 資料是常數、內容又一樣，副本之間不
+用通信，這樣就夠用。
+
+\begin{code}{c}{標頭裡的 static const}
+/* constants.h */
+static const double PI = 3.14159;
+
+/* file1.c and file2.c both include constants.h */
+\end{code}
+
+若省略 \texttt{static}，兩個檔案各自做出一份可連結的定義，標準不保證
+能過。 要讓兩個檔案改同一格、用來通信，用第一種 \texttt{extern}；只是
+共用讀得到的常數、不怕複製，用第二種。
+
+\subsection{選讀：\texttt{volatile}、\texttt{restrict}、\texttt{\_Atomic}}
+
+這三個限定符這一章認得出名字即可，主線用不到。
+
+\texttt{volatile} 告訴編譯器：這個值可能被程式以外的東西改掉，例如記憶
+體對映的硬體暫存器，或訊號處理函式寫入的旗標。 編譯器因此不會把讀取
+優化成暫存複本。
+
+\texttt{restrict} 標在指標上，意思是：在這段生命週期裡，這塊物件只從這
+一條指標進出。 編譯器可以更大膽地重排讀寫。 兩個會重疊的緩衝區不要互
+相標 \texttt{restrict}。
+
+\texttt{\_Atomic}（C11）讓讀寫在執行緒之間不可切割，用來做旗標或計數
+器這類小物件的同步。 完整的並行程式還需要記憶體順序與函式庫，這裡只
+先認得這個限定符。
+
+% TODO(future-chapter): inline 函式最多在此帶過——C99 的 function
+% specifier，語意與多檔展開留給之後的章節
+
+\begin{drills}[label=drills:decl-const]
+\item \texttt{const int *p1} 跟 \texttt{int * const p2}，哪一個是「指
+標本身不能改」，哪一個是「指向的資料不能改」？
+\item 跨檔案共享一份 \texttt{const} 全域常數，若只是要各檔案各自讀取、
+不需要通信，用 \texttt{extern} 那一種寫法還是 \texttt{static const} 那
+一種？
+\item \texttt{volatile} 通常用在什麼情境？
+\end{drills}
+
+\section{static 儲存類別}
+\label{sec:decl-static}
+
+幾個函式不小心共用同一個檔案層變數當迴圈計數器，會互相踩值。 下面這
+段本意是印出 $10 \times 10$ 的星號。
+
+\begin{example}{c}{(print-stars.c) 共用 i 只印出一列}
+#include <stdio.h>
+
+int i;
+
+void print_one_row(void) {
+    for (i = 1; i <= 10; i++) {
+        printf("*");
+    }
+}
+
+void print_all_rows(void) {
+    for (i = 1; i <= 10; i++) {
+        print_one_row();
+        printf("\n");
+    }
+}
+
+int main(void) {
+    print_all_rows();
+}
+\end{example}
+
+\iosample{
+}{
+********** \\
+}
+
+\texttt{print\_one\_row} 返回時 \texttt{i} 已經是 $11$。 外層
+\texttt{for} 接著做 \texttt{i++} 再測 $i \le 10$，條件立刻失敗，所以
+只印一列。 迴圈變數應宣告在各自的函式裡。
+
+這個例子一次踩到識別字的三件事：\textbf{scope}（哪些程式碼看得到）、
+\textbf{linkage}（能不能讓別的翻譯單元用同一個名字）、\textbf{storage
+duration}（記憶體何時配置、何時釋放）。 \texttt{i} 寫在所有函式外面，
+所以兩個函式都看得到它（file scope）；沒加 \texttt{static}，別的
+\texttt{.c} 也可以用 \texttt{extern} 連過來（external linkage）；程式
+一開始就有這一格，結束才釋放（static duration）。
+\texttt{static} 出現的位置不同，改到的是其中不同的一項。
+
+\subsection{三個詞}
+
+區塊裡宣告的變數，預設是 block scope、沒有 linkage、automatic storage
+duration：進入區塊才配置，離開就釋放。 寫在所有函式外面的變數，預設是
+file scope、external linkage、static duration：程式一開始就在，整個檔
+案都看得到，別的 \texttt{.c} 也可以用 \texttt{extern} 連過來。
+
+\subsection{區塊裡的 static}
+
+在區塊裡加上 \texttt{static}，scope 仍停在這個函式，但 duration 變成
+static：只在程式啟動時初始化一次，之後每次呼叫都沿用同一格。
+
+\begin{code}{c}{static 區域變數}
+void counter(void) {
+    static int count = 0;
+    count++;
+    printf("%d\n", count);
+}
+
+// 1st call: 1
+// 2nd call: 2
+// 3rd call: 3
+\end{code}
+
+遞迴時各層也共用這一格，不會每進一層就長出新的 \texttt{count}。 函式
+可以回傳這格的位址，呼叫結束後位址仍然有效；一般的區域變數就不能這樣
+做。
+
+\subsection{檔案裡的 static}
+
+寫在函式外面的 \texttt{static} 改的是 linkage：從 external 變成
+internal，這個名字只在目前這個 \texttt{.c} 裡看得見。 duration 本來就
+是 static，不必再靠關鍵字延長壽命。 開頭那個星號程式若把 \texttt{int
+i;} 改成 \texttt{static int i;}，別的檔案就連不過來，但兩個函式仍然共
+用同一格，一列星號的 bug 還在。 真正要在多個函式之間共享的狀態，用
+file-scope \texttt{static} 可以，並給它一個說得出口的名字，不要拿迴圈
+計數器來當共享變數。
+
+幾個函式要共享狀態、又不想讓別的檔案碰到時，用 file-scope
+\texttt{static} 正好。 下面是精簡版的堆疊：\texttt{contents} 與
+\texttt{top} 對這個檔案裡的 \texttt{push}／\texttt{pop} 可見，對其他
+\texttt{.c} 隱藏。
+
+\begin{code}{c}{file-scope static 的堆疊}
+#define STACK_SIZE 100
+
+static int contents[STACK_SIZE];
+static int top = 0;
+
+void push(int i) {
+    contents[top++] = i;
+}
+
+int pop(void) {
+    return contents[--top];
+}
+\end{code}
+
+正式程式還要檢查滿與空。 重點是：共享的狀態放在 file-scope
+\texttt{static}，比把 \texttt{top} 做成誰都能改的 external 變數安全。
+
+\texttt{static} 不只能標變數，也能標函式，效果一樣是把 linkage 限制在
+目前這個檔案：
+
+\begin{code}{c}{static 函式}
+static int clamp(int x, int lo, int hi) {
+    if (x < lo) {
+        return lo;
+    }
+    if (x > hi) {
+        return hi;
+    }
+    return x;
+}
+\end{code}
+
+只給這個檔案內部用的輔助函式，習慣上都標 \texttt{static}：一來限制連
+結，避免跟別的檔案裡同名的函式衝突；二來也是對讀者的提示，這個函式只
+供本檔使用。 標頭檔裡通常只宣告不加 \texttt{static} 的函式，那些才是
+這個模組真正想讓外界呼叫的介面。
+
+\keypoint{\texttt{static} 改的是 linkage。 兩個檔案各自宣告同名的
+file-scope \texttt{static} 變數或函式，是兩個獨立的東西，連結時不會衝
+突。 拿掉 \texttt{static}，兩份 external linkage 的同名定義才會在連結
+期打架。}
+
+\texttt{extern} 如何讓多個檔案共用同一個變數或函式，將於之後的多檔／
+連結章節詳述。
+
+% TODO(future-chapter): static/dynamic linking、ABI、連結器報表、
+% makefile 與標頭檔保護
+
+\subsection{auto 與 register}
+
+\texttt{auto} 是區塊變數的預設，寫出來與不寫相同，現在幾乎沒人用。
+\texttt{register} 當年是請編譯器把變數放進 CPU 暫存器；現在編譯器自己
+會選，而且標了 \texttt{register} 就不能取址。 當歷史遺跡認得即可。
+
+\keypoint{\texttt{static} 在區塊裡延長壽命，在檔案層改成內部連結。
+同一個關鍵字，看它寫在函式內還是函式外。}
+
+\begin{drills}[label=drills:decl-static]
+\item \texttt{print-stars.c} 那個例子為什麼只印出一列星星，而不是十
+列？
+\item 函式內宣告 \texttt{static int count = 0;}，跟不加 \texttt{static}
+的區域變數比起來，差在哪裡？
+\item 檔案層的變數前面加 \texttt{static}，改變的是 scope、linkage、還
+是 storage duration？
+\item 兩個不同的 \texttt{.c} 檔案各自宣告同名的 file-scope
+\texttt{static} 變數，連結時會不會衝突？
+\end{drills}
+
+\section{解讀複雜宣告}
+\label{sec:decl-complex-declarations}
+
+陣列、函式、指標、\texttt{const} 前面都見過了。 這裡專門練
+\texttt{*}、\texttt{[]}、\texttt{()} 疊在一起時該從哪裡讀起。
+
+宣告裡的 \texttt{*}、\texttt{[]}、\texttt{()} 可以疊在一起。 規則只有
+兩條：從被宣告的識別字往外讀；有選擇時，\texttt{[]} 與 \texttt{()} 優
+先於 \texttt{*}。 括號可以改掉這個優先序。
+
+\subsection{兩種等價的讀法}
+
+由識別字往外讀，是上面給的規則。 Expert C Programming 給了另一個名字：
+\textbf{順時針／螺旋法則}（clockwise/spiral rule）。 兩者是同一套規則
+的兩種敘述方式，選一種練熟即可：
+
+\begin{enumerate}
+\item 從識別字出發。
+\item 沿順時針方向繞：先看右邊，遇到 \texttt{[]} 就唸成：\ldots 的陣
+列；遇到 \texttt{()} 就唸成：回傳 \ldots 的函式。 被括號擋住就先處理
+括號裡面。
+\item 繞不過去了（右邊已經讀完或被括號擋住）就轉看左邊：遇到
+\texttt{*} 唸成：指向 \ldots 的指標；遇到 \texttt{const}／
+\texttt{volatile} 就接上不可變這類限定。
+\item 一路唸到最左邊的基底型別為止。
+\end{enumerate}
+
+這其實就是 \texttt{[]}、\texttt{()} 優先於 \texttt{*} 的具體操作方式
+：優先權高的東西在螺旋裡先被繞到。
+
+\subsection{暖身：陣列與指標}
+
+\begin{code}{c}{最基本的兩個}
+int arr[5];      // arr 是 5 個 int 的陣列
+int *p;          // p 是指向 int 的指標
+\end{code}
+
+識別字往右先遇到什麼就是什麼，這兩個不用繞。
+
+\subsection{指標陣列與陣列指標}
+
+\begin{code}{c}{指標陣列}
+int *ap[10];
+\end{code}
+
+識別字是 \texttt{ap}。 右邊是 \texttt{[10]}，左邊是 \texttt{*}；
+\texttt{[]} 優先，所以 \texttt{ap} 先是長度 $10$ 的陣列，元素型別才是
+指向 \texttt{int} 的指標。 \texttt{ap} 是十個 \texttt{int *}。
+
+\begin{center}
+\begin{tikzpicture}
+    \node[cell] (t0) {\texttt{int}};
+    \node[cell, right=0pt of t0] (t1) {\texttt{*}};
+    \node[hlcell, right=0pt of t1] (t2) {\texttt{ap}};
+    \node[cell, right=0pt of t2] (t3) {\texttt{[10]}};
+    \node[idxlbl, below=0.25cm of t2] {起點};
+    \draw[diagarrow] ($(t2.south)+(0.15,-0.35)$)
+        to[out=-20,in=-160] node[below, font=\scriptsize] {1 右} ($(t3.south)+(0,-0.15)$);
+    \draw[diagarrow] ($(t3.north)+(0,0.12)$)
+        to[out=70,in=70] node[above, font=\scriptsize] {2 左} ($(t1.north)+(0,0.12)$);
+\end{tikzpicture}
+\diagcaption{\texttt{int *ap[10]} 的螺旋：從 \texttt{ap} 先往右讀
+\texttt{[10]}（陣列），再往左讀 \texttt{*}（元素是指標），最後剩下
+\texttt{int}。}
+\label{fig:ch13-spiral-ap}
+\end{center}
+
+\begin{code}{c}{陣列指標}
+int (*pa)[10];
+\end{code}
+
+括號把 \texttt{*} 圈起來，逼它先跟 \texttt{pa} 結合：\texttt{pa} 是指
+標，指向一個長度 $10$ 的 \texttt{int} 陣列。 跟前一個對照著看：拿掉括
+號、字元順序沒變，型別卻完全不同，這是這一節要練的核心分辨力。
+
+\subsection{函式指標}
+
+\begin{code}{c}{函式指標對照}
+int *fp(int n);
+int (*fp)(int n);
+\end{code}
+
+第一行：識別字 \texttt{fp} 右邊先遇到 \texttt{()}，\texttt{fp} 是函
+式，接收一個 \texttt{int}；再往左是 \texttt{*}，回傳值是指標。 這行是
+回傳 \texttt{int *} 的函式。
+
+第二行：括號把 \texttt{*fp} 圈住，\texttt{fp} 先是指標；指標右邊才是
+\texttt{()}，所以是指向函式的指標，該函式接收 \texttt{int}、回傳
+\texttt{int}。 這一組是宣告複雜型別時最常見的分岔點：要不要加括號，差
+的是函式回傳指標，或者指標指向函式。
+
+\subsection[參數列：() 與 (void) 不一樣]{函式的參數列：\texttt{()} 與 \texttt{(void)} 不一樣}
+
+函式宣告子裡的括號本身也有語意，不是可有可無的裝飾。 空括號
+\texttt{()} 在 C 裡的原始意思是「參數的個數與型別未指定」——這是舊式
+（K\&R 風格）C 遺留下來的寫法，編譯器看到 \texttt{()} 不會替你檢查呼
+叫端傳的引數對不對。 \texttt{(void)} 才是明確宣告「這個函式不接收任
+何參數」，呼叫端一旦傳了引數，編譯器會直接報錯。
+
+\begin{code}{c}{() 不檢查參數，(void) 才會}
+int f();       // 舊式寫法：參數未指定，呼叫端傳什麼都不會被擋
+int g(void);   // 明確寫法：不接收參數，傳引數會編譯錯誤
+
+int main(void) {
+    f(1, 2, 3);   // 能通過編譯，即使 f 的定義沒有用到這些引數
+    // g(1, 2, 3);  // 編譯錯誤：g 明明不吃參數
+    return 0;
+}
+\end{code}
+
+這就是本書從第一章開始，所有範例都寫 \texttt{int main(void)} 而不是
+\texttt{int main()} 的原因：\texttt{main} 本身不接收任何命令列引數
+時，\texttt{(void)} 讓這件事在宣告上就講清楚，而不是靠「反正沒人會
+亂傳」這種默契。 其他自訂函式若不需要參數，也適用同一個原則。
+
+\keypoint{函式括號裡的 \texttt{()} 代表「參數未指定」，\texttt{(void)}
+代表「明確不接收參數」；兩者對編譯器的檢查力度不同，寫函式時一律用
+\texttt{(void)} 取代空括號。}
+
+\subsection{疊到最複雜}
+
+\begin{code}{c}{指標、函式與 const}
+char * const *(*next)();
+\end{code}
+
+依序走：
+
+\begin{enumerate}
+\item 識別字是 \texttt{next}。
+\item \texttt{(*next)} 的括號讓 \texttt{*} 先綁住，\texttt{next} 是指
+標。
+\item 右邊是 \texttt{()}，所以它指向一個函式。
+\item 函式左邊還有一個 \texttt{*}，回傳值是指標。
+\item 最左邊是 \texttt{char * const}：回傳的是指向字元的 const 指標，
+指標本身不能改，指向的字元可以。
+\end{enumerate}
+
+一整句：\texttt{next} 是指向函式的指標，該函式回傳 \texttt{char *
+const}。 前面學過的 \texttt{static}、\texttt{extern}、\texttt{const}
+若出現，一定寫在宣告最前面，先讀完儲存類別與限定符，再從識別字往外走
+declarator。
+
+\subsection{反過來：從描述寫出宣告}
+
+讀懂之後，反向操作是更扎實的練習：給一句描述，自己組出宣告。 卡住的地
+方，通常就是正著讀時會看漏的地方。
+
+描述一：一個指向函式的指標陣列，這些函式不接收參數、回傳
+\texttt{void}。
+
+\begin{code}{c}{由描述寫出 handlers}
+void (*handlers[10])();
+\end{code}
+
+先確定最外層是陣列（\texttt{handlers[10]}），每個元素是指向函式的指
+標，所以元素外面包一層 \texttt{(*...)} 再接 \texttt{()}。
+
+描述二：一個函式，接收一個 \texttt{int}，回傳指向長度 $5$ 的
+\texttt{int} 陣列的指標。
+
+\begin{code}{c}{由描述寫出 f}
+int (*f(int n))[5];
+\end{code}
+
+先確定最外層是函式（接收 \texttt{int}），回傳值是指向陣列的指標，所以
+整個 \texttt{(*f(int n))} 要再包一層才能接上 \texttt{[5]}。
+
+\subsection{用 typedef 收短}
+
+同一種複雜型別要出現好幾次時，先給它一個名字。
+
+\begin{code}{c}{typedef 收短宣告}
+typedef char * const *(*NextFn)();
+NextFn next;
+\end{code}
+
+\texttt{typedef} 替既有型別取別名；讀法與變數宣告相同，最後得到的是型
+別名。
+
+\keypoint{由識別字往外讀，\texttt{[]} 與 \texttt{()} 優先於
+\texttt{*}。 這套規則也叫順時針／螺旋法則（Expert C Programming 的說
+法）：從識別字出發、順時針繞著讀，是同一條規則的另一種操作方式，讀不
+確定的時候用它反過來驗算。}
+
+\begin{drills}[label=drills:decl-complex-declarations]
+\item \texttt{int *ap[10]} 跟 \texttt{int (*pa)[10]}，哪一個是「十個
+指向 \texttt{int} 的指標」，哪一個是「指向一個長度 10 的 \texttt{int}
+陣列的指標」？
+\item \texttt{int f();} 跟 \texttt{int g(void);}，編譯器對呼叫端傳的引
+數檢查力度有什麼不同？
+\item 螺旋法則裡，\texttt{[]} 跟 \texttt{()} 的優先權比 \texttt{*} 高還
+是低？
+\item 給定「一個指向函式的指標陣列，這些函式不接收參數、回傳
+\texttt{void}」，該怎麼宣告？
+\end{drills}
+
+\section{常見陷阱與最佳實踐}
+\label{sec:decl-pitfalls}
+
+共用檔案層迴圈變數的例子見 \texttt{static} 節開頭的星號程式。
+
+\subsection{陷阱 1：混淆 printf 格式}
+
+\begin{example}{c}{(bad-format.c) printf 格式不對}
+#include <stdio.h>
+
+int main(void) {
+    long x = 10000000000L;
+    printf("%d\n", x);
+    printf("%ld\n", x);
+}
+\end{example}
+
+\iosample{
+}{
+1410065408 \\
+10000000000 \\
+}
+
+\keypoint{未定義行為：\texttt{printf} 格式指定符與引數型別不符。 這裡
+印出的數字只是這次編譯的結果，換機器或最佳化層級不必相同。}
+
+\texttt{\%d} 只把可變參數當 \texttt{int} 讀，在 \texttt{long} 比
+\texttt{int} 寬的常見平台上，等於只讀走了 \texttt{x} 位元模式的低 $32$
+位元。 這裡印出的 \texttt{1410065408} 剛好是 $10000000000$ 的低 $32$
+位元當有號數解讀的結果，換一種呼叫慣例或架構未必是這個數字。 編譯器
+不一定能在編譯期抓到，開 \texttt{-Wformat} 才會提醒。
+
+\subsection{陷阱 2：帶符號與無符號混用}
+
+\texttt{int} 與 \texttt{unsigned int} 出現在同一個比較裡，usual
+arithmetic conversions 會把 \texttt{int} 轉成 \texttt{unsigned int}。
+\texttt{-1} 的位元模式當成無號來看，是該寬度能表示的最大正數。
+
+\begin{example}{c}{(signed-unsigned-cmp.c) 有號與無號比較}
+#include <stdio.h>
+
+int main(void) {
+    int si = -1;
+    unsigned int ui = 10;
+
+    if (si < ui) {
+        printf("si < ui\n");
+    } else {
+        printf("si >= ui\n");
+    }
+    printf("-1 as unsigned: %u\n", (unsigned int)si);
+}
+\end{example}
+
+\iosample{
+}{
+si >= ui \\
+-1 as unsigned: 4294967295 \\
+}
+
+直覺以為 $-1 < 10$，實際走的是 $4294967295 < 10$，條件為假。 編譯器開
+\texttt{-Wsign-compare} 會對這一行發出警告。 前一節的提升規則解釋了為
+什麼 \texttt{printf("\%d", short\_var)} 仍然正確：可變引數會先把
+\texttt{short} 升成 \texttt{int}。
+
+\keypoint{未定義行為：有號與無號混在同一個比較裡，卻仍把結果當成有號
+去讀。 這裡印出的數字只是這次編譯的結果，換機器或最佳化層級不必相同。}
+
+轉換本身（有號轉成無號）是有定義的：在 $32$ 位元 \texttt{unsigned
+int} 上，\texttt{-1} 一定變成 $4294967295$。 學習要點針對的是把這個
+無號值繼續當成 $-1$ 使用；寬度一變，印出來的十進位就會跟著變。
+
+\subsection{陷阱 3：溢位無警告}
+
+\begin{example}{c}{(silent-overflow.c) 迴圈裡累加，溢位沒有任何警告}
+#include <stdio.h>
+
+int main(void) {
+    int total = 0;
+    for (int i = 0; i < 1000000; i++) {
+        total += 100000;
+    }
+    printf("total = %d\n", total);
+}
+\end{example}
+
+\iosample{
+}{
+total = 1215752192 \\
+}
+
+\keypoint{未定義行為：迴圈裡帶符號累加溢位。 這裡印出的數字只是這次編
+譯的結果，換機器或最佳化層級不必相同。}
+
+正確答案是 $100000 \times 1000000 = 100000000000$，遠超過
+\texttt{INT\_MAX}。 這裡的結果來自二補數環繞這個常見（但標準不保證）
+的實作行為，剛好落在一個看起來完全合理的正整數。 程式沒有當掉、沒有
+任何警告，只是安靜地給了一個錯得離譜的答案。 崩潰至少會被發現，這種
+錯誤不會。
+
+\subsection{陷阱 4：未初始化}
+
+區塊裡的自動變數若沒寫初值，內容是垃圾；讀它是未定義行為，不要靠印出
+來的數字猜。 檔案層或 \texttt{static} 變數沒寫初值時，保證是 $0$（指
+標則是空指標）。
+
+\begin{code}{c}{未初始化的 auto 與 static}
+void f(void) {
+    int junk;            // indeterminate
+    static int zeros;    // 0
+}
+\end{code}
+
+\stylepoint{自動變數與 \texttt{static} 都寫明初值。 後者預設為 $0$ 只
+是語言保證，初值仍應寫明。}
+
+\subsection{陷阱 5：巢狀 const 轉換不安全}
+
+前面三種 \texttt{const} 指標，多一層 \texttt{*} 之後不能照直覺往外加
+\texttt{const}。
+
+\begin{code}{c}{危險：以為 const int ** 能收 int **}
+void printAll(const int **arr, int n) {
+    for (int i = 0; i < n; i++) {
+        printf("%d\n", *arr[i]);
+    }
+}
+
+int *data[3];
+// printAll(data, 3);
+// compiler rejects: int ** cannot convert to const int **
+\end{code}
+
+直覺以為多包一層 \texttt{const} 只會更安全，實際上 \texttt{int **} 轉
+成 \texttt{const int **} 並不保證安全，C 標準因此不讓它隱式發生。 如果
+放行，函式內部可以合法寫 \texttt{arr[0] = \&something\_non\_const;}，
+把一個原本不該進去的位址塞進 \texttt{data}；之後再透過外面那份
+non-const 的 \texttt{data} 去改到理論上受保護的東西，\texttt{const}
+的保證就被繞過了。
+
+要轉換就得寫明確的 cast。 強制轉型一旦放行，後面那次改寫就不再受標準
+保護：
+
+\keypoint{未定義行為：用強制轉型把 \texttt{int **} 塞進 \texttt{const
+int **}，再從非 const 路徑寫入。 這裡若因此印出某個數字，那個數字只是
+這次編譯的結果，換機器或最佳化層級不必相同。}
+
+一開始就把資料結構設計成本來就是 \texttt{const}，可以避開這條路徑。
+
+\subsection{最佳實踐}
+
+\begin{itemize}
+\item 跨平臺要固定寬度時，優先用 \texttt{int32\_t}、\texttt{uint64\_t}
+\item 算術前用上下界檢查，尤其是帶符號整數
+\item \texttt{\%d}／\texttt{\%ld}／\texttt{\%lld}／\texttt{\%u} 與型別對準
+\item 有號與無號不要放進同一個比較
+\item 編譯時打開 \texttt{-Wall -Wextra -Wconversion -Wsign-compare}
+\end{itemize}
+
+\begin{drills}[label=drills:decl-pitfalls]
+\item \texttt{bad-format.c} 用 \texttt{\%d} 印一個 \texttt{long} 值，為
+什麼會印出錯誤的數字？ 該改用哪個格式指定符？
+\item \texttt{signed-unsigned-cmp.c} 裡，\texttt{si < ui}（\texttt{si =
+-1}，\texttt{ui} 是 \texttt{unsigned}）為什麼判斷結果是假？
+\item 為什麼迴圈裡帶符號整數累加溢位，比程式直接當掉更危險？
+\item 為什麼 \texttt{int **} 不能隱式轉換成 \texttt{const int **}？
+\end{drills}
+
+\addcontentsline{toc}{section}{練習解答}
+\section*{練習解答}
+
+各節練習的答案收在這裡。 短題只給能一句話核對的結果。
+
+\paragraph{第~\ref{sec:decl-int-sizes}~節}
+\begin{enumerate}
+\item 通常 2 個位元組，範圍約 $-32768$ 到 $32767$。
+\item 印出 \texttt{-2147483648}；這只是這台機器、這個編譯器當下呈現的
+一種可能，不是標準保證的行為（帶符號溢位是未定義行為）。
+\item 標準保證環繞成 $0$（模 $2^n$）；帶符號溢位則是未定義行為，不保
+證環繞。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:decl-signed-unsigned}~節}
+\begin{enumerate}
+\item \texttt{unsigned int} 是 $0$ 到 $2^n - 1$；\texttt{signed int} 是
+$-2^{n-1}$ 到 $2^{n-1} - 1$。
+\item \texttt{\%d} 會把底下的位元當有號解讀，可能印出負數或錯誤的值；
+該用 \texttt{\%u}。
+\item 不會區分；一律把底下的位元當無號數排版，所以負數的十六進位看到
+的是它的二補數表示法。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:decl-stdint}~節}
+\begin{enumerate}
+\item \texttt{sizeof(a + b)} 是 4（\texttt{int}）；存回 \texttt{c} 之後
+是 44。 因為運算當下 \texttt{a}、\texttt{b} 先被提升成 \texttt{int}，
+$300$ 沒有溢位；溢位是最後窄化存回 \texttt{unsigned char} 時，依環繞
+規則模 256 才發生的。
+\item 提升成 \texttt{int}（裝不下才升成 \texttt{unsigned int}）。
+\item 用減法／除法先算出還能加或乘多少，跟現有值比較，在真正執行加法
+或乘法之前就先判斷會不會超過上界。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:decl-const}~節}
+\begin{enumerate}
+\item \texttt{int * const p2} 是指標本身不能改；\texttt{const int *p1}
+是指向的資料不能改。
+\item 只是各檔案各自讀取、不需要通信，用 \texttt{static const} 放進標
+頭讓每個檔案各自一份；要多檔案共用同一份、能通信，才用
+\texttt{extern} 搭配單一定義。
+\item 標記可能被程式以外的東西改掉的值，例如硬體暫存器或訊號處理函式
+寫入的旗標，防止編譯器把讀取優化成暫存複本。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:decl-static}~節}
+\begin{enumerate}
+\item 因為 \texttt{i} 是共用的檔案層變數，\texttt{print\_one\_row} 執行
+完一輪後 \texttt{i} 已經是 11，外層 \texttt{for} 的 \texttt{i++} 與條件
+測試接著失敗，迴圈只跑了一次。
+\item 一般區域變數每次呼叫都重新配置、重新歸零；\texttt{static} 區域變
+數只在程式啟動時初始化一次，之後每次呼叫都沿用同一格，數值會累積。
+\item 改變的是 linkage（從 external 變成 internal），storage duration
+本來就是 static，不需要靠 \texttt{static} 延長。
+\item 不會；兩個檔案各自的 file-scope \texttt{static} 是各自獨立的內部
+連結，不會在連結期衝突。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:decl-complex-declarations}~節}
+\begin{enumerate}
+\item \texttt{int *ap[10]} 是十個指向 \texttt{int} 的指標（陣列優
+先）；\texttt{int (*pa)[10]} 是指向長度 10 的 \texttt{int} 陣列的指標
+（括號讓 \texttt{*} 先跟識別字結合）。
+\item \texttt{int f();} 是舊式寫法，參數未指定，編譯器不會檢查呼叫端
+傳的引數；\texttt{int g(void);} 明確表示不接收參數，傳引數會編譯錯
+誤。
+\item \texttt{[]} 與 \texttt{()} 的優先權比 \texttt{*} 高。
+\item \texttt{void (*handlers[10])();}。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:decl-pitfalls}~節}
+\begin{enumerate}
+\item \texttt{\%d} 只把可變引數當 \texttt{int} 讀，在 \texttt{long} 比
+\texttt{int} 寬的平台上只會讀走低 32 位元；該用 \texttt{\%ld}。
+\item \texttt{si} 與 \texttt{ui} 比較時，\texttt{int} 會被轉成
+\texttt{unsigned int}，\texttt{-1} 的位元模式當無號數解讀是該寬度能表
+示的最大正數，遠大於 10，所以 \texttt{si < ui} 為假。
+\item 因為它不會產生任何警告或當機訊號，只是安靜地給出一個看起來合理
+但錯得離譜的答案，比崩潰更難被發現。
+\item 因為若放行，函式內部可以透過那個 \texttt{const int **} 把一個
+non-const 的位址塞進原本的 \texttt{int **}，再經由外面那份 non-const
+指標寫入，繞過 \texttt{const} 的保護，所以標準不讓它隱式發生。
+\end{enumerate}

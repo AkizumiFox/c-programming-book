@@ -1,0 +1,1271 @@
+\chapter{資料結構}
+\label{ch:datastructure}
+
+這一章從頭到尾只靠三句話撐起來：
+
+\begin{itemize}
+\item \textbf{heap 上的東西不會自己消失。} 陣列與一般區域變數的生命週期
+由編譯器自動管理；\texttt{malloc} 配置出來的記憶體不會，忘記處理就是
+洩漏，處理錯了就是懸置指標或雙重釋放。
+\item \textbf{每個資料結構都有不變式。} 「從 \texttt{head} 沿 \texttt{next}
+走有限步會到 \texttt{NULL}」「左子樹都小於根、右子樹都大於根」——每個
+操作的本質都是「暫時打破這句話，再想辦法恢復」。 bug 幾乎都是「打破
+了，卻忘記恢復」。
+\item \textbf{遞迴結構要用遞迴思考。} 鏈結串列與二元樹的定義本身就是遞
+迴的（「一個節點，加上一個更小的同類結構」），走訪、搜尋、重建的程式
+碼形狀，會跟著資料的形狀走。
+\end{itemize}
+
+章節安排跟著這三句話走：先弄懂 heap 記憶體怎麼一回事、三種會壞掉的方
+式、怎麼用工具親眼看見壞掉；再進鏈結串列的節點與不變式、插入為什麼要
+按順序、為什麼要用「指標的指標」修改呼叫端的指標；最後用同一套不變式
+語言講二元搜尋樹的插入、走訪、重建與集合運算。
+
+\section{為什麼陣列不夠}
+\label{sec:ds-why-not-array}
+
+想像要讀入一次考試的成績，題目沒告訴你會有幾筆——可能 5 筆，可能
+5000 筆。 陣列宣告時就要決定大小：宣告太小，資料一多就裝不下；宣告
+「夠大」（例如 \texttt{int scores[100000];}），大多數時候都在浪費記
+憶體。 陣列還有第二個限制：要在\textbf{中間}插入或刪除一筆，得把後面
+整段元素搬家，成本跟「後面還剩幾格」成正比。
+
+\begin{center}
+\begin{tikzpicture}
+    \node[cell] (a0) at (0,0) {1};
+    \node[cell] (a1) at (0.9,0) {4};
+    \node[cell] (a2) at (1.8,0) {8};
+    \node[idxlbl, anchor=east] at (-0.55,0) {陣列};
+
+    \node[cell] (n0) at (4.2,0) {1};
+    \node[cell] (n1) at (6.4,0) {4};
+    \node[cell] (n2) at (8.6,0) {8};
+    \node[idxlbl, anchor=east] at (3.65,0) {鏈結};
+
+    \draw[diagarrow] (n0.east) -- (n1.west);
+    \draw[diagarrow] (n1.east) -- (n2.west);
+    \node[idxlbl, anchor=west] at (9.35,0) {NULL};
+\end{tikzpicture}
+\diagcaption{左：陣列元素必須連續存放，大小固定；右：鏈結串列的節點可
+以散落在記憶體各處，靠指標維持順序，可以一個一個動態長大。}
+\label{fig:ds-array-vs-linked}
+\end{center}
+
+鏈結串列（linked list）換一種思路：每筆資料各自包成一個\textbf{節
+點}，節點裡除了資料，還有一個指標指出「下一筆是誰」。 要多少節點就配
+置多少，不用事先猜上限；插入或刪除一筆，只要改幾個指標，不用搬動其他
+元素。 代價是：要透過索引直接跳到第 $i$ 筆，只能從頭一路數過去，做不
+到陣列的 $O(1)$ 隨機存取。
+
+\keypoint{陣列擅長「用索引直接定位」，大小固定、隨處可用；鏈結串列擅
+長「大小隨輸入動態增長」與「已知節點旁插入刪除」，代價是失去隨機存
+取。 選哪一種，看題目最頻繁的操作是什麼。}
+
+\section{heap 與 stack：變數活多久}
+\label{sec:ds-heap-stack}
+
+一支執行中的程式，記憶體大致分成幾個區域：程式碼本身、全域變數、
+\textbf{stack}（存區域變數與函式呼叫的紀錄）、\textbf{heap}（存動態配
+置出來的資料）。 這一節先不出現任何資料結構，只講兩件事的差別：區域
+變數活多久、\texttt{malloc} 出來的東西活多久。
+
+\begin{center}
+\begin{tikzpicture}[node distance=0mm]
+    \node[cell, minimum width=3.6cm, minimum height=0.8cm] (code) at (0,3) {程式碼（唯讀）};
+    \node[cell, minimum width=3.6cm, minimum height=0.8cm] (glob) at (0,2.1) {全域變數};
+    \node[cell, minimum width=3.6cm, minimum height=0.8cm] (heap) at (0,1.2) {heap（往上長）};
+    \node[cell, minimum width=3.6cm, minimum height=0.8cm] (stack) at (0,0.3) {stack（往下長）};
+    \node[idxlbl, anchor=west] at (2.0,1.2) {malloc/free};
+    \node[idxlbl, anchor=west] at (2.0,0.3) {函式呼叫};
+\end{tikzpicture}
+\diagcaption{stack 存區域變數，函式一返回就自動收回；heap 存
+\texttt{malloc} 配置的資料，要自己 \texttt{free} 才會收回，兩者互不干
+涉、各自往中間長大。}
+\label{fig:ds-memory-layout}
+\end{center}
+
+區域變數的生命週期跟著它所在的函式：函式一返回，區域變數占用的 stack
+空間就可以被下一次函式呼叫覆寫。 回傳一個指向區域變數的位址，是危險
+動作：
+
+\begin{example}{c}{(lifetime-bad.c) 回傳區域變數的位址}
+#include <stdio.h>
+
+int *make_local(void) {
+    int x = 42;
+    return &x; /* 危險：x 是區域變數，函式一返回就沒了 */
+}
+
+int main(void) {
+    int *p = make_local();
+    printf("%d\n", *p);
+    return 0;
+}
+\end{example}
+
+\iosample{}{42}
+
+編譯器已經主動警告了（\texttt{-Wreturn-stack-address}），但程式依然編
+得過、跑得出 \texttt{42}——因為 \texttt{x} 那塊 stack 空間還沒被別的呼
+叫覆寫，剛好看起來沒事。 這正是「未定義行為」的典型長相：不是保證壞
+掉，是\textbf{不保證好}，換一次呼叫順序、換一顆編譯器，結果可能完全不
+同。 \texttt{malloc} 配置的記憶體剛好相反：它活在 heap 上，不受函式返
+回影響，一直存在到你自己呼叫 \texttt{free}（或程式結束）。 這正是鏈結
+串列、樹這些「跨函式呼叫依然要存在」的結構，非用 \texttt{malloc} 不可
+的原因。
+
+\keypoint{區域變數活在 stack 上，函式一返回就消失；\texttt{malloc} 配
+置的資料活在 heap 上，activity 不跟著任何函式的返回結束，要自己
+\texttt{free}。 回傳指向區域變數的位址，是這一章第一個要牢記的地雷。}
+
+\section{malloc 與 free}
+\label{sec:ds-malloc-free}
+
+\texttt{malloc(n)} 向系統要一塊至少 \texttt{n} 個位元組的記憶體，回傳
+一個 \texttt{void *}；配置失敗時回傳 \texttt{NULL}。 完整的使用模式永
+遠是三步驟：配置、使用、釋放。
+
+\begin{code}{c}{malloc 的三步驟}
+int *p = malloc(sizeof(int));  /* 配置 */
+if (p == NULL) {
+    /* 配置失敗，通常是系統記憶體不足 */
+}
+*p = 5;                        /* 使用 */
+free(p);                       /* 釋放 */
+p = NULL;                      /* 習慣：free 之後立刻讓指標指向 NULL */
+\end{code}
+
+\subsection{不要轉型 \texttt{malloc} 的回傳值}
+
+很多教材會寫 \texttt{(int *)malloc(...)}，但 C 裡\textbf{不建議}轉
+型：\texttt{void *} 在 C 裡會自動轉成任何指標型別，轉型只是多餘的文
+字。 更重要的是：轉型從前有個真正的風險——舊式 K\&R 編譯器在沒有
+\texttt{\#include <stdlib.h>} 時，會假設 \texttt{malloc} 回傳
+\texttt{int}，而顯式轉型會把這個型別不合的警告直接蓋掉，在 32 位元
+\texttt{int}／64 位元指標的平臺上悄悄截斷位址。 現代編譯器（本書使用
+的這一顆也一樣）已經把「呼叫沒有原型的函式」列為編譯期錯誤，不管有沒
+有轉型都逃不掉，這個歷史風險已經不成立；但轉型本身仍然是純粹的雜訊，
+不轉型才是目前的慣例。
+
+\subsection{\texttt{sizeof(*p)} 優於 \texttt{sizeof(型別名)}}
+
+\begin{code}{c}{sizeof 用誰}
+Node *p = malloc(sizeof(Node));   /* 能動，但型別名要跟著 p 的宣告手動同步 */
+Node *p = malloc(sizeof(*p));     /* 更好：p 的型別變了，這裡自動跟著變 */
+\end{code}
+
+寫 \texttt{sizeof(*p)} 時，配置的大小永遠跟著 \texttt{p} 實際的型別
+走；哪天把 \texttt{Node *p} 改成 \texttt{TreeNode *p} 卻忘記同步改
+\texttt{sizeof(Node)}，會配置出\textit{大小不對}的記憶體——這種錯誤編
+譯器抓不到，執行期也不一定馬上出事，是很難除的臭蟲。 \texttt{sizeof(*p)}
+從結構上避開了這個問題。
+
+\subsection{\texttt{calloc} 與 \texttt{realloc}}
+
+\texttt{calloc(n, size)} 跟 \texttt{malloc(n * size)} 類似，但會把整塊
+記憶體清成 \texttt{0}，且對 \texttt{n * size} 的乘法溢位有內建檢查；
+\texttt{realloc(p, newsize)} 試著把 \texttt{p} 指向的區塊改成新大小，
+可能原地擴充、也可能搬到別處（並把舊內容複製過去），回傳新位址，失敗
+時回傳 \texttt{NULL}\textbf{且原本的 \texttt{p} 仍然有效}——所以絕對不
+能寫 \texttt{p = realloc(p, ...)}，失敗時會把唯一的位址蓋成
+\texttt{NULL}，原本那塊記憶體就找不到了，變成洩漏。 正確寫法是接一個
+暫存指標：
+
+\begin{code}{c}{realloc 要用暫存指標接}
+int *tmp = realloc(p, new_n * sizeof(int));
+if (tmp == NULL) {
+    /* p 仍然指向原本的記憶體，可以在這裡善後 */
+} else {
+    p = tmp;
+}
+\end{code}
+
+\keypoint{三步驟：配置、使用、釋放；\texttt{malloc} 不用轉型；用
+\texttt{sizeof(*p)} 而不是 \texttt{sizeof(型別名)}；\texttt{realloc}
+一定要接暫存指標，不能直接蓋掉原本的指標。}
+
+\section[三種記憶體錯誤]{三種會壞掉的方式：洩漏、懸置指標、雙重釋放}
+\label{sec:ds-memory-bugs}
+
+「忘了處理 heap 記憶體」不是一種錯誤，是\textbf{三種不同}的錯誤，症狀
+與成因都不一樣。
+
+\subsection{記憶體洩漏（memory leak）}
+
+配置出去的記憶體，沒有任何指標還指得到它，也沒被 \texttt{free}——它就
+永遠回不去了，直到程式結束。
+
+\begin{example}{c}{(leak-demo.c) 迴圈裡配置卻忘記釋放}
+#include <stdio.h>
+#include <stdlib.h>
+
+int main(void) {
+    for (int i = 0; i < 5; i++) {
+        int *p = malloc(sizeof(int));
+        *p = i;
+        printf("%d\n", *p); /* 用起來完全正常，看不出任何異狀 */
+    } /* 每次迴圈結束，p 這個區域變數消失，但它指向的記憶體沒有被 free */
+    return 0;
+}
+\end{example}
+
+\iosample{}{0\\1\\2\\3\\4}
+
+這支程式輸出完全正常，短時間執行也感覺不到任何異狀——這正是洩漏最陰
+險的地方：\textbf{不會馬上爆，這才可怕}。 長時間執行的伺服器或反覆呼
+叫的函式，一次洩漏幾十個位元組看不出問題，跑幾天、幾百萬次呼叫後，記
+憶體可能被慢慢吃光。
+
+\subsection{懸置指標（dangling pointer）}
+
+\texttt{free} 之後，指標本身的\textit{值}沒有改變，還是指向那塊記憶
+體——但那塊記憶體已經被系統收回，可能隨時被別的配置要走、內容被覆寫。
+繼續用這個指標，就是懸置指標。
+
+\begin{example}{c}{(dangling-demo.c) free 之後繼續使用}
+#include <stdio.h>
+#include <stdlib.h>
+
+int main(void) {
+    int *p = malloc(sizeof(int));
+    *p = 99;
+    free(p);
+    printf("%d\n", *p); /* 懸置指標：p 指向的記憶體已經還給系統了 */
+    return 0;
+}
+\end{example}
+
+\iosample{}{3}
+
+注意輸出不是 \texttt{99}，而是別的數字（這台機器上是 \texttt{3}，換一
+臺機器、換一次執行都可能不一樣）——\texttt{free} 之後那塊記憶體的內容
+不再屬於你，讀到什麼是未定義行為，讀到「看起來正常的舊值」有時反而比
+讀到亂碼更危險，因為程式表面上還是「正常」執行下去。
+
+\subsection{雙重釋放（double free）}
+
+同一個指標 \texttt{free} 兩次：
+
+\begin{example}{c}{(doublefree-demo.c) 同一塊記憶體 free 兩次}
+#include <stdlib.h>
+
+int main(void) {
+    int *p = malloc(sizeof(int));
+    free(p);
+    free(p); /* 危險：同一塊記憶體被釋放兩次 */
+    return 0;
+}
+\end{example}
+
+跟前兩種不一樣，雙重釋放在很多平臺（包括這台示範機器）會被配置器自己
+的安全檢查抓到，程式直接異常中止——這是三種錯誤裡\textbf{唯一}通常會
+馬上有動靜的一種，但這不是 C 標準保證的行為，只是常見的實作選擇；換一
+個平臺或關掉安全檢查，雙重釋放一樣可能像懸置指標那樣，安靜地損壞資料
+而不中止。
+
+\keypoint{洩漏（配置了、沒人指得到、沒 free）、懸置指標（free 之後還
+在用）、雙重釋放（同一塊 free 兩次）是三種不同的錯誤。 洩漏與懸置指標
+通常\textbf{不會}馬上讓程式壞掉，這正是它們難抓的原因；free 之後立刻
+把指標設成 \texttt{NULL} 能讓「不小心又用了一次」直接變成容易發現的
+\texttt{NULL} 解參考，而不是安靜的懸置指標。}
+
+\section{工具：親眼看見記憶體壞在哪}
+\label{sec:ds-tools}
+
+上一節的三種錯誤，光靠讀程式碼不一定看得出來——這正是專門的記憶體檢
+查工具存在的理由。 Linux 上最常見的是 \texttt{valgrind}；本書的示範機
+器是 Apple Silicon 版 macOS，\texttt{valgrind} 目前不支援這個平臺，改
+用 macOS 內建（隨 Xcode 命令列工具安裝）的 \texttt{leaks} 指令示範同一
+件事：
+
+\begin{code}{bash}{用 leaks 抓 leak-demo.c 的洩漏}
+gcc leak-demo.c -o leak-demo
+leaks --atExit -- ./leak-demo
+\end{code}
+
+\begin{code}{text}{leaks 輸出（節錄摘要）}
+Process 12345: 193 nodes malloced for 17 KB
+Process 12345: 5 leaks for 80 total leaked bytes.
+\end{code}
+
+\texttt{leaks} 精準地數出「5 leaks」——正好對應迴圈跑了 5 次、每次都
+配置了一個 \texttt{int} 卻沒 \texttt{free}。 讀程式碼要花心思才看得出
+的洩漏，工具一眼就能量化，這正是它的教學回報率這麼高的原因：\textbf{記憶體
+管理從一個抽象概念，變成一個可以親眼觀察、可以計數的現象}。
+
+另一個常見工具是編譯器內建的 AddressSanitizer（\texttt{-fsanitize=address}），
+在 Linux 與多數 macOS 環境下可以直接偵測懸置指標、雙重釋放、緩衝區溢
+位，一發現就印出出錯的原始碼行號並中止程式：
+
+\begin{code}{bash}{用 AddressSanitizer 編譯}
+gcc -fsanitize=address -g dangling-demo.c -o dangling-demo
+./dangling-demo
+\end{code}
+
+\texttt{-fsanitize=address} 會讓程式變慢、變大，只適合開發／測試階段
+使用，不要用在正式發布的版本；\\
+\texttt{-g} 讓錯誤訊息附上原始碼行號。 兩種工具（\texttt{leaks} 或
+\texttt{valgrind}／\texttt{-fsanitize=address}）挑一種，在寫鏈結串列與
+樹之前先養成「寫完就跑一次檢查工具」的習慣，比事後除錯有效率得多。
+
+\keypoint{記憶體錯誤光看程式碼不一定抓得出來，要靠工具實際跑一次。\\
+Linux 常用 \texttt{valgrind}，macOS 可以用內建的 \texttt{leaks}，兩個
+平臺都能用編譯器內建的 \texttt{-fsanitize=address}。 開發階段就該養成
+用工具檢查的習慣，不要等到題目「怪怪的」才想到記憶體可能出問題。}
+
+\section{assert：抓的是「不該發生」的事}
+\label{sec:ds-assert}
+
+\texttt{assert(cond)} 在 \texttt{cond} 為假時印出訊息並中止程式，是開
+發階段快速抓出「按照邏輯不該發生」的狀況的工具；\texttt{-DNDEBUG}
+編譯後，所有 \texttt{assert} 會整批消失，變成完全不檢查。
+
+\begin{example}{c}{(assert-malloc-bad.c) 反面教材：用 assert 檢查 malloc}
+#include <assert.h>
+#include <stdlib.h>
+
+int *make_array(int n) {
+    int *arr = malloc(n * sizeof(int));
+    assert(arr != NULL); /* 危險示範，見下方說明 */
+    return arr;
+}
+
+int main(void) {
+    int *a = make_array(1000000000); /* 刻意要一大塊，示意配置可能失敗 */
+    return a != NULL;
+}
+\end{example}
+
+這是本章要糾正的一個常見錯誤：\textbf{不要}用 \texttt{assert} 檢查
+\texttt{malloc} 的回傳值。 理由有兩個。 第一，\texttt{malloc} 失敗
+（系統記憶體不足）是執行期真的可能發生的事，不是「程式設計者的邏輯錯
+誤」——這正是 \texttt{assert} 該抓的對象的定義相反。 第二，一旦發布版
+加上 \texttt{-DNDEBUG}，這行 \texttt{assert} 會整句消失，變成完全沒有
+檢查，配置失敗時 \texttt{arr} 是 \texttt{NULL}，函式若接著寫入
+\texttt{arr[0] = ...}，會是解參考 \texttt{NULL} 的未定義行為——比「沒
+檢查」更難查，因為程式在偵錯版本裡表面上工作正常（因為那裡 assert 有
+效，失敗時直接中止並指出行號），一到發布版就無聲地壞掉。 正確作法是
+用一般的 \texttt{if} 檢查，讓配置失敗這個「執行期可能發生的狀況」在任
+何編譯模式下都有一致的處理方式（印出錯誤訊息、回傳失敗、或
+\texttt{exit}，依場合而定）。
+
+\texttt{assert} 真正適合的場合，是像「這個函式的參數不該是 \texttt{NULL}」
+「走到這裡表示前面的邏輯有 bug」這種呼叫端如果守規矩就一定不會發生的
+狀況——這一章後面在鏈結串列與樹的操作裡，會用 \texttt{assert} 檢查
+「傳進來的指標不該是 \texttt{NULL}」這類前提，而不是檢查
+\texttt{malloc} 本身。
+
+\keypoint{\texttt{assert} 抓的是「按邏輯不該發生」的程式設計者錯誤，可
+以被 \texttt{-DNDEBUG} 整批關掉。 \texttt{malloc} 失敗是執行期真的可
+能發生的事，要用一般的 \texttt{if} 處理，不要用 \texttt{assert}。}
+
+\section{節點與不變式}
+\label{sec:ds-node-invariant}
+
+單向鏈結串列（singly linked list）的每個節點包含要存的\textbf{資
+料}，以及指向下一個節點的 \texttt{next} 指標。 串列的「開頭」用一個
+\texttt{head} 指標記住；空串列時 \texttt{head == NULL}。
+
+\begin{code}{c}{節點型別}
+typedef struct Node {
+    int data;
+    struct Node *next;
+} Node;
+
+Node *head = NULL;  /* 空串列 */
+\end{code}
+
+這一章要建立的核心詞彙是\textbf{不變式}（invariant）：一句話，描述這
+個結構「任何時刻都該成立」的性質。 鏈結串列的不變式是：
+
+\begin{center}
+\itshape 從 \texttt{head} 出發，沿著 \texttt{next} 走，經過有限步一定
+會走到 \texttt{NULL}；串列裡的每個節點，恰好被前一個節點的
+\texttt{next}（或 \texttt{head} 本身）指到一次。
+\end{center}
+
+之後每一個操作——插入、刪除、合併——本質上都是同一件事：\textbf{暫時
+打破這句話，再想辦法恢復}。 插入時，新節點在被正確接上之前，串列有一
+瞬間是「斷開」或「有兩個節點指向同一個地方」的；刪除時，被刪的節點在
+真正 \texttt{free} 之前，有一瞬間已經沒有人指向它。 幾乎所有鏈結串列
+的 bug，都是「打破了不變式，卻忘記在操作結束前恢復」。 記住這句話，後
+面每一節的程式碼都會回來檢查它有沒有被滿足。
+
+\keypoint{鏈結串列的不變式：從 \texttt{head} 沿 \texttt{next} 走有限步
+到 \texttt{NULL}，每個節點恰好被指到一次。 每個操作都是「暫時破壞→立
+刻恢復」，寫完程式碼後回頭檢查這句話還成不成立，是抓 bug 最快的方
+法。}
+
+\section{走訪：迴圈版與遞迴版}
+\label{sec:ds-traverse}
+
+走訪整條串列的模式很固定：用一個指標從 \texttt{head} 出發，處理目前
+節點，再往下一個走，直到 \texttt{NULL}。
+
+\begin{code}{c}{走訪鏈結串列}
+void print_list(Node *head) {
+    for (Node *cur = head; cur != NULL; cur = cur->next) {
+        printf("%d ", cur->data);
+    }
+    printf("\n");
+}
+
+/* 遞迴版：base case 是空串列，其餘處理目前節點再遞迴處理剩下的部分 */
+void print_list_rec(Node *p) {
+    if (p == NULL) return;
+    printf("%d ", p->data);
+    print_list_rec(p->next);
+}
+\end{code}
+
+遞迴版的形狀，直接對應鏈結串列「一個節點接一個更短的同類結構」這個定
+義本身——這跟遞迴那一章講過的「base case ＋ 縮小問題」是同一個思路。
+遞迴版每往下一層都會多用一點 stack 空間，串列非常長（例如幾十萬個節
+點）時可能耗盡 stack；迴圈版沒有這個限制，實務上處理長串列優先用迴圈
+版。
+
+\keypoint{走訪的迴圈版與遞迴版做的事完全一樣，只是實作機制不同：遞迴
+版形狀跟串列的遞迴定義一致，但長串列可能耗盡 stack；迴圈版沒有這個風
+險，是實務上的預設選擇。}
+
+\section{頭端插入——順序為什麼重要}
+\label{sec:ds-head-insert}
+
+在 \texttt{head} 前插入一個新節點，只需要兩個步驟，但\textbf{順序不能
+顛倒}：
+
+\begin{center}
+\begin{tikzpicture}
+    \node[idxlbl] at (0,1.3) {\textbf{1. 初始}};
+    \node[hlcell2] (h1) at (0,0.5) {head};
+    \node[cell] (b1) at (1.8,0) {5};
+    \draw[diagarrow] (h1.south) -- (b1.north);
+
+    \node[idxlbl] at (4.2,1.3) {\textbf{2. p->next = head}};
+    \node[hlcell2] (h2) at (4.2,0.5) {head};
+    \node[hlcell] (p2) at (4.2,-0.7) {3};
+    \node[cell] (b2) at (6.0,0) {5};
+    \draw[diagarrow] (h2.south) -- (b2.north);
+    \draw[diagarrow] (p2.north) -- (b2.south west);
+
+    \node[idxlbl] at (8.6,1.3) {\textbf{3. head = p}};
+    \node[hlcell2] (h3) at (8.6,0.5) {head};
+    \node[hlcell] (p3) at (8.6,-0.7) {3};
+    \node[cell] (b3) at (10.4,0) {5};
+    \draw[diagarrow] (h3.south) -- (p3.north);
+    \draw[diagarrow] (p3.east) -- (b3.west);
+\end{tikzpicture}
+\diagcaption{先讓新節點的 \texttt{next} 指向原本的 \texttt{head}（第 2
+格），\textbf{再}把 \texttt{head} 改指向新節點（第 3 格）。 順序寫反的
+話，第 2 步做完 \texttt{head} 就已經是新節點自己，舊串列會整條斷開。}
+\label{fig:ds-head-insert-order}
+\end{center}
+
+\begin{code}{c}{頭端插入}
+void push_front(Node **head, int x) {
+    Node *p = malloc(sizeof(Node));
+    p->data = x;
+    p->next = *head; /* 第一步：新節點先接住舊的 head */
+    *head = p;        /* 第二步：head 才改指向新節點 */
+}
+\end{code}
+
+（這裡先用 \texttt{Node **head} 讓函式能真正改到呼叫端的指標，下一節
+會完整解釋原因。）如果把這兩行順序寫反：
+
+\begin{example}{c}{(wrong-order-insert.c) 順序寫反的後果}
+#include <stdio.h>
+#include <stdlib.h>
+
+typedef struct Node {
+    int data;
+    struct Node *next;
+} Node;
+
+int main(void) {
+    Node *head = NULL;
+    Node *a = malloc(sizeof(Node)); a->data = 1; a->next = NULL;
+    head = a;
+    Node *b = malloc(sizeof(Node)); b->data = 2; b->next = NULL;
+    head = b;        /* 順序寫反：先改了 head */
+    b->next = head;  /* head 已經是 b 自己了！ */
+
+    printf("b->next == b ? %s\n", (b->next == b) ? "yes" : "no");
+    return 0;
+}
+\end{example}
+
+\iosample{}{b->next == b ? yes}
+
+先做 \texttt{head = b}，\texttt{head} 已經變成 \texttt{b} 了；再執行
+\texttt{b->next = head}，等於是 \texttt{b->next = b}——新節點指向自己，
+形成一個獨立的自我循環，原本 \texttt{a} 所在的那條串列從此沒有任何指
+標指得到，直接洩漏。 這正是第~\ref{sec:ds-node-invariant}~節說的「暫
+時破壞不變式」出了差錯的具體例子：兩行程式碼之間，不變式必須被小心地
+維持住，順序寫反就是最常見的維持失敗。
+
+\keypoint{頭端插入永遠是「新節點先接住舊 head，head 才改指向新節點」；
+順序寫反會讓新節點指向自己、舊串列整條洩漏。 更新鏈結指標前，先在紙上
+畫出操作前、操作中、操作後三格，確認每一步「誰的 next 該指向誰」，再
+動手寫程式。}
+
+\section{指標的指標}
+\label{sec:ds-pointer-to-pointer}
+
+上一節的 \texttt{push\_front} 用了 \texttt{Node **head}，這一節解釋原
+因。 先看一個「看起來合理，其實沒用」的版本：
+
+\begin{example}{c}{(why-ptrptr.c) 為什麼 Node *list 沒用}
+#include <stdio.h>
+#include <stdlib.h>
+
+typedef struct Node {
+    int data;
+    struct Node *next;
+} Node;
+
+/* 錯誤示範：list 只是呼叫端指標的「複本」 */
+void add_bad(Node *list, int x) {
+    Node *p = malloc(sizeof(Node));
+    p->data = x;
+    p->next = list;
+    list = p; /* 只改了區域變數 list，呼叫端的指標完全沒被動到 */
+}
+
+void add_good(Node **list, int x) {
+    Node *p = malloc(sizeof(Node));
+    p->data = x;
+    p->next = *list;
+    *list = p; /* 透過位址，真正改到呼叫端的指標 */
+}
+
+int main(void) {
+    Node *head = NULL;
+
+    add_bad(head, 1);
+    printf("after add_bad:  head is %s\n", head == NULL ? "still NULL" : "not NULL");
+
+    add_good(&head, 1);
+    printf("after add_good: head is %s\n", head == NULL ? "still NULL" : "not NULL");
+
+    free(head);
+    return 0;
+}
+\end{example}
+
+\iosample{}{after add\_bad:  head is still NULL\\after add\_good: head is not NULL}
+
+C 的函式參數永遠是\textbf{傳值}——指標也不例外。 呼叫 \texttt{add\_bad(head, 1)}
+時，\texttt{list} 這個參數拿到的是 \texttt{head} 這個位址值的\textit{複
+本}，跟呼叫端的 \texttt{head} 是兩個不同的變數，只是剛好存著一樣的
+值。 函式內部寫 \texttt{list = p;}，只是把這個複本改成指向新節點，呼
+叫端的 \texttt{head} 完全沒被動到——函式一返回，複本連同新配置的節點
+一起消失，那個節點還洩漏了。 想要真正修改呼叫端的指標，得傳「指標的
+位址」，也就是 \texttt{Node **}：\texttt{*list} 解一次參考，拿到的正
+是呼叫端 \texttt{head} 這個變數本身，對它賦值才會真正生效。
+
+這正是本章跟「回傳新 head」兩種寫法並存的原因：
+
+\begin{code}{c}{兩種同樣正確的風格}
+Node *push_front_v1(Node *head, int x) {   /* 回傳新 head，呼叫端要接回去 */
+    Node *p = malloc(sizeof(Node));
+    p->data = x;
+    p->next = head;
+    return p;
+}
+head = push_front_v1(head, x);
+
+void push_front_v2(Node **head, int x) {   /* 傳位址，函式內部直接改 */
+    Node *p = malloc(sizeof(Node));
+    p->data = x;
+    p->next = *head;
+    *head = p;
+}
+push_front_v2(&head, x);
+\end{code}
+
+兩種寫法都正確，差別只在「誰負責把新 head 接回去」。 本章接下來統一
+用\texttt{Node **} 風格（下一節的刪除操作會看到它真正的威力），「回傳
+新 head」風格留給章末練習對照。
+
+\keypoint{函式參數是傳值，指標也一樣——函式內部改變參數本身（讓它指向
+別的地方），呼叫端的指標不會被影響。 想讓函式修改呼叫端的指標，要傳
+\texttt{Node **}，透過 \texttt{*pp} 才能碰到那個指標變數本身。}
+
+\section{搜尋與刪除}
+\label{sec:ds-search-delete}
+
+搜尋跟走訪幾乎一樣，只是多了「找到就提前返回」：
+
+\begin{code}{c}{搜尋}
+Node *search(Node *head, int target) {
+    for (Node *p = head; p != NULL; p = p->next) {
+        if (p->data == target) return p;
+    }
+    return NULL;
+}
+\end{code}
+
+刪除是鏈結串列最容易寫錯的操作——原因是「刪頭」「刪中間」「刪尾」看
+起來像三種不同的情況，很多教材也真的分三段程式碼處理。 用
+\texttt{Node **} 可以把三種情況統一成同一份程式碼：
+
+\begin{example}{c}{(ptrptr-delete.c) 用 Node ** 統一刪頭／刪中／刪尾}
+#include <stdio.h>
+#include <stdlib.h>
+
+typedef struct Node {
+    int data;
+    struct Node *next;
+} Node;
+
+void push_front(Node **head, int x) {
+    Node *p = malloc(sizeof(Node));
+    p->data = x;
+    p->next = *head;
+    *head = p;
+}
+
+/* pp 一路指向「目前正在檢查的那個 next 欄位」（或 head 本身） */
+void delete_value(Node **pp, int target) {
+    while (*pp != NULL) {
+        if ((*pp)->data == target) {
+            Node *dead = *pp;
+            *pp = dead->next;
+            free(dead);
+            return;
+        }
+        pp = &(*pp)->next;
+    }
+}
+
+void print_list(Node *head) {
+    for (Node *cur = head; cur != NULL; cur = cur->next) {
+        printf("%d", cur->data);
+        if (cur->next != NULL) printf(" ");
+    }
+    printf("\n");
+}
+
+void free_list(Node *head) {
+    while (head != NULL) {
+        Node *tmp = head;
+        head = head->next;
+        free(tmp);
+    }
+}
+
+int main(void) {
+    Node *head = NULL;
+    int vals[] = {5, 4, 3, 2, 1};
+    for (int i = 0; i < 5; i++) push_front(&head, vals[i]);
+    print_list(head);
+
+    delete_value(&head, 1); print_list(head); /* 刪頭 */
+    delete_value(&head, 3); print_list(head); /* 刪中間 */
+    delete_value(&head, 5); print_list(head); /* 刪尾 */
+    delete_value(&head, 99); print_list(head); /* 不存在，什麼都不做 */
+
+    free_list(head);
+    return 0;
+}
+\end{example}
+
+\iosample{}{1 2 3 4 5\\2 3 4 5\\2 4 5\\2 4\\2 4}
+
+\texttt{pp} 一開始指向 \texttt{head} 本身；每往下走一格，就讓
+\texttt{pp} 指向「目前節點的 \texttt{next} 欄位」的位址——\texttt{pp}
+永遠指向「某個東西的 next 欄位，或 head 本身」，這兩種情況在
+\texttt{Node **} 的視角下完全一樣，不需要另外判斷「是不是頭」。 找到
+目標後，\texttt{*pp = dead->next;} 這一行同時涵蓋了「頭被繞過」跟「前
+一個節點的 next 被接到下一個節點」兩種效果，接著 \texttt{free(dead)}
+——三種情況、一份程式碼，這正是「指標的指標」真正的威力。
+
+\keypoint{把 \texttt{pp} 想成「一路指向某個 next 欄位（或 head）的位
+址」，刪頭、刪中間、刪尾就是同一件事，不需要分三段程式碼特殊處理。}
+
+\section{釋放整條串列}
+\label{sec:ds-free-list}
+
+\begin{code}{c}{釋放整條串列}
+void free_list(Node *head) {
+    while (head != NULL) {
+        Node *tmp = head;
+        head = head->next;  /* 先移到下一個 */
+        free(tmp);           /* 才釋放剛剛那個 */
+    }
+}
+
+/* 遞迴版 */
+void free_list_rec(Node *p) {
+    if (p == NULL) return;
+    free_list_rec(p->next); /* 先遞迴處理剩下的部分 */
+    free(p);                 /* 再釋放自己 */
+}
+\end{code}
+
+順序同樣不能顛倒：一定要\textbf{先存下 \texttt{next}}，才能
+\texttt{free} 目前節點；先 \texttt{free} 再讀 \texttt{->next}，讀到的
+是已經被釋放的記憶體，是懸置指標：
+
+\begin{code}{c}{危險：free 之後才讀 next}
+while (head != NULL) {
+    free(head);
+    head = head->next;  /* 危險：head 已經被釋放了，這裡是懸置指標 */
+}
+\end{code}
+
+這正好呼應第~\ref{sec:ds-memory-bugs}~節的懸置指標——這裡的差別是懸置
+的時間極短（只有一行的距離），但一樣是未定義行為，不能靠「反正很快就
+換掉了」自我安慰。
+
+\keypoint{釋放整條串列，永遠要先把 \texttt{next} 存到暫存變數，再
+\texttt{free} 目前節點；順序反過來就是懸置指標。}
+
+\section{串接（concat）與有序合併（merge）是兩件事}
+\label{sec:ds-merge}
+
+「合併兩條串列」常被混成一件事，其實至少有兩種完全不同的操作。
+
+\subsection{串接：直接把一條接到另一條後面}
+
+\begin{code}{c}{concat：串接兩條串列}
+Node *concat(Node *list1, Node *list2) {
+    if (list1 == NULL) return list2;
+    Node *p = list1;
+    while (p->next != NULL) p = p->next;
+    p->next = list2; /* list1 的尾巴直接接上 list2 */
+    return list1;
+}
+\end{code}
+
+串接之後，\texttt{list1} 跟 \texttt{list2}\textbf{共用}同一段節點
+——\texttt{list2} 原本的節點現在也是 \texttt{list1} 的一部分。 這件事
+不寫程式很難感覺到危險，直到你 \texttt{free} 兩次：
+
+\begin{example}{c}{(concat-doublefree.c) 串接後分別 free 兩條串列}
+#include <stdio.h>
+#include <stdlib.h>
+
+typedef struct Node {
+    int data;
+    struct Node *next;
+} Node;
+
+Node *make_list(int *vals, int n) {
+    Node *head = NULL, *tail = NULL;
+    for (int i = 0; i < n; i++) {
+        Node *p = malloc(sizeof(Node));
+        p->data = vals[i];
+        p->next = NULL;
+        if (head == NULL) head = tail = p;
+        else { tail->next = p; tail = p; }
+    }
+    return head;
+}
+
+Node *concat(Node *list1, Node *list2) {
+    if (list1 == NULL) return list2;
+    Node *p = list1;
+    while (p->next != NULL) p = p->next;
+    p->next = list2;
+    return list1;
+}
+
+void free_list(Node *head) {
+    while (head != NULL) {
+        Node *tmp = head;
+        head = head->next;
+        free(tmp);
+    }
+}
+
+int main(void) {
+    int a[] = {1, 2, 3};
+    int b[] = {4, 5};
+    Node *list1 = make_list(a, 3);
+    Node *list2 = make_list(b, 2);
+
+    concat(list1, list2); /* list1 現在包含了 list2 的所有節點 */
+
+    free_list(list1);  /* 把 1,2,3,4,5 全部 free 掉 */
+    free_list(list2);  /* 危險：4,5 已經被上面那行 free 過了！ */
+    return 0;
+}
+\end{example}
+
+這支程式在這台機器上會直接異常中止（雙重釋放被配置器的安全檢查抓
+到）。 串接之後，\texttt{list2} 這個名字雖然還在，指向的節點卻已經被
+併進 \texttt{list1} 的責任範圍——串接之後只該用\textit{一條}串列的名
+字去釋放，\texttt{list2} 這個變數繼續存在只是留給你誤用的陷阱。
+
+\subsection[有序合併：兩條遞增串列合併]{有序合併：兩條各自遞增的串列，合併成一條遞增的串列}
+
+\begin{code}{c}{merge：有序合併，用 dummy node 骨架}
+Node *merge_sorted(Node *a, Node *b) {
+    Node dummy;
+    Node *tail = &dummy;
+    dummy.next = NULL;
+
+    while (a != NULL && b != NULL) {
+        if (a->data <= b->data) {
+            tail->next = a;
+            a = a->next;
+        } else {
+            tail->next = b;
+            b = b->next;
+        }
+        tail = tail->next;
+    }
+    tail->next = (a != NULL) ? a : b;
+    return dummy.next;
+}
+\end{code}
+
+\texttt{dummy} 是一個「假的頭節點」，宣告在 stack 上（不是
+\texttt{malloc} 出來的，函式結束前也不需要、也不能 \texttt{free}
+它），純粹用來讓「插入第一個節點」跟「插入後面的節點」變成同一種操
+作，不用另外判斷「這是不是第一次接」。 \texttt{merge\_sorted} 直接重
+新利用 \texttt{a}、\texttt{b} 原本的節點（不額外配置新節點），結果串
+列的每個節點原本屬於 \texttt{a} 或 \texttt{b} 其中一條——這是它跟串接
+的共同點：兩者都不新建節點，都會導致原本兩條串列的名字不能再各自獨立
+使用。
+
+\keypoint{串接（concat）把一條接到另一條後面，不管順序；有序合併
+（merge）把兩條遞增的串列交錯接成一條遞增的串列，靠 dummy node 讓第一
+次插入跟後續插入用同一份程式碼。 兩者都會讓原本兩條串列共用節點，合
+併後只能用\textit{一個}名字去釋放。}
+
+\section{二元搜尋樹：不變式是對整棵子樹}
+\label{sec:ds-bst-define}
+
+二元樹的每個節點最多有兩個子節點：\texttt{left}、\texttt{right}。
+
+\begin{code}{c}{樹節點型別}
+typedef struct TreeNode {
+    int data;
+    struct TreeNode *left, *right;
+} TreeNode;
+\end{code}
+
+\textbf{二元搜尋樹}（BST）的不變式是：對\textbf{每一個}節點，左子樹裡
+\textit{所有}的值都小於它、右子樹裡\textit{所有}的值都大於它。 關鍵字
+是「所有」——不是只跟直接子節點比較。 一個常見的誤解是只檢查直接父子
+關係就以為驗證完了：
+
+\begin{example}{c}{(bst-invariant-check.c) 只檢查直接子節點是不夠的}
+#include <stdio.h>
+#include <stdlib.h>
+#include <limits.h>
+
+typedef struct TreeNode {
+    int data;
+    struct TreeNode *left, *right;
+} TreeNode;
+
+TreeNode *make(int v, TreeNode *l, TreeNode *r) {
+    TreeNode *p = malloc(sizeof(TreeNode));
+    p->data = v; p->left = l; p->right = r;
+    return p;
+}
+
+/* 錯的檢查：只比較「直接子節點」，看起來很合理，其實不夠 */
+int is_bst_wrong(TreeNode *root) {
+    if (root == NULL) return 1;
+    if (root->left && root->left->data >= root->data) return 0;
+    if (root->right && root->right->data <= root->data) return 0;
+    return is_bst_wrong(root->left) && is_bst_wrong(root->right);
+}
+
+/* 對的檢查：對「整棵子樹」成立，用範圍往下傳 */
+int is_bst_range(TreeNode *root, long lo, long hi) {
+    if (root == NULL) return 1;
+    if (root->data <= lo || root->data >= hi) return 0;
+    return is_bst_range(root->left, lo, root->data)
+        && is_bst_range(root->right, root->data, hi);
+}
+
+int main(void) {
+    /*        5
+             / \
+            3   8
+               / \
+              4   9   <- 4 在 5 的右子樹裡，卻比 5 小：違反 BST 性質 */
+    TreeNode *root = make(5,
+        make(3, NULL, NULL),
+        make(8, make(4, NULL, NULL), make(9, NULL, NULL)));
+
+    printf("is_bst_wrong: %d\n", is_bst_wrong(root));
+    printf("is_bst_range: %d\n", is_bst_range(root, LONG_MIN, LONG_MAX));
+    return 0;
+}
+\end{example}
+
+\iosample{}{is\_bst\_wrong: 1\\is\_bst\_range: 0}
+
+節點 \texttt{4} 是 \texttt{8} 的左子節點，\texttt{4 < 8} 沒有錯，
+\texttt{is\_bst\_wrong} 因此判定為合法；但 \texttt{4} 同時也在根節點
+\texttt{5} 的\textit{右}子樹裡，而右子樹的每個值都該大於 \texttt{5}
+——\texttt{4} 違反了這一點。 \texttt{is\_bst\_range} 把「這個節點允許
+的範圍」一路往下傳（一開始是 $(-\infty, \infty)$，往左子樹傳
+$(lo, root)$、往右子樹傳 $(root, hi)$），才是對「整棵子樹」成立的正確
+檢查。
+
+\keypoint{BST 的不變式是對\textit{整棵子樹}成立，不是只比較直接子節
+點。 驗證一棵樹是否為合法 BST，要用「允許範圍往下傳」的寫法，不能只
+看每個節點跟它兩個孩子的大小關係。}
+
+\section{建立 BST：插入}
+\label{sec:ds-bst-insert}
+
+\begin{code}{c}{BST 插入（遞迴寫法）}
+TreeNode *insert(TreeNode *root, int x) {
+    if (root == NULL) {
+        TreeNode *p = malloc(sizeof(TreeNode));
+        p->data = x;
+        p->left = p->right = NULL;
+        return p;
+    }
+    if (x < root->data) {
+        root->left = insert(root->left, x);
+    } else if (x > root->data) {
+        root->right = insert(root->right, x);
+    }
+    /* x == root->data：重複鍵，本書統一選擇忽略，不重複插入 */
+    return root;
+}
+\end{code}
+
+從根往下比較，比根小往左走、比根大往右走，直到走到 \texttt{NULL} 才
+真正配置新節點；每一層回傳的都是「這個子樹更新後的根」，所以每一層都
+要用 \texttt{root->left = insert(root->left, x)} 把新根接回去，不能只
+呼叫 \texttt{insert} 而不接回傳值——這是本節唯一需要牢記的細節，漏寫
+賦值，插入的節點會憑空消失（呼叫端拿不到更新後的子樹根）。 \textbf{重
+複鍵的處理，全書統一選擇「忽略」}：\texttt{x == root->data} 時，兩個
+分支都不成立，直接回傳原本的 \texttt{root}，不會插入新節點、也不會有
+記憶體洩漏。
+
+\keypoint{插入時，每一層都要把子樹的新根接回
+\texttt{root->left}／\texttt{root->right}，漏接會讓插入的節點消失。 重
+複鍵一律忽略——這是本書統一的選擇，其他書籍可能選擇往右塞或允許重
+複，遇到時留意題目自己的規定。}
+
+\section{三種遍歷：只差 printf 放哪一行}
+\label{sec:ds-traversals}
+
+前序、中序、後序三種走訪，遞迴結構完全一樣，唯一的差別是「拜訪」（這
+裡是 \texttt{printf}）放在遞迴呼叫的哪個位置：
+
+\begin{code}{c}{前序／中序／後序}
+void preorder(TreeNode *root) {
+    if (root == NULL) return;
+    printf("%d ", root->data);  /* 拜訪放最前面 */
+    preorder(root->left);
+    preorder(root->right);
+}
+
+void inorder(TreeNode *root) {
+    if (root == NULL) return;
+    inorder(root->left);
+    printf("%d ", root->data);  /* 拜訪放中間 */
+    inorder(root->right);
+}
+
+void postorder(TreeNode *root) {
+    if (root == NULL) return;
+    postorder(root->left);
+    postorder(root->right);
+    printf("%d ", root->data);  /* 拜訪放最後面 */
+}
+\end{code}
+
+\begin{center}
+\begin{tikzpicture}
+    \node[hlcell2] (r) at (2.0,0) {5};
+    \node[cell] (l) at (0.8,-1.0) {3};
+    \node[cell] (r2) at (3.2,-1.0) {8};
+    \node[idxlbl, anchor=west] at (4.0,0) {前序拜訪 5 的時機：一進來就印};
+    \node[idxlbl, anchor=west] at (4.0,-0.5) {中序拜訪 5 的時機：左子樹處理完才印};
+    \node[idxlbl, anchor=west] at (4.0,-1.0) {後序拜訪 5 的時機：兩子樹都處理完才印};
+    \draw[diagarrow] (r.south west) -- (l.north);
+    \draw[diagarrow] (r.south east) -- (r2.north);
+\end{tikzpicture}
+\diagcaption{同一個節點 5，三種走訪只差「印出它」的時機在遞迴呼叫的前
+面、中間、還是後面；左右子樹本身也遞迴地遵守同一個順序。}
+\label{fig:ds-traversal-timing}
+\end{center}
+
+三者裡最重要的性質是：\textbf{對 BST 做中序走訪，會依遞增順序印出所
+有的鍵}。 這不是巧合——BST 的不變式保證每個節點左邊都比它小、右邊都
+比它大，中序走訪「先左、後自己、後右」剛好完全對應「先印小的、再印自
+己、再印大的」。 這個性質後面重建與集合運算都會用到。
+
+\keypoint{三種走訪的遞迴結構完全一樣，只差 \texttt{printf} 放在遞迴呼
+叫的前／中／後面。 中序走訪 BST 會得到遞增序列，這是「用結構隱含排
+序」的核心性質，記住它比背三段程式碼更有用。}
+
+\section{二元樹重建：從遍歷結果反推樹}
+\label{sec:ds-tree-rebuild}
+
+走訪是把樹「壓平」成一串數字；反過來，能不能從一串（或兩串）數字重建
+出原本的樹？ 答案是：\textbf{前序 加 中序}可以，\textbf{前序 加 後
+序}不行（後面會說明原因）。
+
+前序的第一個元素，一定是這整棵（子）樹的根——這是前序「先印自己」的
+定義保證的。 找到這個根在中序序列裡的位置，中序裡它\textit{左邊}的部
+分就是左子樹的中序、右邊就是右子樹的中序；左子樹有幾個節點，前序裡緊
+接著根之後的那幾個，就是左子樹的前序。 用這兩條資訊切開兩個子序列，
+分別遞迴，重建左右子樹。
+
+\begin{example}{c}{(rebuild-tree.c) 從前序＋中序重建二元樹}
+#include <stdio.h>
+#include <stdlib.h>
+
+typedef struct TreeNode {
+    int data;
+    struct TreeNode *left, *right;
+} TreeNode;
+
+/* preorder[preStart..preEnd] 與 inorder[inStart..inEnd] 都是閉區間 */
+TreeNode *rebuild(int *preorder, int preStart, int preEnd,
+                   int *inorder, int inStart, int inEnd) {
+    if (preStart > preEnd) return NULL;
+
+    int root_val = preorder[preStart]; /* 前序的第一個一定是這棵子樹的根 */
+    TreeNode *root = malloc(sizeof(TreeNode));
+    root->data = root_val;
+
+    int mid = inStart;
+    while (inorder[mid] != root_val) mid++; /* 在中序裡找到根的位置 */
+    int left_size = mid - inStart;
+
+    root->left = rebuild(preorder, preStart + 1, preStart + left_size,
+                          inorder, inStart, mid - 1);
+    root->right = rebuild(preorder, preStart + left_size + 1, preEnd,
+                           inorder, mid + 1, inEnd);
+    return root;
+}
+
+void postorder_print(TreeNode *root) {
+    if (root == NULL) return;
+    postorder_print(root->left);
+    postorder_print(root->right);
+    printf("%d ", root->data);
+}
+
+void free_tree(TreeNode *root) {
+    if (root == NULL) return;
+    free_tree(root->left);
+    free_tree(root->right);
+    free(root);
+}
+
+int main(void) {
+    int preorder[] = {3, 1, 2, 5, 4, 6};
+    int inorder[]  = {1, 2, 3, 4, 5, 6};
+    int n = 6;
+
+    TreeNode *root = rebuild(preorder, 0, n - 1, inorder, 0, n - 1);
+    postorder_print(root); /* 用另一種走訪印出來，驗證重建的樹是對的 */
+    printf("\n");
+    free_tree(root);
+    return 0;
+}
+\end{example}
+
+\iosample{}{2 1 4 6 5 3}
+
+用後序印出重建好的樹，而不是直接印前序或中序（那樣只是把輸入原封不動
+印回去，證明不了重建對不對）——後序的結果只有樹的形狀真的對，才會是
+\texttt{2 1 4 6 5 3}，是驗證重建演算法正確性很自然的方式。
+
+\textbf{為什麼前序＋後序不夠？} 前序告訴你「根是誰」，但不能告訴你根
+的\textit{哪些}子節點屬於左子樹、哪些屬於右子樹——如果某個節點只有一
+個孩子，前序＋後序沒辦法分辨這個孩子是接在 \texttt{left} 還是
+\texttt{right}。 中序之所以夠，是因為它把「比根小」跟「比根大」明確地
+分在根的兩側，這條資訊前序跟後序都沒有單獨提供。
+
+\keypoint{前序的第一個元素是根；在中序裡定位根，左邊是左子樹的中序、
+右邊是右子樹的中序，左子樹的節點數決定前序要在哪裡切開。 前序＋中序
+才能唯一重建整棵樹，前序＋後序做不到，因為缺少「哪些節點屬於左子樹」
+這條資訊。}
+
+\section{BST 的交集與聯集}
+\label{sec:ds-bst-set-ops}
+
+第~\ref{sec:ds-traversals}~節已經看到「中序走訪 BST 得到遞增序列」這
+個性質，這裡直接派上用場：把兩棵 BST 各自中序走訪成排序好的陣列，剩
+下就是排序陣列常見的\textbf{雙指標合併}，時間複雜度 $O(n+m)$——不需要
+對每個節點各自搜尋一次（那樣是 $O(nm)$，而且順序不會是排序好的）。
+
+\begin{example}{c}{(bst-intersect-union.c) 中序轉陣列後雙指標求交集聯集}
+#include <stdio.h>
+#include <stdlib.h>
+
+typedef struct TreeNode {
+    int data;
+    struct TreeNode *left, *right;
+} TreeNode;
+
+TreeNode *insert(TreeNode *root, int x) {
+    if (root == NULL) {
+        TreeNode *p = malloc(sizeof(TreeNode));
+        p->data = x;
+        p->left = p->right = NULL;
+        return p;
+    }
+    if (x < root->data) root->left = insert(root->left, x);
+    else if (x > root->data) root->right = insert(root->right, x);
+    return root;
+}
+
+void inorder_to_array(TreeNode *root, int *arr, int *idx) {
+    if (root == NULL) return;
+    inorder_to_array(root->left, arr, idx);
+    arr[(*idx)++] = root->data;
+    inorder_to_array(root->right, arr, idx);
+}
+
+void free_tree(TreeNode *root) {
+    if (root == NULL) return;
+    free_tree(root->left);
+    free_tree(root->right);
+    free(root);
+}
+
+int main(void) {
+    int a_vals[] = {5, 2, 8, 1, 9, 3};
+    int b_vals[] = {2, 3, 4, 8, 10};
+    TreeNode *t1 = NULL, *t2 = NULL;
+    for (int i = 0; i < 6; i++) t1 = insert(t1, a_vals[i]);
+    for (int i = 0; i < 5; i++) t2 = insert(t2, b_vals[i]);
+
+    int arr1[6], arr2[5], n1 = 0, n2 = 0;
+    inorder_to_array(t1, arr1, &n1); /* 中序 = 排序好的陣列 */
+    inorder_to_array(t2, arr2, &n2);
+
+    printf("intersection:");
+    int i = 0, j = 0;
+    while (i < n1 && j < n2) {
+        if (arr1[i] < arr2[j]) i++;
+        else if (arr1[i] > arr2[j]) j++;
+        else { printf(" %d", arr1[i]); i++; j++; }
+    }
+    printf("\n");
+
+    printf("union:");
+    i = 0; j = 0;
+    while (i < n1 || j < n2) {
+        int v;
+        if (i >= n1) v = arr2[j++];
+        else if (j >= n2) v = arr1[i++];
+        else if (arr1[i] < arr2[j]) v = arr1[i++];
+        else if (arr1[i] > arr2[j]) v = arr2[j++];
+        else { v = arr1[i]; i++; j++; }
+        printf(" %d", v);
+    }
+    printf("\n");
+
+    free_tree(t1);
+    free_tree(t2);
+    return 0;
+}
+\end{example}
+
+\iosample{}{intersection: 2 3 8\\union: 1 2 3 4 5 8 9 10}
+
+交集：兩個指標各自指向一個陣列，指到的值較小的那邊指標前進；相等就是
+交集的成員，兩邊指標一起前進。 聯集：一樣雙指標往前走，較小的那個先
+印出來，相等時只印一次、兩邊指標一起前進。 兩段程式碼的骨架幾乎一
+樣，都是排序陣列合併的標準寫法——這正是「中序＝排序」這個性質真正有
+用的地方：把樹的問題，轉換成陣列的問題，陣列上成熟的技巧就都能直接
+用。
+
+\keypoint{BST 求交集或聯集，不要對每個節點各自搜尋一次（$O(nm)$，順序
+還亂）；先各自中序走訪成排序陣列，再用雙指標合併，是 $O(n+m)$ 且結果
+自然有序的正確做法。}
+
+\section{常見錯誤清單}
+\label{sec:ds-checklist}
+
+下面每一條都對應前面某一節。
+
+\begin{itemize}
+\item 回傳指向區域變數的位址：函式一返回，那塊 stack 空間就可能被覆
+寫；編譯器通常會警告，但程式仍可能「看起來正常」。
+（第~\ref{sec:ds-heap-stack}~節）
+\item \texttt{malloc} 不需要轉型；用 \texttt{sizeof(*p)} 而不是
+\texttt{sizeof(型別名)}；\texttt{realloc} 要接暫存指標，不能直接蓋掉
+原指標。
+（第~\ref{sec:ds-malloc-free}~節）
+\item 洩漏、懸置指標、雙重釋放是三種不同的錯誤；前兩種通常不會馬上讓
+程式壞掉，這正是它們難抓的原因。
+（第~\ref{sec:ds-memory-bugs}~節）
+\item 不要用 \texttt{assert} 檢查 \texttt{malloc} 的回傳值——配置失敗
+是執行期可能發生的事，不是邏輯錯誤，而且 \texttt{-DNDEBUG} 後檢查會消
+失。
+（第~\ref{sec:ds-assert}~節）
+\item 頭端插入要先接住舊 \texttt{head} 再改 \texttt{head}，順序寫反會
+讓新節點指向自己、舊串列洩漏。
+（第~\ref{sec:ds-head-insert}~節）
+\item 函式參數是傳值；要修改呼叫端的指標，得傳 \texttt{Node **}。
+（第~\ref{sec:ds-pointer-to-pointer}~節）
+\item 釋放串列要先存下 \texttt{next} 再 \texttt{free}，順序反過來是懸
+置指標。
+（第~\ref{sec:ds-free-list}~節）
+\item 串接（concat）與有序合併（merge）都會讓兩條串列共用節點，合併
+後只能用一個名字釋放，兩邊都釋放會雙重釋放。
+（第~\ref{sec:ds-merge}~節）
+\item BST 的不變式是對整棵子樹成立，只檢查直接子節點不夠。
+（第~\ref{sec:ds-bst-define}~節）
+\item BST 插入每一層都要把子樹新根接回
+\texttt{root->left}／\texttt{root->right}，漏接插入的節點會消失。
+（第~\ref{sec:ds-bst-insert}~節）
+\item 前序＋中序才能唯一重建二元樹，前序＋後序不夠，因為分不出哪些節
+點屬於左子樹。
+（第~\ref{sec:ds-tree-rebuild}~節）
+\item BST 交集聯集用中序轉陣列＋雙指標合併，不要對每個節點各自搜尋。
+（第~\ref{sec:ds-bst-set-ops}~節）
+\end{itemize}
+
+\phantomsection
+\addcontentsline{toc}{section}{練習解答}
+\section*{練習解答}
+
+\paragraph{第~\ref{sec:ds-pointer-to-pointer}~節}
+\begin{enumerate}
+\item 把本節的 \texttt{push\_front\_v1}（回傳新 head）風格，改寫成刪
+除操作：寫一個 \texttt{Node *delete\_v1(Node *head, int target)}，回
+傳更新後的新 head。 提示：跟 \texttt{Node **} 版比起來，這個版本要不
+要特別處理「刪的剛好是 head」這個情況？
+
+\textit{答}：需要。 因為沒有 \texttt{Node **} 可以直接改到呼叫端的
+\texttt{head}，函式只能「回傳」新的 head，所以必須明確判斷
+\texttt{head->data == target} 這個特例，跟刪除中間節點分開處理——這正
+是 \texttt{Node **} 版能把三種情況合併成一份程式碼的原因所在。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:ds-bst-insert}~節}
+\begin{enumerate}
+\item 如果 BST 插入時把 \texttt{root->left = insert(root->left, x);}\\
+漏寫成只呼叫 \texttt{insert(root->left, x);}（不接回傳值），對一棵原
+本是空樹的 BST 插入第一筆資料，會發生什麼事？
+
+\textit{答}：\texttt{insert} 內部確實配置了新節點並回傳它，但呼叫端沒
+有接住這個回傳值，\texttt{root} 本身沒有被更新，函式結束後
+\texttt{root} 仍然是 \texttt{NULL}——插入的節點形同消失（而且沒有任何
+指標指向它，直接洩漏）。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:ds-tree-rebuild}~節}
+\begin{enumerate}
+\item 承接 \texttt{rebuild-tree.c} 的例子（前序
+\texttt{3 1 2 5 4 6}、中序 \texttt{1 2 3 4 5 6}），手算這棵樹的中序走
+訪結果，並說明為什麼答案一定跟輸入的中序陣列一模一樣。
+
+\textit{答}：一模一樣，就是 \texttt{1 2 3 4 5 6}——因為
+\texttt{rebuild} 本來就是拿這份中序陣列切出左右子樹，重建出來的樹結
+構，中序走訪回去，必然照原樣把這份陣列走一遍。 這也是為什麼驗證重建
+正不正確要用\textit{另一種}走訪（例如後序）而不是中序：中序無論樹的
+形狀對不對，走出來都會跟輸入相同，驗證不出形狀是否正確。
+\end{enumerate}

@@ -1,0 +1,2019 @@
+\chapter{迴圈}
+\label{ch:loop}
+
+到目前為止，我們寫的程式多半只執行一次就結束。 讀一個數字、算一個結果、印出
+來。 但實際上很多問題需要\textbf{重複}做同一件事：印出 $N$ 行相同的文字、把
+一串數字逐一讀進來、一直問使用者輸入直到格式正確、或是模擬每一天細菌怎麼繁殖。
+如果每一輪都手動複製貼上同一段程式碼，程式不但冗長，改一個地方還得改很多
+處，幾乎無法維護。
+
+\textbf{迴圈}（loop）就是為了解決這個問題：把「要重複做的事」寫成一段，再告
+訴電腦「重複幾次」或「重複到什麼條件為止」。 C 語言提供三種迴圈語法。 
+\texttt{for}、\texttt{while}、\texttt{do-while}。 語法不同，但背後都是同一
+套機制：每次迭代（iteration）更新迴圈變數或狀態，直到條件不再成立為止。 從
+硬體的角度看，CPU 其實只是在反覆執行「比較條件 → 跳回或繼續往下」這兩步；
+迴圈讓我們用高階語法描述這個過程，而不必自己寫跳轉指令。
+
+這一章依語法複雜度推進：先認識三種迴圈與 \texttt{for}/\texttt{while} 的等價
+關係，再學 \texttt{break} 與 \texttt{continue}，接著用巢狀迴圈輸出圖形，然
+後練解題平台必備的輸入模板，最後才進入數論算法與需要追蹤多個狀態的模擬題。
+題庫裡這個單元有八十多題，難度跨度很大；我們沿著整條難度曲線走，把核心語法
+與經典解題模型分開講清楚。
+
+\section{固定次數的重複：for 迴圈}
+\label{sec:loop-for-basics}
+
+\texttt{for} 迴圈最適合「次數事先知道」的情形：從 $0$ 數到 $n-1$、從 $1$ 數
+到 $n$、或是倒數 $n$ 次。 它的結構把「初始化」「條件」「每次迭代後的更新」
+集中寫在一行，一眼就能看出迴圈跑幾輪。
+
+\begin{code}{c}{for 迴圈的基本形狀}
+for (初始化; 條件; 更新) {
+    重複執行的敘述;
+}
+\end{code}
+
+範例 \thechapter.2 讀入正整數 $n$，把同一行文字印 $n$ 次。 這是最單純的
+「已知次數、每次做同一件事」的模型。
+
+\begin{example}{c}{(print-fixed-line.c) 把固定文字印 N 次}
+#include <stdio.h>
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+
+    for (int i = 0; i < n; i++) {
+        printf("Hello\n");
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+3 \\
+}{
+Hello \\
+Hello \\
+Hello \\
+}
+
+\texttt{for (int i = 0; i < n; i++)} 裡，\texttt{i} 從 $0$ 開始，每輪加
+$1$，當 \texttt{i == n} 時條件不成立、迴圈結束，所以總共執行 $n$ 次。
+這跟陣列索引從 $0$ 開始的慣例一致。 之後用 \texttt{for} 走訪陣列時，幾
+乎都會看到 \texttt{i < n} 這種寫法。
+
+
+\keypoint{\texttt{for (int i = 0; ...)} 裡宣告的 \texttt{i}，作用域就是這
+一句 \texttt{for}；迴圈結束後在 \texttt{main} 裡不能再寫 \texttt{printf("\%d", i)}。
+若要在迴圈外使用計數器，把 \texttt{int i} 提到 \texttt{for} 前面。}
+
+\keypoint{\texttt{for} 迴圈的三個部分（初始化、條件、更新）都在迴圈\textbf{開
+始前}就決定好；條件在每一輪\textbf{一開始}先檢查，不成立就整個跳過，一次都
+不執行。}
+
+\begin{drills}[label=drills:loop-for-basics]
+\item \texttt{for (int i = 0; i < n; i++)} 印 \texttt{Hello} $n$ 次，
+若輸入 $n = 0$，迴圈本體會執行幾次？
+\item \texttt{for} 裡宣告的 \texttt{int i}，離開 \texttt{for} 這一句之後
+還能不能在 \texttt{main} 裡繼續用？
+\item \texttt{i < n} 與 \texttt{i <= n} 兩種條件，各自讓迴圈跑幾次？
+\end{drills}
+
+\section{改變計數方向：倒數與反向列印}
+\label{sec:loop-countdown}
+
+次數固定，但「每一輪要做的事」跟計數器的值有關時，只要改初始化、條件、更新
+的方向就好。 範例 \thechapter.3 從 $n$ 倒數印到 $1$，每一行印一個數字。
+
+\begin{example}{c}{(print-backward.c) 從 n 倒數印到 1}
+#include <stdio.h>
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+
+    for (int i = n; i >= 1; i--) {
+        printf("%d\n", i);
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+5 \\
+}{
+5 \\
+4 \\
+3 \\
+2 \\
+1 \\
+}
+
+範例 \thechapter.4 則把 $n$ 到 $0$ 全部印在同一行，數字之間以空白分隔。 
+這裡多了一個常見的輸出細節：最後一個數字後面不要多印空白。
+
+\begin{example}{c}{(countdown.c) 倒數 n 到 0，空白分隔}
+#include <stdio.h>
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+
+    for (int i = n; i >= 0; i--) {
+        printf("%d", i);
+        if (i > 0) {
+            printf(" ");
+        }
+    }
+    printf("\n");
+    return 0;
+}
+\end{example}
+
+\iosample{
+3 \\
+}{
+3 2 1 0 \\
+}
+
+以 $n = 3$ 走一遍：\texttt{i} 依序是 $3, 2, 1, 0$；印完 $3$、$2$、$1$ 時
+\texttt{i > 0} 成立，後面補空白；印到 $0$ 時不再補空白，最後換行。
+
+\stylepoint{輸出一排以空白分隔的值時，用 \texttt{if (i > 0)}（或類似判
+斷）避免行尾多餘空白，比事後再處理字串乾淨得多。}
+
+\begin{drills}[label=drills:loop-countdown]
+\item \texttt{for (int i = n; i >= 1; i--)} 跟
+\texttt{for (int i = n; i >= 0; i--)}，哪一個會多印一個數字？多印的是哪
+一個？
+\item \texttt{countdown.c} 為什麼要用 \texttt{if (i > 0)} 才印空白，而
+不是每個數字後面都印？
+\item 若把 \texttt{if (i > 0)} 誤寫成 \texttt{if (i >= 0)}，輸出會有什
+麼問題？
+\end{drills}
+
+\section{while 迴圈：條件成立就繼續}
+\label{sec:loop-while-basics}
+
+\texttt{while} 迴圈適合「不知道要跑幾次，只知道什麼時候該停」的情形。 它只
+有條件，沒有把初始化跟更新寫在括號裡。 這些通常要自己在迴圈本體裡或迴圈
+前後處理。
+
+\begin{code}{c}{while 迴圈的基本形狀}
+while (條件) {
+    重複執行的敘述;
+}
+\end{code}
+
+範例 \thechapter.6 讀入正整數 $n$，只要 $n$ 還是偶數就除以 $2$，直到變
+成奇數為止。 這種「一直做某個操作直到狀態改變」的模式，用 \texttt{while}
+比 \texttt{for} 自然。
+
+\begin{example}{c}{(divide-until-odd.c) 一直除以 2 直到變成奇數}
+#include <stdio.h>
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+
+    while (n % 2 == 0) {
+        n /= 2;
+    }
+    printf("%d\n", n);
+    return 0;
+}
+\end{example}
+
+\iosample{
+24 \\
+}{
+3 \\
+}
+
+$n = 24$ 時：$24 \to 12 \to 6 \to 3$，三次除以 $2$ 後 $3$ 是奇數，迴圈
+結束，印出 $3$。
+
+
+若本體裡忘了更新條件相關的變數，迴圈可能永遠停不下來：
+
+\begin{code}{c}{危險：忘記更新，形成無窮迴圈}
+int i = 0;
+while (i < n) {
+    printf("%d\n", i);
+    // 漏寫 i++：i 永遠是 0，條件永遠成立
+}
+\end{code}
+
+終端機若卡住不動、風扇開始狂轉，先檢查迴圈裡有沒有把計數器或狀態往終止
+條件推進。 開發時用 \texttt{Ctrl-C} 強制結束程式，再回去補上漏掉的更新。
+
+\keypoint{\texttt{while} 迴圈在每一輪\textbf{一開始}先檢查條件；如果一開始
+條件就不成立，迴圈本體一次都不會執行。 \texttt{do-while} 則把條件
+檢查放在本體之後，至少會跑一次；後面會專門對比。}
+
+\begin{drills}[label=drills:loop-while-basics]
+\item \texttt{divide-until-odd.c} 輸入 $24$，迴圈總共跑幾輪？每一輪
+\texttt{n} 依序變成什麼？
+\item 範例裡若漏寫 \texttt{n /= 2;}，會發生什麼事？
+\item \texttt{while} 迴圈在每一輪的\emph{開始}還是\emph{結束}檢查條
+件？
+\end{drills}
+
+\section{for 跟 while 其實是同一件事}
+\label{sec:loop-for-while-equiv}
+
+\texttt{for (初始化; 條件; 更新)} 可以拆成等價的 \texttt{while}：初始
+化只做一次，然後「先測條件、再執行本體、最後更新」，再回頭測條件。
+條件一開始就不成立時，本體一次都不會跑。 這點 \texttt{for} 與
+\texttt{while} 相同，跟 \texttt{do-while} 不同。
+
+\begin{code}{c}{把 for 拆成等價的 while}
+初始化;
+while (條件) {
+    本體;
+    更新;
+}
+\end{code}
+
+範例 \thechapter.9 用 \texttt{while} 印出 $0$ 到 $n-1$，效果等同
+\texttt{for (int i = 0; i < n; i++)}。 輸入 \texttt{3} 得到三行
+\texttt{0}、\texttt{1}、\texttt{2}。
+
+\begin{example}{c}{(for-as-while.c) 用 while 模擬固定次數的 for}
+#include <stdio.h>
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+    int i = 0;
+    while (i < n) {
+        printf("%d\n", i);
+        i++;
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+3 \\
+}{
+0 \\
+1 \\
+2 \\
+}
+
+\begin{center}
+\begin{tikzpicture}[node distance=8mm and 20mm]
+    \node[process] (init) {初始化};
+    \node[decision, below=of init] (cond) {條件？};
+    \node[process, below=of cond] (body) {本體};
+    \node[process, right=of body] (upd) {更新};
+    \node[process, below=of body] (done) {離開迴圈};
+    \draw[flowarrow] (init.south) -- (cond.north);
+    \draw[flowarrow] (cond.south) -- node[left,font=\scriptsize] {是} (body.north);
+    \draw[flowarrow] (body.east) -- (upd.west);
+    \draw[flowarrow] (upd.north) |- (cond.east);
+    \draw[flowarrow] (cond.west) -- ++(-2cm,0) |- node[below,font=\scriptsize,pos=0.25] {否} (done.west);
+\end{tikzpicture}
+\diagcaption{\texttt{for} 與 \texttt{while} 的共同流程：先測條件。 條
+件為假時本體一次也不執行。}
+\label{fig:ch05-for-while-flow}
+\end{center}
+
+計數器作用域已在第一節說明；這裡專心看 \texttt{for} 怎麼改寫成
+\texttt{while}，以及兩者共用的流程。
+
+差一錯誤（off-by-one）幾乎都出在條件用 \texttt{<} 還是 \texttt{<=}。
+\texttt{i = 0; i < n} 跑 $n$ 次；\texttt{i = 1; i <= n} 也跑 $n$
+次。 兩種都對，混用就容易多跑或少跑一輪。 先在紙上寫出 $i$ 會取哪些
+值，再寫條件。
+
+逗號運算子可以把兩個運算式合成一個，值是右邊那個。 偶爾會看到
+\texttt{for (i = 0, sum = 0; i < n; i++)} 這種「初始化兩個變數」的寫
+法；能讀懂即可，不必為了短而把更新也擠進逗號裡。
+
+\begin{code}{c}{for 的初始化裡用逗號隔開兩個指定}
+for (i = 0, sum = 0; i < n; i++) {
+    sum += i;
+}
+\end{code}
+
+\begin{drills}[label=drills:loop-for-while-equiv]
+\item 把 \texttt{for (初始化; 條件; 更新)} 拆成等價的 \texttt{while}
+時，「更新」要放在迴圈本體的最前面還是最後面？
+\item \texttt{for} 與 \texttt{while}，當條件一開始就不成立時，本體各
+會執行幾次？
+\item \texttt{for-as-while.c} 輸入 $3$，會印出哪三個數字？
+\end{drills}
+
+\section{do-while：至少執行一次}
+\label{sec:loop-do-while}
+
+\texttt{do-while} 把條件檢查放在迴圈\textbf{本體之後}，所以不管條件一開始
+成不成立，本體至少會跑一次。 這在「一定要先問一次、再決定要不要繼續問」
+的輸入驗證特別有用。
+
+\begin{code}{c}{do-while 迴圈的基本形狀}
+do {
+    重複執行的敘述;
+} while (條件);
+\end{code}
+
+範例 \thechapter.12 一直讀整數，直到讀到嚴格正數為止。 使用者可能第一次就
+輸入錯的，但我們仍然要先讀進來才能判斷。
+
+\begin{example}{c}{(read-until-positive.c) 讀到嚴格正數為止}
+#include <stdio.h>
+
+int main(void) {
+    int x;
+
+    do {
+        scanf("%d", &x);
+    } while (x <= 0);
+
+    printf("%d\n", x);
+    return 0;
+}
+\end{example}
+
+\iosample{
+-1 \\
+0 \\
+5 \\
+}{
+5 \\
+}
+
+第一次讀到 $-1$、第二次 $0$，條件 \texttt{x <= 0} 都成立，繼續讀；第三
+次讀到 $5$，條件不成立，跳出迴圈。
+
+\keypoint{\texttt{do-while} 保證迴圈本體至少執行一次；輸入驗證、選單、
+「重試直到成功」這類題目，幾乎都適合用 \texttt{do-while} 而不是
+\texttt{while}。}
+
+\texttt{while} 與 \texttt{for} 都可能一次都不進本體。 \texttt{do-while}
+相反：先做，再問。 範例 \thechapter.13 把 \texttt{n} 設成 $5$，迴圈條
+件卻是 \texttt{n < 0}。 條件從頭到尾都是假，但仍會印出一行 \texttt{5}，
+因為本體在測試之前就跑過了。
+
+\begin{example}{c}{(do-once.c) 條件為假時，do-while 仍執行一次}
+#include <stdio.h>
+
+int main(void) {
+    int n = 5;
+    do {
+        printf("%d\n", n);
+        n++;
+    } while (n < 0);
+    return 0;
+}
+\end{example}
+
+\iosample{}{
+5 \\
+}
+
+這就是為什麼輸入驗證愛用 \texttt{do-while}：你總得先讀一次，才知道合
+不合法。
+
+\begin{drills}[label=drills:loop-do-while]
+\item \texttt{do-while} 跟 \texttt{while} 最大的差別是什麼？
+\item \texttt{do-once.c} 裡 \texttt{n = 5}，迴圈條件是
+\texttt{n < 0}（從頭到尾都是假），但程式仍會印出什麼？為什麼？
+\item \texttt{read-until-positive.c} 若第一個輸入就是正數，迴圈本體
+會執行幾次？
+\end{drills}
+
+\section{break、continue 與提早離開迴圈}
+\label{sec:loop-break-continue}
+
+有時候迴圈不必跑完所有輪次。 找到答案就可以 \texttt{break} 跳出；某些
+輪次要跳過則用 \texttt{continue} 直接進下一輪。 後面的質數判定與
+Collatz 序列都會再用到 \texttt{break}。
+
+\begin{code}{c}{在 for 迴圈裡用 break 提早結束}
+for (int i = 0; i < n; i++) {
+    if (找到答案) {
+        break;
+    }
+}
+\end{code}
+
+
+範例 \thechapter.15 讀入 $n$，從 $1$ 掃到 $n$，找到第一個 $7$ 的倍數就
+\texttt{break}，印出那個數；若都沒有就印 \texttt{-1}。
+
+\begin{example}{c}{(first-multiple-of-7.c) 找到第一個 7 的倍數就停}
+#include <stdio.h>
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+
+    int found = -1;
+    for (int i = 1; i <= n; i++) {
+        if (i % 7 == 0) {
+            found = i;
+            break;
+        }
+    }
+    printf("%d\n", found);
+    return 0;
+}
+\end{example}
+
+\iosample{
+10 \\
+}{
+7 \\
+}
+
+\iosample{
+5 \\
+}{
+-1 \\
+}
+
+\begin{code}{c}{在 for 迴圈裡用 continue 跳過本輪}
+for (int i = 0; i < n; i++) {
+    if (這一輪要跳過) {
+        continue;
+    }
+    處理本輪;
+}
+\end{code}
+
+\stylepoint{一個迴圈盡量只有一個入口、一個出口，可讀性較高；但「找到就
+停」這類明確的 \texttt{break}，通常比設一堆旗標變數更直覺。 不要為了
+避免 \texttt{break} 而把邏輯寫繞。}
+
+\texttt{continue} 適合「這一輪剩下的事可以整段不理」。 範例
+\thechapter.17 讀 $n$ 個整數，只把正數加進總和；非正數一碰到就
+\texttt{continue}，後面的 \texttt{sum += x} 不會執行。 輸入
+\texttt{4} 筆資料 \texttt{7 -2 3 8}，略過 $-2$，得到 $18$。
+
+\begin{example}{c}{(sum-positives.c) 用 continue 跳過非正數}
+#include <stdio.h>
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+    int sum = 0;
+    for (int count = 0; count < n; count++) {
+        int x;
+        scanf("%d", &x);
+        if (x <= 0) {
+            continue;
+        }
+        sum += x;
+    }
+    printf("%d\n", sum);
+    return 0;
+}
+\end{example}
+
+\iosample{
+4 7 -2 3 8 \\
+}{
+18 \\
+}
+
+同一題也可以寫成「只有正數才加」，如範例 \thechapter.18。 結果一樣，
+但讀程式的人看到 \texttt{if (x > 0)} 往往會往下找 \texttt{else}。 其
+實沒有 else，只是「其餘情況什麼都不做」。 \texttt{continue} 把「不理
+這一輪」寫在條件成立的當下，後面的加總邏輯就專心處理正數。
+
+\begin{example}{c}{(sum-positives-if.c) 不用 continue 的等價寫法}
+#include <stdio.h>
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+    int sum = 0;
+    for (int count = 0; count < n; count++) {
+        int x;
+        scanf("%d", &x);
+        if (x > 0) {
+            sum += x;
+        }
+    }
+    printf("%d\n", sum);
+    return 0;
+}
+\end{example}
+
+\iosample{
+4 7 -2 3 8 \\
+}{
+18 \\
+}
+
+迴圈本體裡宣告的 \texttt{x}，離開那一對大括號就不能再用。 這正好符合
+「它只是這一輪的暫存」。 宣告和使用靠在一起，比把 \texttt{x} 提到
+\texttt{main} 開頭更清楚。
+
+\keypoint{\texttt{continue} 結束的是\textbf{這一輪}，不是整個迴圈；
+\texttt{break} 才是整段離開。 兩者都不要拿來代替本來該寫清楚的條件。}
+
+\begin{drills}[label=drills:loop-break-continue]
+\item \texttt{break} 跟 \texttt{continue}，哪一個是整段離開迴圈，哪
+一個只結束這一輪？
+\item \texttt{first-multiple-of-7.c} 輸入 $5$（找 $1$ 到 $5$ 裡第一個
+$7$ 的倍數），會印出什麼？
+\item \texttt{sum-positives.c} 輸入 \texttt{4 7 -2 3 8}，\texttt{continue}
+跳過的是哪一個數字？最後 \texttt{sum} 是多少？
+\end{drills}
+
+\section{兩段式輸出：先上後下}
+\label{sec:loop-two-stage}
+
+有些題目要依序做兩段不同但結構類似的輸出。 與其寫一個複雜的迴圈，不如老老
+實實寫兩個 \texttt{for}：第一段 $1$ 到 $n$，第二段 $n-1$ 到 $1$。 可讀性
+通常比硬塞在一個迴圈裡好。
+
+\begin{example}{c}{(up-and-down.c) 先印 1 到 n，再印 n-1 到 1}
+#include <stdio.h>
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+
+    for (int i = 1; i <= n; i++) {
+        printf("%d\n", i);
+    }
+    for (int i = n - 1; i >= 1; i--) {
+        printf("%d\n", i);
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+3 \\
+}{
+1 \\
+2 \\
+3 \\
+2 \\
+1 \\
+}
+
+兩個迴圈各自獨立，第二段從 \texttt{n - 1} 開始而不是 \texttt{n}，避免
+$n$ 被印兩次。 這種「邊界少印或多印一次」是迴圈題目最常見的失誤之一。
+
+\stylepoint{兩段結構相似的輸出，用兩個清楚的迴圈分開寫，通常比一個迴圈夾
+雜 \texttt{if} 判斷「現在是上升還是下降段」更容易讀、也比較不容易算錯邊
+界。}
+
+\begin{drills}[label=drills:loop-two-stage]
+\item 範例 \texttt{up-and-down.c} 裡，第二個 \texttt{for} 為什麼要從
+\texttt{n - 1} 開始，而不是從 \texttt{n} 開始？
+\item 如果兩段都從 \texttt{n} 開始遞減／遞增，$n = 3$ 的輸出會多印出
+什麼？
+\end{drills}
+
+\section{巢狀迴圈：矩形與數字圖形}
+\label{sec:loop-nested-shapes}
+
+當外層迴圈控制「第幾列」、內層控制「這一列印幾次或印什麼」，就形成\textbf{
+巢狀迴圈}（nested loop）。 內層每跑完一輪，外層才前進一格。 總執行次數
+大約是外層次數乘以內層次數。
+
+\begin{code}{c}{巢狀 for 迴圈印矩形}
+for (int row = 0; row < height; row++) {
+    for (int col = 0; col < width; col++) {
+        printf("#");
+    }
+    printf("\n");
+}
+\end{code}
+
+範例 \thechapter.21 讀入寬 $W$、高 $H$，印出 $H$ 行、每行 $W$ 個
+\texttt{\#}。
+
+\begin{example}{c}{(print-rectangle.c) 印 W x H 的井號矩形}
+#include <stdio.h>
+
+int main(void) {
+    int w, h;
+    scanf("%d %d", &w, &h);
+
+    for (int row = 0; row < h; row++) {
+        for (int col = 0; col < w; col++) {
+            printf("#");
+        }
+        printf("\n");
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+4 3 \\
+}{
+\#\#\#\# \\
+\#\#\#\# \\
+\#\#\#\# \\
+}
+
+範例 \thechapter.22 第 $i$ 列印數字 $i$ 共 $i$ 次。 內層次數跟外層變數
+綁在一起，形成三角形。
+
+\begin{example}{c}{(number-triangle.c) 第 i 列重複數字 i 共 i 次}
+#include <stdio.h>
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+
+    for (int i = 1; i <= n; i++) {
+        for (int j = 0; j < i; j++) {
+            printf("%d", i);
+        }
+        printf("\n");
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+4 \\
+}{
+1 \\
+22 \\
+333 \\
+4444 \\
+}
+
+範例 \thechapter.23 第 $i$ 列印 $1$ 到 $i$。 同一個外層 \texttt{i}，
+內層從 $1$ 數到 \texttt{i}，圖形從「重複同一數字」變成「遞增序列」。
+
+\begin{example}{c}{(repeated-pattern.c) 第 i 列印 1 到 i}
+#include <stdio.h>
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+
+    for (int i = 1; i <= n; i++) {
+        for (int j = 1; j <= i; j++) {
+            printf("%d", j);
+        }
+        printf("\n");
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+4 \\
+}{
+1 \\
+12 \\
+123 \\
+1234 \\
+}
+
+\stylepoint{巢狀迴圈寫圖形時，先想清楚「外層控制列還是行、內層控制這一列要
+印幾個字元或什麼內容」，在紙上畫小表格對一下，比直接寫程式瞎試省時。}
+
+\begin{drills}[label=drills:loop-nested-shapes]
+\item 巢狀迴圈裡，外層通常控制什麼、內層通常控制什麼？
+\item \texttt{number-triangle.c} 第 $i$ 列印數字 $i$ 共幾次？$n = 4$
+時第 $3$ 列印出什麼？
+\item \texttt{repeated-pattern.c} 跟 \texttt{number-triangle.c} 印出的
+圖形有什麼不同？
+\end{drills}
+
+\section{乘法表與週期圖樣}
+\label{sec:loop-mult-table}
+
+$N \times N$ 乘法表是巢狀迴圈的經典練習：外層 \texttt{i}、內層 \texttt{j}，
+印 \texttt{i * j}，並用 \texttt{\%2d} 對齊欄寬。
+
+\begin{example}{c}{(multiplication-table.c) N x N 乘法表}
+#include <stdio.h>
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+
+    for (int i = 1; i <= n; i++) {
+        for (int j = 1; j <= n; j++) {
+            printf("%2d", i * j);
+        }
+        printf("\n");
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+3 \\
+}{
+ 1 2 3 \\
+ 2 4 6 \\
+ 3 6 9 \\
+}
+
+範例 \thechapter.25 在 $N \times N$ 網格上，行列索引之和能被 $3$ 整除的
+格子印 \texttt{@}，其餘印 \texttt{-}。 這類「週期圖樣」題目，關鍵往往是
+找到 \texttt{(i + j) \% k} 或類似規律。
+
+\begin{example}{c}{(diagonal-tile.c) 週期對角線圖樣}
+#include <stdio.h>
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+
+    for (int i = 0; i < n; i++) {
+        for (int j = 0; j < n; j++) {
+            if ((i + j) % 3 == 0) {
+                printf("@");
+            } else {
+                printf("-");
+            }
+        }
+        printf("\n");
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+4 \\
+}{
+@--@ \\
+--@- \\
+-@-- \\
+@--@ \\
+}
+
+\begin{drills}[label=drills:loop-mult-table]
+\item \texttt{multiplication-table.c} 裡 \texttt{printf("\%2d", ...)}
+的 \texttt{\%2d} 是做什麼用的？
+\item \texttt{diagonal-tile.c} 用 \texttt{(i + j) \% 3 == 0} 判斷要印
+\texttt{@} 還是 \texttt{-}；$n = 4$ 時第一列（\texttt{i = 0}）有哪幾欄
+是 \texttt{@}？
+\end{drills}
+
+\section{置中的數字金字塔}
+\label{sec:loop-pyramid}
+
+巢狀迴圈不一定印實心矩形。 有時內層要先印「左邊的空白（或底線）」，
+再印這一列的內容。 範例 \thechapter.26 第 $i$ 列先印 $n-i$ 個底線，再
+把數字 $i$ 重複 $i$ 次。 $n = 3$ 時外形會像金字塔。
+
+\begin{example}{c}{(number-pyramid.c) 用底線對齊的數字金字塔}
+#include <stdio.h>
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+    for (int i = 1; i <= n; i++) {
+        for (int s = 0; s < n - i; s++) {
+            printf("_");
+        }
+        for (int k = 0; k < i; k++) {
+            printf("%d", i);
+        }
+        printf("\n");
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+3 \\
+}{
+\_\_1 \\
+\_22 \\
+333 \\
+}
+
+外層仍管「第幾列」，內層拆成兩段：一段專管左邊界、一段專管內容。 先
+在紙上把 $n=3$ 的三列畫出來，再數底線個數，比直接在終端機裡試縮排快。
+
+\begin{drills}[label=drills:loop-pyramid]
+\item \texttt{number-pyramid.c} 第 $i$ 列先印幾個底線、再印幾個數
+字？
+\item 內層的兩段 \texttt{for} 分別負責圖形的哪一部分？
+\end{drills}
+
+\section{do-while 驗證輸入：密碼、分數與字元}
+\label{sec:loop-input-validation}
+
+同一套「讀入 → 檢查 → 不對就再讀」可以套在不同型別的輸入上。 範例
+\thechapter.27 模擬 PIN 碼驗證：不是 \texttt{1234} 就一直重試。
+
+\begin{example}{c}{(pin-until-match.c) 重試直到 PIN 正確}
+#include <stdio.h>
+
+int main(void) {
+    int pin;
+
+    do {
+        scanf("%d", &pin);
+    } while (pin != 1234);
+
+    printf("OK\n");
+    return 0;
+}
+\end{example}
+
+\iosample{
+9999 \\
+1234 \\
+}{
+OK \\
+}
+
+範例 \thechapter.28 限制分數在 $0$ 到 $100$ 之間。 條件變成區間檢查，
+結構完全一樣。
+
+\begin{example}{c}{(valid-grade.c) 讀到 0 到 100 的分數為止}
+#include <stdio.h>
+
+int main(void) {
+    int score;
+
+    do {
+        scanf("%d", &score);
+    } while (score < 0 || score > 100);
+
+    printf("%d\n", score);
+    return 0;
+}
+\end{example}
+
+\iosample{
+120 \\
+-5 \\
+85 \\
+}{
+85 \\
+}
+
+讀字元時，空白字元（空格、換行）常會留在輸入緩衝區裡干擾下一次
+\texttt{scanf}。 在 \texttt{\%c} 前面加一個空格。 寫成 \texttt{" \%c"}。 
+會讓 \texttt{scanf} 先跳過前面的空白再讀一個字元。 範例 \thechapter.29
+用這個技巧讀 \texttt{Y} 或 \texttt{N}。
+
+\begin{example}{c}{(yes-or-no.c) 讀到 Y 或 N 為止}
+#include <stdio.h>
+
+int main(void) {
+    char c;
+
+    do {
+        scanf(" %c", &c);
+    } while (c != 'Y' && c != 'N');
+
+    printf("%c\n", c);
+    return 0;
+}
+\end{example}
+
+\iosample{
+A \\
+M \\
+Y \\
+}{
+Y \\
+}
+
+\stylepoint{用 \texttt{scanf(" \%c", \&c)} 讀單一字元時，格式字串開頭的空
+格會跳過換行與空白，避免上一次 \texttt{scanf} 留下的換行被當成輸入讀進
+來。}
+
+範例 \thechapter.30 讀星期（$1$ 到 $7$），不在範圍就再讀，直
+到合法為止。 輸入 \texttt{0 8 3} 時前兩次被丟掉，最後印 \texttt{3}。
+
+\begin{example}{c}{(valid-weekday.c) 讀到 1 到 7 的星期為止}
+#include <stdio.h>
+
+int main(void) {
+    int d;
+    do {
+        scanf("%d", &d);
+    } while (d < 1 || d > 7);
+    printf("%d\n", d);
+    return 0;
+}
+\end{example}
+
+\iosample{
+0 8 3 \\
+}{
+3 \\
+}
+\begin{drills}[label=drills:loop-input-validation]
+\item 這一節的每個例子都用 \texttt{do-while} 而不是 \texttt{while}
+驗證輸入，為什麼？
+\item \texttt{scanf(" \%c", \&c)} 格式字串開頭的空格，作用是什麼？
+\item \texttt{valid-grade.c} 輸入依序是 \texttt{120}、\texttt{-5}、
+\texttt{85}，迴圈本體執行幾次？最後印出什麼？
+\end{drills}
+
+\section{哨兵值、選單與累加}
+\label{sec:loop-sentinel}
+
+\textbf{哨兵值}（sentinel）是一個約定好的特殊輸入，代表「資料結束了」。 
+例如 $-1$ 或 $0$。 搭配 \texttt{do-while} 或 \texttt{while}，可以讀一
+串未知長度的資料並做統計。
+
+範例 \thechapter.31 模擬選單：選 $0$ 離開，其他選項印 \texttt{AGAIN}。
+
+\begin{example}{c}{(menu-until-quit.c) 選單迴圈直到選 0}
+#include <stdio.h>
+
+int main(void) {
+    int choice;
+
+    do {
+        scanf("%d", &choice);
+        if (choice != 0) {
+            printf("AGAIN\n");
+        }
+    } while (choice != 0);
+
+    printf("BYE\n");
+    return 0;
+}
+\end{example}
+
+\iosample{
+1 \\
+2 \\
+0 \\
+}{
+AGAIN \\
+AGAIN \\
+BYE \\
+}
+
+範例 \thechapter.32 在讀到 $-1$ 之前，數有幾筆有效資料（$-1$ 本身不計）。
+
+\begin{example}{c}{(sum-until-sentinel.c) 以 -1 為哨兵值計數}
+#include <stdio.h>
+
+int main(void) {
+    int x, count = 0;
+
+    do {
+        scanf("%d", &x);
+        if (x != -1) {
+            count++;
+        }
+    } while (x != -1);
+
+    printf("%d\n", count);
+    return 0;
+}
+\end{example}
+
+\iosample{
+1 \\
+2 \\
+3 \\
+-1 \\
+}{
+3 \\
+}
+
+範例 \thechapter.33 則把哨兵改成 $0$，讀到的所有數字（包含最後那個 $0$）
+加總。 注意這裡 $0$ 既參與累加，又觸發結束。
+
+\begin{example}{c}{(sum-until-zero.c) 累加直到讀到 0}
+#include <stdio.h>
+
+int main(void) {
+    int x, sum = 0;
+
+    do {
+        scanf("%d", &x);
+        sum += x;
+    } while (x != 0);
+
+    printf("%d\n", sum);
+    return 0;
+}
+\end{example}
+
+\iosample{
+1 \\
+2 \\
+3 \\
+0 \\
+}{
+6 \\
+}
+
+\keypoint{哨兵值要不要參與計算，完全看題目規定；寫程式前先確認「結束符號
+本身算不算一筆資料」，比寫完再改邏輯省時。}
+
+\begin{drills}[label=drills:loop-sentinel]
+\item 什麼是「哨兵值」？
+\item \texttt{sum-until-sentinel.c}（以 $-1$ 為哨兵）跟
+\texttt{sum-until-zero.c}（以 $0$ 為哨兵）最大的差別是什麼？
+\item \texttt{menu-until-quit.c} 輸入 \texttt{1 2 0}，會依序印出哪幾
+行？
+\end{drills}
+
+\section{多筆測資：已知筆數與 Case 前綴}
+\label{sec:loop-multi-case}
+
+競賽與題庫常見的輸入格式是：第一行給測資筆數 $N$，後面接 $N$ 組資料。
+這時外層用 \texttt{for (int i = 0; i < n; i++)} 包住內層處理即可。
+
+\begin{example}{c}{(multi-case-compare.c) N 組資料比較兩數大小}
+#include <stdio.h>
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+
+    for (int i = 0; i < n; i++) {
+        int a, b;
+        scanf("%d %d", &a, &b);
+        if (a > b) {
+            printf("A\n");
+        } else if (a < b) {
+            printf("B\n");
+        } else {
+            printf("T\n");
+        }
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+3 \\
+1 2 \\
+2 2 \\
+3 1 \\
+}{
+B \\
+T \\
+A \\
+}
+
+有些題目要求每組輸出前面加 \texttt{Case k:} 前綴。 範例 \thechapter.35
+把迴圈計數器從 $1$ 開始（\texttt{k = 1; k <= n; k++}），直接當 Case 編
+號。
+
+\begin{example}{c}{(case-prefix.c) 多筆測資加上 Case 前綴}
+#include <stdio.h>
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+
+    for (int k = 1; k <= n; k++) {
+        int a, b;
+        scanf("%d %d", &a, &b);
+        printf("Case %d: ", k);
+        if (a > b) {
+            printf("A\n");
+        } else if (a < b) {
+            printf("B\n");
+        } else {
+            printf("T\n");
+        }
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+2 \\
+1 2 \\
+2 2 \\
+}{
+Case 1: B \\
+Case 2: T \\
+}
+
+測資筆數未知、直到 EOF（檔案結束）為止時，可以用 \texttt{while (scanf(...)
+!= EOF)} 這種寫法。 檔案處理那一章會更完整地讲，這裡先記住「外層迴圈控
+制還有沒有下一組資料」這個概念就好。
+
+\begin{code}{c}{一直讀到 EOF 為止}
+while (scanf("%d %d", &a, &b) != EOF) {
+    處理這一組資料;
+}
+\end{code}
+
+另一種常見終止條件是「某個特殊值組合」。 例如兩個 \texttt{0} 代表結束。 
+邏輯跟哨兵值相同，只是形式從單一數字變成多個欄位。
+
+
+範例 \thechapter.37 是解題平台上最常見的「測資筆數未知、讀到 EOF 為止」模板：
+每讀到兩個整數就印它們的和，沒有下一行時 \texttt{scanf} 回傳 \texttt{EOF}、
+迴圈結束。 檔案與標準輸入重定向的細節留給後面章節；這裡先記住這個外層
+\texttt{while} 骨架。
+
+\begin{example}{c}{(sum-until-eof.c) 一直讀兩整數相加，直到 EOF}
+#include <stdio.h>
+
+int main(void) {
+    int a, b;
+    while (scanf("%d %d", &a, &b) != EOF) {
+        printf("%d\n", a + b);
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+1 2 \\
+3 4 \\
+}{
+3 \\
+7 \\
+}
+
+
+\begin{drills}[label=drills:loop-multi-case]
+\item 「先給測資筆數 $N$，再接 $N$ 組資料」這種輸入格式，通常用什麼
+迴圈結構處理？
+\item \texttt{case-prefix.c} 跟 \texttt{multi-case-compare.c} 比起
+來，多做了什麼事？
+\item 測資筆數\emph{未知}、要讀到檔案結束為止時，可以用哪種
+\texttt{while} 寫法？
+\end{drills}
+
+\section{連續整數求和}
+\label{sec:loop-range-sum}
+
+求 $A + (A+1) + \cdots + B$ 這類問題，用迴圈從 $A$ 加到 $B$ 最直接。
+如果輸入可能 $A > B$，先交換再算。 這比寫兩個方向各算一遍更清楚。
+
+\begin{code}{c}{若 a 大於 b 就先交換}
+if (a > b) {
+    int t = a;
+    a = b;
+    b = t;
+}
+for (int i = a; i <= b; i++) {
+    sum += i;
+}
+\end{code}
+
+範例 \thechapter.39 除了印總和，還把算式 $a + (a+1) + \cdots = s$ 完整
+輸出。 迴圈裡用旗標 \texttt{first} 控制加號，避免算式開頭多一個
+\texttt{+}。
+
+\begin{example}{c}{(sum-equation.c) 連續整數求和並印出算式}
+#include <stdio.h>
+
+int main(void) {
+    int a, b;
+    scanf("%d %d", &a, &b);
+
+    if (a > b) {
+        int t = a;
+        a = b;
+        b = t;
+    }
+
+    long long sum = 0;
+    int first = 1;
+    for (int i = a; i <= b; i++) {
+        if (!first) {
+            printf("+");
+        }
+        printf("%d", i);
+        sum += i;
+        first = 0;
+    }
+    printf("=%lld\n", sum);
+    return 0;
+}
+\end{example}
+
+\iosample{
+1 5 \\
+}{
+1+2+3+4+5=15 \\
+}
+
+\keypoint{連續整數求和雖然有公式 $(A+B)(B-A+1)/2$，但用迴圈實作更直覺，
+也為之後「不是等差數列、不能套公式」的累加題打好基礎。}
+
+\begin{drills}[label=drills:loop-range-sum]
+\item 如果輸入的 $a$ 大於 $b$，程式在開始累加前會先做什麼？
+\item \texttt{sum-equation.c} 裡的旗標 \texttt{first} 是用來避免什麼
+問題？
+\end{drills}
+
+\section{累加的變奏：次方和、下一個倍數、最小公倍數}
+\label{sec:loop-accum-variants}
+
+同一層 \texttt{for} 可以同時累加好幾種量。 範例 \thechapter.40 讀
+\texttt{n}，一次算出 $1$ 到 $n$ 的和、平方和、立方和。 $n = 4$ 時是
+$10$、$30$、$100$。
+
+\begin{example}{c}{(sum-powers.c) 連續整數的和、平方和、立方和}
+#include <stdio.h>
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+    int sum = 0;
+    int sq = 0;
+    int cu = 0;
+    for (int i = 1; i <= n; i++) {
+        sum += i;
+        sq += i * i;
+        cu += i * i * i;
+    }
+    printf("%d %d %d\n", sum, sq, cu);
+    return 0;
+}
+\end{example}
+
+\iosample{
+4 \\
+}{
+10 30 100 \\
+}
+
+有些 \texttt{while} 不是在「數次數」，而是在「把狀態推到下一個合格
+點」。 範例 \thechapter.41 從 $0$ 每次加 $5$，直到不小於輸入的
+\texttt{j}。 也就是「$5$ 的倍數裡，不小於 $j$ 的最小那個」。
+\texttt{j = 17} 得到 $20$；\texttt{j = 15} 得到 $15$。
+
+\begin{example}{c}{(next-five.c) 不小於 j 的最小 5 的倍數}
+#include <stdio.h>
+
+int main(void) {
+    int j;
+    scanf("%d", &j);
+    int i = 0;
+    while (i < j) {
+        i += 5;
+    }
+    printf("%d\n", i);
+    return 0;
+}
+\end{example}
+
+\iosample{
+17 \\
+}{
+20 \\
+}
+
+最小公倍數可以從已經會的輾轉相除再走一步：$\mathrm{lcm}(a,b) =
+ab / \gcd(a,b)$。 為了少溢位，先除後乘：\texttt{a / gcd * b}。 範例
+\thechapter.42 對 \texttt{12 18} 印出 \texttt{36}。
+
+\begin{example}{c}{(lcm-two.c) 用 gcd 迴圈求最小公倍數}
+#include <stdio.h>
+
+int main(void) {
+    int a, b;
+    scanf("%d %d", &a, &b);
+    int x = a;
+    int y = b;
+    while (y != 0) {
+        int t = x % y;
+        x = y;
+        y = t;
+    }
+    printf("%d\n", a / x * b);
+    return 0;
+}
+\end{example}
+
+\iosample{
+12 18 \\
+}{
+36 \\
+}
+
+\begin{drills}[label=drills:loop-accum-variants]
+\item \texttt{next-five.c} 輸入 \texttt{j = 17}，\texttt{i} 從 $0$
+開始每次加 $5$，最後印出多少？
+\item \texttt{lcm-two.c} 怎麼從 \texttt{gcd} 算出最小公倍數？
+\item 為什麼要寫成 \texttt{a / gcd * b} 而不是 \texttt{a * b / gcd}？
+\end{drills}
+
+\section{位數處理：剝除與反轉}
+\label{sec:loop-digits}
+
+整數在記憶體裡是以二進位存的，但我們常需要按\textbf{十進位}的個位、十位
+來處理。 取餘數 \texttt{n \% 10} 得到最後一位，再 \texttt{n /= 10} 把
+最後一位「剝掉」。 這個 \texttt{while (n > 0)} 模式在數論題目裡非常常見。
+
+\begin{example}{c}{(digit-sum.c) 各位數字相加}
+#include <stdio.h>
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+
+    int s = 0;
+    while (n > 0) {
+        s += n % 10;
+        n /= 10;
+    }
+    printf("%d\n", s);
+    return 0;
+}
+\end{example}
+
+\iosample{
+12345 \\
+}{
+15 \\
+}
+
+範例 \thechapter.44 用同一套剝除邏輯，但把每一位「接」到新整數的末尾，
+達成數字反轉。
+
+\begin{example}{c}{(reverse-digits.c) 反轉整數的十進位數字}
+#include <stdio.h>
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+
+    int rev = 0;
+    while (n > 0) {
+        rev = rev * 10 + n % 10;
+        n /= 10;
+    }
+    printf("%d\n", rev);
+    return 0;
+}
+\end{example}
+
+\iosample{
+12345 \\
+}{
+54321 \\
+}
+
+以 $12345$ 走一遍反轉：\texttt{rev} 依序變成 $5 \to 54 \to 543 \to
+5432 \to 54321$。 每次 \texttt{rev * 10} 把舊結果左移一位，再加上新的
+個位。
+
+\stylepoint{位數處理的 \texttt{while (n > 0)} 迴圈，每一輪只做兩件事：
+\texttt{n \% 10} 取個位、\texttt{n /= 10} 剝掉個位。 把這個節奏記熟，
+很多題目都能套同一個骨架。}
+
+\begin{drills}[label=drills:loop-digits]
+\item \texttt{digit-sum.c} 用哪兩個運算子，把整數的個位剝出來、再把
+它去掉？
+\item \texttt{reverse-digits.c} 裡 \texttt{rev = rev * 10 + n \% 10;}
+這一行在做什麼？
+\end{drills}
+
+\section{累乘、階乘型乘積與狀態更新}
+\label{sec:loop-product}
+
+連加對應的是 \texttt{sum += ...}，連乘則是 \texttt{product *= ...}。
+排列數 $P(N,R) = N \times (N-1) \times \cdots \times (N-R+1)$ 需要
+\texttt{long long}，因為乘積很快超過 \texttt{int} 範圍。
+
+\begin{example}{c}{(falling-factorial.c) 計算 P(N,R)}
+#include <stdio.h>
+
+int main(void) {
+    int n, r;
+    scanf("%d %d", &n, &r);
+
+    long long ans = 1;
+    for (int i = 0; i < r; i++) {
+        ans *= (n - i);
+    }
+    printf("%lld\n", ans);
+    return 0;
+}
+\end{example}
+
+\iosample{
+5 3 \\
+}{
+60 \\
+}
+
+有些 \texttt{while} 迴圈每一輪要同時更新好幾個變數。 範例 \thechapter.46
+模擬細菌：每天族群乘以 $3$，直到達到目標。
+
+\begin{example}{c}{(bacteria-growth.c) 三倍成長直到達標}
+#include <stdio.h>
+
+int main(void) {
+    int pop, target;
+    scanf("%d %d", &pop, &target);
+
+    int days = 0;
+    while (pop < target) {
+        pop *= 3;
+        days++;
+    }
+    printf("%d\n", days);
+    return 0;
+}
+\end{example}
+
+\iosample{
+1 27 \\
+}{
+3 \\
+}
+
+範例 \thechapter.47 則是「兌換迴圈」：每 $5$ 根棍子可換 $1$ 根，換來的
+又能繼續湊。 迴圈裡同時更新「目前手上」與「累計總數」兩個狀態。
+
+\begin{example}{c}{(exchange-sticks.c) 每 5 根兌換 1 根}
+#include <stdio.h>
+
+int main(void) {
+    int sticks;
+    scanf("%d", &sticks);
+
+    int total = sticks;
+    while (sticks >= 5) {
+        int gained = sticks / 5;
+        total += gained;
+        sticks = sticks % 5 + gained;
+    }
+    printf("%d\n", total);
+    return 0;
+}
+\end{example}
+
+\iosample{
+23 \\
+}{
+28 \\
+}
+
+$23$ 根：先換 $4$ 根（總 $27$，剩 $7$），再換 $1$ 根（總 $28$，剩 $3$），
+$3 < 5$ 結束。
+
+\keypoint{累乘、累加一樣要選夠大的型別；乘積比加法更容易溢出，看到排列、
+組合、階乘這類關鍵字，優先考慮 \texttt{long long}。}
+
+\begin{drills}[label=drills:loop-product]
+\item \texttt{falling-factorial.c} 為什麼用 \texttt{long long} 存
+\texttt{ans}，而不是 \texttt{int}？
+\item \texttt{bacteria-growth.c} 的 \texttt{while} 迴圈裡，每一輪同時
+更新哪兩個變數？
+\end{drills}
+
+\section{歐幾里得算法與質數判定}
+\label{sec:loop-gcd-prime}
+
+\textbf{輾轉相除法}（Euclid 算法）用「大數除以小數、取餘數、把小數當新
+的大數」反覆進行，直到餘數為 $0$，此時的小數就是最大公因數。 整個過程
+就是一個 \texttt{while (b != 0)} 迴圈。
+
+\begin{example}{c}{(gcd-euclid.c) 輾轉相除法求最大公因數}
+#include <stdio.h>
+
+int main(void) {
+    int a, b;
+    scanf("%d %d", &a, &b);
+
+    while (b != 0) {
+        int t = a % b;
+        a = b;
+        b = t;
+    }
+    printf("%d\n", a);
+    return 0;
+}
+\end{example}
+
+\iosample{
+48 18 \\
+}{
+6 \\
+}
+
+判定質數則用 \texttt{for} 從 $2$ 試除到 $\sqrt{n}$。 只要找到任何一個
+因數就可以用前面學過的 \texttt{break} 提早結束，不必試完所有數字。
+
+\begin{example}{c}{(prime-check.c) 試除法判定質數}
+#include <stdio.h>
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+
+    if (n < 2) {
+        printf("NO\n");
+        return 0;
+    }
+
+    int isPrime = 1;
+    for (int d = 2; (long long)d * d <= n; d++) {
+        if (n % d == 0) {
+            isPrime = 0;
+            break;
+        }
+    }
+    printf("%s\n", isPrime ? "YES" : "NO");
+    return 0;
+}
+\end{example}
+
+\iosample{
+17 \\
+}{
+YES \\
+}
+
+\keypoint{試除到 $\sqrt{n}$ 就夠，因為若 $n = ab$ 且 $a \le b$，則
+$a \le \sqrt{n}$；用 \texttt{(long long)d * d <= n} 避免 \texttt{d * d}
+在 \texttt{d} 很大時溢出。}
+
+\begin{drills}[label=drills:loop-gcd-prime]
+\item 輾轉相除法裡，\texttt{while (b != 0)} 迴圈結束時，哪個變數存的
+就是最大公因數？
+\item \texttt{prime-check.c} 為什麼只試除到 $\sqrt{n}$ 就夠，不用試到
+$n$？
+\item 條件寫成 \texttt{(long long)d * d <= n} 而不是 \texttt{d * d <= n}
+的目的是什麼？
+\end{drills}
+
+\section{Collatz 序列}
+\label{sec:loop-collatz}
+
+$3n+1$ 問題（Collatz 猜想）：若 $n$ 是偶數就除以 $2$，奇數就變成
+$3n+1$，重複直到變成 $1$。 沒人證明是否一定會到 $1$，但程式可以忠實
+模擬這個過程。
+
+範例 \thechapter.50 印出整段序列；範例 \thechapter.51 只數長度（包含起
+點）。 兩者都適合用 \texttt{while (n != 1)}，差別在要不要把中間每一步
+都印出來。
+
+\begin{example}{c}{(collatz-sequence.c) 印出 Collatz 序列}
+#include <stdio.h>
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+
+    int first = 1;
+    while (1) {
+        if (!first) {
+            printf(" ");
+        }
+        printf("%d", n);
+        first = 0;
+        if (n == 1) {
+            break;
+        }
+        if (n % 2 == 0) {
+            n /= 2;
+        } else {
+            n = 3 * n + 1;
+        }
+    }
+    printf("\n");
+    return 0;
+}
+\end{example}
+
+\iosample{
+6 \\
+}{
+6 3 10 5 16 8 4 2 1 \\
+}
+
+\begin{example}{c}{(collatz-length.c) 計算 Collatz 序列長度}
+#include <stdio.h>
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+
+    int len = 1;
+    while (n != 1) {
+        if (n % 2 == 0) {
+            n /= 2;
+        } else {
+            n = 3 * n + 1;
+        }
+        len++;
+    }
+    printf("%d\n", len);
+    return 0;
+}
+\end{example}
+
+\iosample{
+6 \\
+}{
+9 \\
+}
+
+\keypoint{Collatz 迴圈裡，奇數步 \texttt{3 * n + 1} 可能讓 \texttt{n}
+短時間內變很大；若題目上限很大，要確認 \texttt{int} 是否夠用，必要時
+改用 \texttt{long long}。}
+
+\begin{drills}[label=drills:loop-collatz]
+\item Collatz 規則：$n$ 是偶數時怎麼變？是奇數時怎麼變？
+\item \texttt{collatz-length.c} 跟 \texttt{collatz-sequence.c} 用的是
+同一套規則，兩支程式的輸出差在哪裡？
+\end{drills}
+
+\section{因數和、餘數分類與同號連續段}
+\label{sec:loop-divisor-classify}
+
+把 $1$ 到 $n-1$ 中所有整除 $n$ 的因數加起來，可以判斷 $n$ 是完數
+（Perfect）、盈數（Abundant）還是虧數（Deficient）。 範例 \thechapter.52
+用一個 \texttt{for} 累加真因數和。
+
+\begin{example}{c}{(classify-divisors.c) 依真因數和分類整數}
+#include <stdio.h>
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+
+    int sum = 0;
+    for (int d = 1; d < n; d++) {
+        if (n % d == 0) {
+            sum += d;
+        }
+    }
+
+    if (sum == n) {
+        printf("Perfect\n");
+    } else if (sum > n) {
+        printf("Abundant\n");
+    } else {
+        printf("Deficient\n");
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+28 \\
+}{
+Perfect \\
+}
+
+範例 \thechapter.53 讀 $n$ 個整數，依除以 $3$ 的餘數分三類計數。 這
+跟陣列章的「分桶」概念類似，但這裡只用三個計數器，不必開陣列。
+
+\begin{example}{c}{(residue-count.c) 依 mod 3 餘數分類計數}
+#include <stdio.h>
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+
+    int c0 = 0, c1 = 0, c2 = 0;
+    for (int i = 0; i < n; i++) {
+        int x;
+        scanf("%d", &x);
+        if (x % 3 == 0) {
+            c0++;
+        } else if (x % 3 == 1) {
+            c1++;
+        } else {
+            c2++;
+        }
+    }
+    printf("%d %d %d\n", c0, c1, c2);
+    return 0;
+}
+\end{example}
+
+\iosample{
+5 \\
+3 4 5 6 7 \\
+}{
+2 2 1 \\
+}
+
+範例 \thechapter.54 處理「連續同號整數的長度」。 掃描時若符號跟上一個
+相同就延長計數，否則輸出上一段並重新開始。 這是\textbf{run-length}（游
+程編碼）的雛形，之後字串、序列題目還會再遇到。
+
+\begin{example}{c}{(run-length-sign.c) 同號連續段長度}
+#include <stdio.h>
+
+int main(void) {
+    int n;
+    scanf("%d", &n);
+
+    int prev, count = 0, first = 1;
+    for (int i = 0; i < n; i++) {
+        int x;
+        scanf("%d", &x);
+        if (i == 0) {
+            prev = x;
+            count = 1;
+            continue;
+        }
+        if ((prev > 0 && x > 0) || (prev < 0 && x < 0)) {
+            count++;
+        } else {
+            if (!first) {
+                printf(" ");
+            }
+            printf("%d", (prev > 0 ? 1 : -1) * count);
+            first = 0;
+            prev = x;
+            count = 1;
+        }
+    }
+
+    if (n > 0) {
+        if (!first) {
+            printf(" ");
+        }
+        printf("%d\n", (prev > 0 ? 1 : -1) * count);
+    }
+    return 0;
+}
+\end{example}
+
+\iosample{
+6 \\
+1 2 3 -1 -2 5 \\
+}{
+3 -2 1 \\
+}
+
+正數段 $1,2,3$ 長度 $3$ 輸出 \texttt{3}；負數段 $-1,-2$ 長度 $2$ 輸出
+\texttt{-2}（符號代表正負）；最後單獨的 $5$ 輸出 \texttt{1}。
+
+\begin{drills}[label=drills:loop-divisor-classify]
+\item \texttt{classify-divisors.c} 怎麼判斷一個數是不是「完數」
+（Perfect）？
+\item \texttt{residue-count.c} 用了幾個計數器？分別對應除以 $3$ 餘幾
+的情況？
+\item \texttt{run-length-sign.c} 在處理的是哪一種常見模式（跟後面字
+串章節會再遇到的哪個概念一樣）？
+\end{drills}
+
+\section{日期計算：從年月日推算星期}
+\label{sec:loop-day-of-week}
+
+日期題目通常要處理：各月天數不同、閏年二月多一天、從某個基準日累加總天
+數再取餘數。 範例 \thechapter.55 簡化版：假設該年 1 月 1 日是星期五
+（編號 $6$，若星期日為 $0$），讀入月日後累加從年初到該日前的天數。
+
+\begin{example}{c}{(day-of-week.c) 由月日推算星期（簡化基準）}
+#include <stdio.h>
+
+int isLeap(int y) {
+    return (y % 400 == 0) || (y % 4 == 0 && y % 100 != 0);
+}
+
+int main(void) {
+    int y, m, d;
+    scanf("%d %d %d", &y, &m, &d);
+
+    int days[] = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    if (isLeap(y)) {
+        days[2] = 29;
+    }
+
+    int total = 0;
+    for (int i = 1; i < m; i++) {
+        total += days[i];
+    }
+    total += d - 1;
+
+    int w = (total + 6) % 7;
+    printf("%d\n", w);
+    return 0;
+}
+\end{example}
+
+\iosample{
+2024 3 1 \\
+}{
+3 \\
+}
+
+閏年判斷 \texttt{isLeap} 抽出成函式，主程式用 \texttt{for} 累加整月天
+數。 這種「查表 + 累加 + 取餘」的組合，是日期類題目的共通骨架。 更完整
+的月曆輸出（格子排版、 weekday offset）只是把同一套天數計算嵌進巢狀
+迴圈裡控制列與欄。
+
+\keypoint{日期題目裡，閏年規則（四年一閏、百年不閏、四百年再閏）跟「各
+月天數表」一定要先寫對；邏輯錯在這裡，後面再漂亮的迴圈也救不了。}
+
+\begin{drills}[label=drills:loop-day-of-week]
+\item \texttt{isLeap} 函式判斷閏年的三個條件是什麼？
+\item 為什麼程式要在確定是不是閏年之後，才把 \texttt{days[2]} 改成
+$29$？
+\end{drills}
+
+\section{進階模擬：多狀態與複合迴圈}
+\label{sec:loop-advanced-sim}
+
+題庫後段（分數 $80$ 以上）的題目，往往把多種技巧疊在一起：在網格上模擬
+機器人移動、光線在鏡面間反彈、多個容器之間反覆倒水直到平衡、或是在狀態
+空間裡用 \texttt{while} 迭代直到收斂。 這些題目沒有單一「萬用片語」，
+但共通結構是：
+
+\begin{enumerate}
+    \item 用變數（或陣列）完整描述「系統現狀」；
+    \item 外層 \texttt{while} 控制「模擬還要不要繼續」；
+    \item 內層 \texttt{for} 處理「這一輪裡每個物件各做一步」；
+    \item 每步更新後檢查終止條件（碰撞、填滿、空池、超過步數上限等）。
+\end{enumerate}
+
+練習時建議先在紙上對小測資手工模擬幾輪，確認「每一輪哪些變數會變、什麼
+情況該停」，再把它翻成程式。 若單純用 \texttt{for} 掃一次無法表達「要
+重複調整直到穩定」，就該懷疑需要外層 \texttt{while}。 這是從基礎迴圈
+過渡到模擬題的分水嶺。
+
+題庫裡像「兩球在格子裡彈跳並交換位置」「多個杯子與無限水池之間倒水」
+「機器人找燃料並在環狀地圖上相遇」這類高分題，都建立在本章前面所有
+技巧之上：輸入驗證、哨兵、多筆測資、巢狀迴圈、\texttt{break}、以及多
+變數狀態更新。 把這一章的基礎練熟，再回頭挑戰那些題目，會比一開始就
+硬啃模擬題有效率得多。
+
+\begin{drills}[label=drills:loop-advanced-sim]
+\item 進階模擬題的共通結構列出的四個步驟依序是什麼？
+\item 當「單純用 \texttt{for} 掃一次無法表達」時，通常代表需要哪一種
+額外的迴圈結構？
+\end{drills}
+
+\addcontentsline{toc}{section}{練習解答}
+\section*{練習解答}
+
+各節練習的答案收在這裡。 短題只給能一句話核對的結果。
+
+\paragraph{第~\ref{sec:loop-for-basics}~節}
+\begin{enumerate}
+\item 一次都不會執行：條件 \texttt{0 < 0} 一開始就不成立。
+\item 不能，\texttt{i} 的作用域只到這一句 \texttt{for} 結束為止。
+\item \texttt{i < n} 跑 $n$ 次；\texttt{i <= n} 跑 $n + 1$ 次。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:loop-countdown}~節}
+\begin{enumerate}
+\item \texttt{i >= 0} 那個會多印一個；多印的是 $0$。
+\item 因為最後一個數字（$0$）後面不該有空白；\texttt{if (i > 0)} 讓
+只有非最後一個數字才補空白。
+\item 每個數字後面都會多印一個空白，行尾會多出一個空格。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:loop-while-basics}~節}
+\begin{enumerate}
+\item 跑三輪：$24 \to 12 \to 6 \to 3$，$3$ 是奇數時結束。
+\item 條件永遠成立（\texttt{n} 不會變），形成無窮迴圈。
+\item 開始。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:loop-for-while-equiv}~節}
+\begin{enumerate}
+\item 放在本體的最後面（先執行本體，再更新，才回頭測條件）。
+\item 都是 $0$ 次。
+\item $0$、$1$、$2$。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:loop-do-while}~節}
+\begin{enumerate}
+\item \texttt{do-while} 保證本體至少執行一次；\texttt{while} 若一開始
+條件就不成立，可能一次都不執行。
+\item 印出 \texttt{5}：因為本體在條件被檢查之前就先跑過一次。
+\item 一次：讀到正數後條件 \texttt{x <= 0} 不成立，迴圈立刻結束。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:loop-break-continue}~節}
+\begin{enumerate}
+\item \texttt{break} 整段離開迴圈；\texttt{continue} 只結束這一輪，
+接著跑下一輪。
+\item 印出 \texttt{-1}：$1$ 到 $5$ 裡沒有 $7$ 的倍數。
+\item 跳過的是 \texttt{-2}；\texttt{sum = 7 + 3 + 8 = 18}。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:loop-two-stage}~節}
+\begin{enumerate}
+\item 避免 $n$ 被印兩次——第一段已經印過 $n$ 了。
+\item $n$ 會被連續印兩次（一次在第一段結尾，一次在第二段開頭）。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:loop-nested-shapes}~節}
+\begin{enumerate}
+\item 外層通常控制「第幾列」，內層控制「這一列印幾次或印什麼」。
+\item 印 $i$ 次；第 $3$ 列印出 \texttt{333}。
+\item \texttt{number-triangle.c} 每列重複同一個數字；
+\texttt{repeated-pattern.c} 每列印遞增序列 $1$ 到 $i$。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:loop-mult-table}~節}
+\begin{enumerate}
+\item 把每個數字用固定寬度（$2$ 格）對齊輸出，讓欄位排整齊。
+\item $j = 0, 3$ 時 $(0+j) \% 3 == 0$ 成立，也就是第 $0$、$3$ 欄印
+\texttt{@}。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:loop-pyramid}~節}
+\begin{enumerate}
+\item 先印 $n - i$ 個底線，再印 $i$ 個數字。
+\item 第一段負責左邊的留白（底線），第二段負責這一列的內容（數字）。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:loop-input-validation}~節}
+\begin{enumerate}
+\item 因為一定要先讀一次才能判斷合不合法，\texttt{do-while} 保證本體
+至少執行一次。
+\item 跳過輸入裡殘留的空白字元（包含前一次讀取留下的換行）。
+\item 三次；最後印出 \texttt{85}。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:loop-sentinel}~節}
+\begin{enumerate}
+\item 一個約定好、代表「資料結束了」的特殊輸入值。
+\item \texttt{-1} 那版不把哨兵本身計入結果；\texttt{0} 那版連最後讀到
+的 $0$ 都一起加進總和。
+\item 依序印出 \texttt{AGAIN}、\texttt{AGAIN}、\texttt{BYE}。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:loop-multi-case}~節}
+\begin{enumerate}
+\item 外層用 \texttt{for (int i = 0; i < n; i++)} 包住處理每一組資料
+的邏輯。
+\item \texttt{case-prefix.c} 多印了 \texttt{Case k:} 這個前綴。
+\item \texttt{while (scanf(...) != EOF)}。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:loop-range-sum}~節}
+\begin{enumerate}
+\item 先把 $a$、$b$ 交換，確保 $a \le b$ 再累加。
+\item 避免算式開頭多印一個 \texttt{+} 號。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:loop-accum-variants}~節}
+\begin{enumerate}
+\item $20$（$5$ 的倍數裡不小於 $17$ 的最小值）。
+\item 先用 \texttt{while} 迴圈算出 \texttt{gcd}，再用
+\texttt{a / gcd * b}。
+\item 避免 \texttt{a * b} 在中間步驟就超過型別能表示的範圍（先除可以
+讓中間值小一點）。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:loop-digits}~節}
+\begin{enumerate}
+\item \texttt{\% 10} 取出個位，\texttt{/= 10} 把個位剝掉。
+\item 把新讀到的個位「接」到 \texttt{rev} 的末尾，達成反轉的效果。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:loop-product}~節}
+\begin{enumerate}
+\item 因為排列數的乘積很快就會超過 \texttt{int} 能表示的範圍。
+\item 同時更新族群數量 \texttt{pop}（乘以 $3$）與天數 \texttt{days}
+（加 $1$）。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:loop-gcd-prime}~節}
+\begin{enumerate}
+\item \texttt{a}：迴圈結束時 \texttt{a} 就是最大公因數。
+\item 因為若 $n = a \times b$ 且 $a \le b$，則必有 $a \le \sqrt{n}$，
+超過 $\sqrt{n}$ 不會再找到新的因數。
+\item 避免 \texttt{d * d} 在 \texttt{d} 很大時，用 \texttt{int} 運算會
+先溢位。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:loop-collatz}~節}
+\begin{enumerate}
+\item 偶數除以 $2$；奇數變成 $3n + 1$。
+\item \texttt{collatz-length.c} 只印最終的步數；\texttt{collatz-sequence.c}
+把過程中每一步的值都印出來。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:loop-divisor-classify}~節}
+\begin{enumerate}
+\item 真因數和 \texttt{sum} 剛好等於 $n$ 本身時就是完數。
+\item 三個計數器 \texttt{c0}、\texttt{c1}、\texttt{c2}，分別對應除以
+$3$ 餘 $0$、$1$、$2$ 的情況。
+\item 游程編碼（run-length encoding）：把連續相同（這裡是同號）的一
+段資料記成「值＋長度」。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:loop-day-of-week}~節}
+\begin{enumerate}
+\item 能被 $400$ 整除；或者能被 $4$ 整除但不能被 $100$ 整除。
+\item 因為閏年二月是 $29$ 天、平年是 $28$ 天，要先判斷完閏年才知道
+\texttt{days[2]} 該填哪個值。
+\end{enumerate}
+
+\paragraph{第~\ref{sec:loop-advanced-sim}~節}
+\begin{enumerate}
+\item 描述系統現狀、外層 \texttt{while} 控制模擬要不要繼續、內層
+\texttt{for} 處理每個物件各走一步、每步後檢查終止條件。
+\item 通常代表需要外層 \texttt{while}（因為要「重複調整直到穩定」，
+次數不是事先就知道的）。
+\end{enumerate}

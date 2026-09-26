@@ -1,0 +1,294 @@
+\chapter{不想教的東西}
+
+本章討論應該避免的 C 語言特性和實踐。 瞭解這些反面教材，有助於寫出更好、更安全的程式。
+
+\section{goto 的問題}
+
+\texttt{goto} 無條件跳轉到標籤。 雖然在某些特殊情況下有用，但容易導致 spaghetti code。
+
+\subsection*{goto 導致的混亂}
+
+\begin{code}{c}{goto spaghetti code}
+// WRONG: hard to follow
+int process(int n) {
+    int result = 0;
+    if (n < 0) goto error;
+    if (n == 0) goto done;
+
+    result = n * 2;
+    if (result > 100) goto large;
+
+    printf("Small: %d\n", result);
+    goto done;
+
+large:
+    printf("Large: %d\n", result);
+    goto done;
+
+error:
+    printf("Error\n");
+
+done:
+    return result;
+}
+\end{code}
+
+\subsection*{改用結構化控制流}
+
+\begin{code}{c}{structured control flow}
+// BETTER: clear flow
+int process(int n) {
+    if (n < 0) {
+        printf("Error\n");
+        return -1;
+    }
+
+    if (n == 0) {
+        return 0;
+    }
+
+    int result = n * 2;
+
+    if (result > 100) {
+        printf("Large: %d\n", result);
+    } else {
+        printf("Small: %d\n", result);
+    }
+
+    return result;
+}
+\end{code}
+
+\subsection*{goto 的稀有用途}
+
+在某些情況下 \texttt{goto} 能簡化代碼，如錯誤處理清理。
+
+\begin{code}{c}{goto for cleanup}
+#include <stdio.h>
+#include <stdlib.h>
+
+int process_file(const char *filename) {
+    FILE *f = NULL;
+    int *data = NULL;
+    int result = 0;
+
+    f = fopen(filename, "r");
+    if (!f) goto error;
+
+    data = (int*)malloc(1000 * sizeof(int));
+    if (!data) goto error;
+
+    // Process file...
+    result = 1;
+
+    goto cleanup;
+
+error:
+    result = -1;
+
+cleanup:
+    if (data) free(data);
+    if (f) fclose(f);
+    return result;
+}
+\end{code}
+
+\keypoint{\texttt{goto} 通常應避免。 只在錯誤清理時考慮使用。}
+
+\section{全域變數的陷阱}
+
+全域變數導致隱藏的依賴性、難以除錯、併發問題。
+
+\subsection*{隱藏的依賴}
+
+\begin{code}{c}{global state problem}
+// WRONG: implicit dependency
+int counter = 0;
+
+void increment() {
+    counter++;
+}
+
+int get_value() {
+    return counter * 2;
+}
+
+int main() {
+    increment();
+    printf("%d\n", get_value());  // depends on counter
+    // Hard to trace where counter is modified
+    return 0;
+}
+\end{code}
+
+\subsection*{參數傳遞的清晰性}
+
+\begin{code}{c}{explicit parameters}
+// BETTER: clear dependencies
+int increment(int counter) {
+    return counter + 1;
+}
+
+int get_value(int counter) {
+    return counter * 2;
+}
+
+int main() {
+    int counter = 0;
+    counter = increment(counter);
+    printf("%d\n", get_value(counter));
+    return 0;
+}
+\end{code}
+
+\subsection*{何時用 static 而非全域}
+
+\begin{code}{c}{static for encapsulation}
+// Module-level counter (file scope)
+static int local_counter = 0;
+
+void increment() {
+    local_counter++;
+}
+
+int get_counter() {
+    return local_counter;
+}
+
+// Outside this file cannot access local_counter directly
+\end{code}
+
+\subsection*{併發問題}
+
+\begin{code}{c}{race condition}
+// DANGER: race condition in multi-threaded code
+int shared_count = 0;
+
+void worker_a() {
+    for (int i = 0; i < 1000; i++) {
+        shared_count++;  // not atomic
+    }
+}
+
+void worker_b() {
+    for (int i = 0; i < 1000; i++) {
+        shared_count++;  // race condition
+    }
+}
+
+// Result: shared_count might be < 2000
+// Use mutex or atomic operations in multi-threaded code
+\end{code}
+
+\keypoint{全域變數導致難以追蹤的依賴。 優先用參數傳遞。}
+
+\section{過度最佳化}
+
+過早最佳化是萬惡之源。 正確性和可讀性優先。
+
+\subsection*{不必要的複雜性}
+
+\begin{code}{c}{over optimization}
+// WRONG: overcomplicated
+int fibonacci_bad(int n) {
+    return n <= 1 ? n :
+           ((n & 1) ? 
+            ((1 << (n-1)) * fibonacci_bad(n-1) >> 1) :
+            fibonacci_bad(n >> 1) * (2*fibonacci_bad(n>>1)+1));
+    // Hard to read, hard to maintain, not necessarily faster
+}
+
+// BETTER: clear and correct
+int fibonacci(int n) {
+    if (n <= 1) return n;
+    int a = 0, b = 1;
+    for (int i = 2; i <= n; i++) {
+        int temp = a + b;
+        a = b;
+        b = temp;
+    }
+    return b;
+}
+\end{code}
+
+\subsection*{正確的最佳化流程}
+
+\begin{code}{text}{optimization process}
+1. Write clear, correct code first
+2. Test thoroughly
+3. Measure performance (profiling)
+4. Identify bottlenecks
+5. Optimize only the hot spots
+6. Test again to ensure correctness
+7. Measure improvement
+\end{code}
+
+\subsection*{效能測量}
+
+\begin{code}{c}{performance measurement}
+#include <stdio.h>
+#include <time.h>
+
+void measure_function(int iterations) {
+    clock_t start = clock();
+
+    for (int i = 0; i < iterations; i++) {
+        fibonacci(30);  // or other function
+    }
+
+    clock_t end = clock();
+    double elapsed = (double)(end - start) / CLOCKS_PER_SEC;
+    printf("Time: %.3f seconds\n", elapsed);
+}
+
+int main() {
+    measure_function(100);
+    return 0;
+}
+\end{code}
+
+\subsection*{權衡點}
+
+\begin{code}{c}{performance tradeoffs}
+// Fast but hard to read
+int optimized_version(int x) {
+    return (x * 3) >> 1;  // multiply by 1.5
+}
+
+// Slower but clear
+int readable_version(int x) {
+    return (x * 3) / 2;
+}
+
+// If this function is called rarely, use readable version
+// Only optimize if profiler shows it's a bottleneck
+\end{code}
+
+\keypoint{最佳化時應基於測量。 可讀性優先，除非效能是關鍵。}
+
+\section{總結：好的實踐}
+
+\subsection*{應該做的事}
+
+\begin{itemize}
+\item 寫清晰、可讀的代碼
+\item 使用函式和參數傳遞而不是全域變數
+\item 檢查所有返回值和指標
+\item 遵循命名約定
+\item 編寫單元測試
+\item 使用版本控制
+\item 為複雜邏輯編寫文件
+\end{itemize}
+
+\subsection*{應該避免的事}
+
+\begin{itemize}
+\item 不要用 \texttt{goto}（除非必要）
+\item 不要過度使用全域變數
+\item 不要過早最佳化
+\item 不要忽視記憶體管理
+\item 不要假設編譯器會修復邏輯錯誤
+\item 不要在不測量的情況下宣稱效能改進
+\end{itemize}
+
+\keypoint{好的程式是平衡的。 正確性、可讀性、效能都重要，但優先順序應合理。}

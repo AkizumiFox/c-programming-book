@@ -1,0 +1,75 @@
+\documentclass[12pt]{report}
+
+% ---------------------------------------------------------------
+% 字型與中文排版
+% ---------------------------------------------------------------
+\usepackage{fontspec}
+\usepackage{xeCJK}
+\setmainfont{Times New Roman}
+\setCJKmainfont{Songti TC}
+\setCJKsansfont{PingFang TC}
+% 等寬字改用 Latin Modern Mono，跟 exp2 參考檔案的排版字體一致
+% （它不是系統字型，只存在 TeXLive 樹裡，所以要用 Path 明確指定檔案位置）。
+\setmonofont{lmmono10-regular}[
+    Path = /usr/local/texlive/2024/texmf-dist/fonts/opentype/public/lm/,
+    Extension = .otf,
+    AutoFakeBold = 2.5,
+]
+
+% ---------------------------------------------------------------
+% 本書排版套件（packages/ 目錄）
+% ---------------------------------------------------------------
+\usepackage{sleek}
+\usepackage{sleek-theorems}
+\usepackage{sleek-code}
+\usepackage{sleek-diagrams}
+% 注意：sleek-listings.sty 不載入——它是舊版 lstlistings/inconsolata 排版套件，
+% 本書實際用的是 sleek-code.sty 的 minted 版 code/example 環境，兩者同時載入會讓
+% minted 抓不到 \setmonofont 設定的等寬字（回退成 Latin Modern Roman），
+% 且會讓程式碼裡的直引號被轉成全形彎引號。
+
+% 章節標題中文化：「第 N 章」
+\usepackage{titlesec}
+\titleformat{\chapter}{\normalfont\huge\bfseries}{第~\thechapter~章}{1em}{}
+\titlespacing*{\chapter}{0pt}{-20pt}{20pt}
+
+\title{C 程式設計基礎}
+\author{}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\romantableofcontents
+
+% ---------------------------------------------------------------
+% 各章節內容：每個單元的敘述式教材放在對應的
+% "chapters/<單元>/chapter.tex"，
+% 與該單元的題目（範例練習）放在同一個資料夾方便對照維護。
+% 題目本身不在正文中逐題引用——沿用原書「教材與習題分開」的慣例。
+% ---------------------------------------------------------------
+
+\input{chapters/01_Introduction/chapter}
+\input{chapters/02_BasicProgramStructure/chapter}
+\input{chapters/03_Arithmetic/chapter}
+\input{chapters/04_Conditionals/chapter}
+\input{chapters/05_Loop/chapter}
+\input{chapters/06_Array/chapter}
+\input{chapters/07_FloatingPointNumbers/chapter}
+\input{chapters/08_Function/chapter}
+\input{chapters/09_Pointer/chapter}
+\input{chapters/10_Character/chapter}
+\input{chapters/11_String/chapter}
+\input{chapters/12_BitOperations/chapter}
+\input{chapters/13_DeclarationModifiers/chapter}
+\input{chapters/14_Structure/chapter}
+\input{chapters/15_Recursion/chapter}
+\input{chapters/16_FileIO/chapter}
+\input{chapters/17_Preprocessing/chapter}
+\input{chapters/18_StandardLibrary/chapter}
+\input{chapters/19_DataStructure/chapter}
+\input{chapters/20_Objects/chapter}
+\input{chapters/21_ExtendedTechniques/chapter}
+\input{chapters/22_References/chapter}
+
+\end{document}
