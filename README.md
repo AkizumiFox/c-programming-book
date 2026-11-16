@@ -1,4 +1,4 @@
-# Introduction to Programming using C（繁體中文 C 語言教科書）
+# C 程式設計基礎（Introduction to Programming using C）
 
 作者：林子祐（國立臺灣大學資訊工程學系）
 
