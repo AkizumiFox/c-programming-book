@@ -6,6 +6,7 @@
 
 - 完整 PDF：[`output/book.pdf`](output/book.pdf)
 - 原始碼：`src/`（XeLaTeX，`make book` 重新編譯）
+- 網頁版：[annotated.codes/learn/c](https://annotated.codes/learn/c)（一節一頁，手機也好讀）
 
 ## 章節
 
